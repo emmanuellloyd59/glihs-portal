@@ -11,27 +11,27 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'glihs-super-secret-key-
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# --- FIXED USER CLASS WITH PROTOCOLS ---
+# --- SAFE USER CLASS (INHERITING USERMIXIN) ---
 class User(UserMixin):
     def __init__(self, id, username, password, role):
-        self.id = id
+        self.id = str(id)  # Flask-Login expects string IDs
         self.username = username
         self.password = password
         self.role = role
 
-# Static user dictionary for testing
+    def get_id(self):
+        return self.id
+
+# Static user dictionary matching string keys to prevent value parsing crashes
 USERS = {
-    1: User(1, "teacher1", generate_password_hash("password123"), "teacher"),
-    2: User(2, "student1", generate_password_hash("password123"), "student")
+    "1": User(1, "teacher1", generate_password_hash("password123"), "teacher"),
+    "2": User(2, "student1", generate_password_hash("password123"), "student")
 }
 
-# FIXED: Standard Flask-Login loader mapping function
 @login_manager.user_loader
 def load_user(user_id):
-    try:
-        return USERS.get(int(user_id))
-    except (ValueError, TypeError):
-        return None
+    # Safely fetches user by string ID without triggering internal attribute checks
+    return USERS.get(str(user_id))
 
 # --- WEB ROUTES ---
 @app.route('/')
@@ -69,3 +69,4 @@ def logout():
 
 if __name__ == '__main__':
     app.run(port=5000)
+
