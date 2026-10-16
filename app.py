@@ -11,7 +11,7 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'glihs-super-secret-key-
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# --- CLEAN PROTOCOL USER SCHEMAS ---
+# --- FIXED USER CLASS WITH PROTOCOLS ---
 class User(UserMixin):
     def __init__(self, id, username, password, role):
         self.id = id
@@ -19,16 +19,19 @@ class User(UserMixin):
         self.password = password
         self.role = role
 
-# We securely create our GLIHS access profiles directly inside the script memory 
-# This completely bypasses the SQLite internal database crash error!
+# Static user dictionary for testing
 USERS = {
     1: User(1, "teacher1", generate_password_hash("password123"), "teacher"),
     2: User(2, "student1", generate_password_hash("password123"), "student")
 }
 
+# FIXED: Standard Flask-Login loader mapping function
 @login_manager.user_loader
 def load_user(user_id):
-    return USERS.get(int(user_id))
+    try:
+        return USERS.get(int(user_id))
+    except (ValueError, TypeError):
+        return None
 
 # --- WEB ROUTES ---
 @app.route('/')
@@ -37,11 +40,13 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+        
     if request.method == 'POST':
         username_input = request.form.get('username')
         password_input = request.form.get('password')
         
-        # Check through our account records safely
         user = next((u for u in USERS.values() if u.username == username_input), None)
         
         if user and check_password_hash(user.password, password_input):
@@ -64,6 +69,3 @@ def logout():
 
 if __name__ == '__main__':
     app.run(port=5000)
-
-
-
