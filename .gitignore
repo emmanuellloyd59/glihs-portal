@@ -1,0 +1,15 @@
+# Private database and instance files
+instance/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+
+# Environment and secret files
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+.venv/
+venv/

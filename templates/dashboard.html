@@ -1,22 +1,201 @@
+
 {% extends "base.html" %}
+
 {% block content %}
-<div class="card p-5 shadow-sm bg-white">
-    <h2>GLIHS Dashboard Hub</h2>
-    <p class="text-muted">Logged in as: <strong>{{ name }}</strong> (<span class="badge bg-secondary">{{ role.capitalize() }}</span>)</p>
-    <hr>
+<div class="container-fluid py-4">
+
+    <!-- Welcome section -->
+    <div class="p-4 p-md-5 mb-4 rounded-4 text-white"
+         style="background: linear-gradient(135deg, #172554, #2563eb);">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <div>
+                <p class="text-uppercase small mb-2">GLIHS School Portal</p>
+                <h1 class="fw-bold mb-2">Welcome, {{ name }}!</h1>
+                <p class="mb-0">
+                    Your school information and learning tools in one place.
+                </p>
+            </div>
+            <div class="text-md-end">
+                <span class="badge rounded-pill bg-light text-dark px-3 py-2">
+                    {{ role.capitalize() }} Account
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard heading -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
+        <div>
+            <h2 class="h4 fw-bold mb-1">Dashboard Overview</h2>
+            <p class="text-muted mb-0">
+                Access the tools available for your account.
+            </p>
+        </div>
+        <span class="badge bg-success-subtle text-success border px-3 py-2">
+            Account Active
+        </span>
+    </div>
+
+    <!-- Role-specific dashboard -->
     {% if role == 'teacher' %}
-        <h4>Teacher Toolkit</h4>
-        <ul class="list-group mb-3">
-            <li class="list-group-item">📝 Enter Class Grades</li>
-            <li class="list-group-item">📅 Publish Homework Assignments</li>
-        </ul>
+
+    <div class="row g-4 mb-4">
+
+        <div class="col-12 col-md-6">
+            <div class="card h-100 border-0 shadow-sm rounded-4">
+                <div class="card-body p-4">
+                    <div class="fs-2 mb-3">📝</div>
+                    <h3 class="h5 fw-bold">Class Grades</h3>
+                    <p class="text-muted">
+                        Prepare to manage academic grades and student performance.
+                    </p>
+                    <span class="badge bg-secondary">Coming Soon</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-md-6">
+            <div class="card h-100 border-0 shadow-sm rounded-4">
+                <div class="card-body p-4">
+                    <div class="fs-2 mb-3">📅</div>
+                    <h3 class="h5 fw-bold">Homework Assignments</h3>
+                    <p class="text-muted">
+                        Prepare and organize assignments for your classes.
+                    </p>
+                    <span class="badge bg-secondary">Coming Soon</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-md-6">
+            <div class="card h-100 border-0 shadow-sm rounded-4">
+                <div class="card-body p-4">
+                    <div class="fs-2 mb-3">👩‍🎓</div>
+                    <h3 class="h5 fw-bold">Student Records</h3>
+                    <p class="text-muted">
+                        A future workspace for authorized student information.
+                    </p>
+                    <span class="badge bg-secondary">Coming Soon</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-md-6">
+            <div class="card h-100 border-0 shadow-sm rounded-4">
+                <div class="card-body p-4">
+                    <div class="fs-2 mb-3">📋</div>
+                    <h3 class="h5 fw-bold">Attendance</h3>
+                    <p class="text-muted">
+                        Prepare to record and review class attendance.
+                    </p>
+
+        <a href="{{ url_for('list_students') }}"
+                 class="btn btn-primary mt-2">
+                  View Student Records
+       </a>
+
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    {% elif role == 'student' %}
+
+    <div class="row g-4 mb-4">
+
+        <div class="col-12 col-md-6">
+            <div class="card h-100 border-0 shadow-sm rounded-4">
+                <div class="card-body p-4">
+                    <div class="fs-2 mb-3">📊</div>
+                    <h3 class="h5 fw-bold">Academic Results</h3>
+                    <p class="text-muted">
+                        Your future workspace for viewing term results and reports.
+                    </p>
+                    <span class="badge bg-secondary">Coming Soon</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-md-6">
+            <div class="card h-100 border-0 shadow-sm rounded-4">
+                <div class="card-body p-4">
+                    <div class="fs-2 mb-3">📚</div>
+                    <h3 class="h5 fw-bold">Learning Materials</h3>
+                    <p class="text-muted">
+                        A future location for authorized course materials and syllabuses.
+                    </p>
+                    <span class="badge bg-secondary">Coming Soon</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-md-6">
+            <div class="card h-100 border-0 shadow-sm rounded-4">
+                <div class="card-body p-4">
+                    <div class="fs-2 mb-3">🗓️</div>
+                    <h3 class="h5 fw-bold">Class Schedule</h3>
+                    <p class="text-muted">
+                        A future view of classes and school activities.
+                    </p>
+                    <span class="badge bg-secondary">Coming Soon</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-md-6">
+            <div class="card h-100 border-0 shadow-sm rounded-4">
+                <div class="card-body p-4">
+                    <div class="fs-2 mb-3">📌</div>
+                    <h3 class="h5 fw-bold">School Announcements</h3>
+                    <p class="text-muted">
+                        A future space for important school notices.
+                    </p>
+                    <span class="badge bg-secondary">Coming Soon</span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
     {% else %}
-        <h4>Student Courseware</h4>
-        <ul class="list-group mb-3">
-            <li class="list-group-item">📊 View Term Report Cards</li>
-            <li class="list-group-item">📚 Download Syllabus Packets</li>
-        </ul>
+
+    <div class="alert alert-info rounded-4">
+        Your account is signed in, but no specialized dashboard has been
+        configured for the role "{{ role }}".
+    </div>
+
     {% endif %}
-    <a href="/logout" class="btn btn-outline-danger mt-3 btn-sm" style="max-width: 150px;">Sign Out</a>
+
+    <!-- Account information -->
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-body p-4">
+            <h3 class="h5 fw-bold mb-3">Account Information</h3>
+            <div class="row g-3">
+                <div class="col-12 col-md-6">
+                    <div class="p-3 bg-light rounded-3">
+                        <div class="text-muted small">Username</div>
+                        <div class="fw-semibold">{{ name }}</div>
+                    </div>
+                </div>
+                <div class="col-12 col-md-6">
+                    <div class="p-3 bg-light rounded-3">
+                        <div class="text-muted small">Account Role</div>
+                        <div class="fw-semibold">{{ role.capitalize() }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sign out -->
+    <div class="d-flex justify-content-end">
+        <form action="{{ url_for('logout') }}" method="POST">
+            <button type="submit" class="btn btn-outline-danger px-4">
+                Sign Out
+            </button>
+        </form>
+    </div>
+
 </div>
 {% endblock %}

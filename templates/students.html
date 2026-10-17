@@ -1,0 +1,106 @@
+
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+        <div>
+            <h1 class="h3 fw-bold mb-1">Student Records</h1>
+            <p class="text-muted mb-0">
+                View registered students in the GLIHS School Portal.
+            </p>
+        </div>
+
+        <a href="{{ url_for('register_student') }}"
+           class="btn btn-primary">
+            + Register Student
+        </a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show">
+                {{ message }}
+                <button type="button" class="btn-close"
+                        data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        {% endfor %}
+    {% endwith %}
+
+    <div class="card border-0 shadow-sm rounded-4">
+        <div class="card-body p-0">
+
+            <div class="p-4 border-bottom">
+                <h2 class="h5 fw-bold mb-1">Registered Students</h2>
+                <p class="text-muted small mb-0">
+                    Total records: {{ students|length }}
+                </p>
+            </div>
+
+            {% if students %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="px-3">Admission No.</th>
+                            <th>Full Name</th>
+                            <th>Class / Grade</th>
+                            <th>Date of Birth</th>
+                            <th>Guardian</th>
+                            <th>Guardian Phone</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        {% for student in students %}
+                        <tr>
+                            <td class="px-3 fw-semibold">
+                                {{ student['admission_number'] }}
+                            </td>
+                            <td>{{ student['full_name'] }}</td>
+                            <td>{{ student['class_level'] }}</td>
+                            <td>{{ student['date_of_birth'] or '—' }}</td>
+                            <td>{{ student['guardian_name'] or '—' }}</td>
+                            <td>{{ student['guardian_phone'] or '—' }}</td>
+                            <td>
+                                {% if student['status'] == 'active' %}
+                                    <span class="badge bg-success">Active</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">
+                                        {{ student['status']|capitalize }}
+                                    </span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-5 px-3">
+                <div class="display-5 mb-3">🎓</div>
+                <h3 class="h5 fw-bold">No Students Registered Yet</h3>
+                <p class="text-muted">
+                    Register your first student to begin building the records.
+                </p>
+                <a href="{{ url_for('register_student') }}"
+                   class="btn btn-primary">
+                    Register First Student
+                </a>
+            </div>
+            {% endif %}
+
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <a href="{{ url_for('dashboard') }}"
+           class="btn btn-outline-secondary">
+            Back to Dashboard
+        </a>
+    </div>
+
+</div>
+{% endblock %}
