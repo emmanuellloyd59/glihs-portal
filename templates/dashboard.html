@@ -191,6 +191,7 @@
     <!-- Sign out -->
     <div class="d-flex justify-content-end">
         <form action="{{ url_for('logout') }}" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-outline-danger px-4">
                 Sign Out
             </button>

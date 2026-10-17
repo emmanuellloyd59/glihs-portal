@@ -10,6 +10,7 @@ from flask import (
     url_for,
     request,
     flash,
+  
 )
 from flask_login import (
     LoginManager,
@@ -20,6 +21,7 @@ from flask_login import (
     current_user,
 )
 from werkzeug.security import check_password_hash
+from flask_wtf.csrf import CSRFProtect
 
 
 # --------------------------------------------------
@@ -41,7 +43,11 @@ if not app.config["SECRET_KEY"]:
         "SECRET_KEY is missing. Configure it in your "
         "Codespaces environment secrets and restart the app."
     )
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
+csrf = CSRFProtect(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
@@ -201,7 +207,7 @@ def dashboard():
 # 9. LOGOUT
 # --------------------------------------------------
 
-@app.route("/logout", methods=["GET", "POST"])
+@app.route("/logout", methods=["POST"])
 @login_required
 def logout():
     logout_user()

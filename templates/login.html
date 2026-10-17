@@ -11,6 +11,7 @@
             {% endif %}
         {% endwith %}
         <form method="POST" class="card p-4 shadow-sm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="mb-3">
                 <label class="form-label">Username</label>
                 <input type="text" name="username" class="form-control" required autocomplete="off">
