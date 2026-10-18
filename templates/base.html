@@ -69,6 +69,19 @@
     </nav>
 
     <main class="container page-shell py-4 py-md-5">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <section class="mb-4" aria-label="Notifications" aria-live="polite">
+                    {% for category, message in messages %}
+                        {% set alert_class = 'success' if category == 'success' else ('danger' if category in ['danger', 'error'] else 'info') %}
+                        <div class="alert alert-{{ alert_class }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss notification"></button>
+                        </div>
+                    {% endfor %}
+                </section>
+            {% endif %}
+        {% endwith %}
         {% block content %}{% endblock %}
     </main>
 
