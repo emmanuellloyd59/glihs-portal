@@ -1,202 +1,72 @@
-
 {% extends "base.html" %}
-
+{% block title %}Dashboard | CMHS Digital Campus{% endblock %}
 {% block content %}
-<div class="container-fluid py-4">
-
-    <!-- Welcome section -->
-    <div class="p-4 p-md-5 mb-4 rounded-4 text-white"
-         style="background: linear-gradient(135deg, #172554, #2563eb);">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
-            <div>
-                <p class="text-uppercase small mb-2">CMHS Digital Campus</p>
-                <h1 class="fw-bold mb-2">Welcome, {{ name }}!</h1>
-                <p class="mb-0">
-                    Your school information and learning tools in one place.
-                </p>
-            </div>
-            <div class="text-md-end">
-                <span class="badge rounded-pill bg-light text-dark px-3 py-2">
-                    {{ role.capitalize() }} Account
-                </span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Dashboard heading -->
-    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
+<section class="rounded-4 text-white p-4 p-md-5 mb-4" style="background:linear-gradient(120deg,#102a43,#164e78 65%,#1769aa);">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
         <div>
-            <h2 class="h4 fw-bold mb-1">Dashboard Overview</h2>
-            <p class="text-muted mb-0">
-                Access the tools available for your account.
-            </p>
+            <p class="eyebrow mb-2" style="color:#8ce7df;">CMHS DIGITAL CAMPUS</p>
+            <h1 class="display-6 fw-bold mb-2">Welcome, {{ name }}!</h1>
+            <p class="mb-0" style="color:#e1edf7;">Your school workspace, all in one place.</p>
         </div>
-        <span class="badge bg-success-subtle text-success border px-3 py-2">
-            Account Active
-        </span>
-    </div>
-
-    <!-- Role-specific dashboard -->
-    {% if role == 'teacher' %}
-
-    <div class="row g-4 mb-4">
-
-        <div class="col-12 col-md-6">
-            <div class="card h-100 border-0 shadow-sm rounded-4">
-                <div class="card-body p-4">
-                    <div class="fs-2 mb-3">📝</div>
-                    <h3 class="h5 fw-bold">Class Grades</h3>
-                    <p class="text-muted">
-                        Prepare to manage academic grades and student performance.
-                    </p>
-                    <span class="badge bg-secondary">Coming Soon</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-12 col-md-6">
-            <div class="card h-100 border-0 shadow-sm rounded-4">
-                <div class="card-body p-4">
-                    <div class="fs-2 mb-3">📅</div>
-                    <h3 class="h5 fw-bold">Homework Assignments</h3>
-                    <p class="text-muted">
-                        Prepare and organize assignments for your classes.
-                    </p>
-                    <span class="badge bg-secondary">Coming Soon</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-12 col-md-6">
-            <div class="card h-100 border-0 shadow-sm rounded-4">
-                <div class="card-body p-4">
-                    <div class="fs-2 mb-3">👩‍🎓</div>
-                    <h3 class="h5 fw-bold">Student Records</h3>
-                    <p class="text-muted">
-                        A future workspace for authorized student information.
-                    </p>
-                    <span class="badge bg-secondary">Coming Soon</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-12 col-md-6">
-            <div class="card h-100 border-0 shadow-sm rounded-4">
-                <div class="card-body p-4">
-                    <div class="fs-2 mb-3">📋</div>
-                    <h3 class="h5 fw-bold">Attendance</h3>
-                    <p class="text-muted">
-                        Prepare to record and review class attendance.
-                    </p>
-
-        <a href="{{ url_for('list_students') }}"
-                 class="btn btn-primary mt-2">
-                  View Student Records
-       </a>
-
-                </div>
-            </div>
-        </div>
-
-    </div>
-
-    {% elif role == 'student' %}
-
-    <div class="row g-4 mb-4">
-
-        <div class="col-12 col-md-6">
-            <div class="card h-100 border-0 shadow-sm rounded-4">
-                <div class="card-body p-4">
-                    <div class="fs-2 mb-3">📊</div>
-                    <h3 class="h5 fw-bold">Academic Results</h3>
-                    <p class="text-muted">
-                        Your future workspace for viewing term results and reports.
-                    </p>
-                    <span class="badge bg-secondary">Coming Soon</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-12 col-md-6">
-            <div class="card h-100 border-0 shadow-sm rounded-4">
-                <div class="card-body p-4">
-                    <div class="fs-2 mb-3">📚</div>
-                    <h3 class="h5 fw-bold">Learning Materials</h3>
-                    <p class="text-muted">
-                        A future location for authorized course materials and syllabuses.
-                    </p>
-                    <span class="badge bg-secondary">Coming Soon</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-12 col-md-6">
-            <div class="card h-100 border-0 shadow-sm rounded-4">
-                <div class="card-body p-4">
-                    <div class="fs-2 mb-3">🗓️</div>
-                    <h3 class="h5 fw-bold">Class Schedule</h3>
-                    <p class="text-muted">
-                        A future view of classes and school activities.
-                    </p>
-                    <span class="badge bg-secondary">Coming Soon</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-12 col-md-6">
-            <div class="card h-100 border-0 shadow-sm rounded-4">
-                <div class="card-body p-4">
-                    <div class="fs-2 mb-3">📌</div>
-                    <h3 class="h5 fw-bold">School Announcements</h3>
-                    <p class="text-muted">
-                        A future space for important school notices.
-                    </p>
-                    <span class="badge bg-secondary">Coming Soon</span>
-                </div>
-            </div>
-        </div>
-
-    </div>
-
-    {% else %}
-
-    <div class="alert alert-info rounded-4">
-        Your account is signed in, but no specialized dashboard has been
-        configured for the role "{{ role }}".
-    </div>
-
-    {% endif %}
-
-    <!-- Account information -->
-    <div class="card border-0 shadow-sm rounded-4 mb-4">
-        <div class="card-body p-4">
-            <h3 class="h5 fw-bold mb-3">Account Information</h3>
-            <div class="row g-3">
-                <div class="col-12 col-md-6">
-                    <div class="p-3 bg-light rounded-3">
-                        <div class="text-muted small">Username</div>
-                        <div class="fw-semibold">{{ name }}</div>
-                    </div>
-                </div>
-                <div class="col-12 col-md-6">
-                    <div class="p-3 bg-light rounded-3">
-                        <div class="text-muted small">Account Role</div>
-                        <div class="fw-semibold">{{ role.capitalize() }}</div>
-                    </div>
-                </div>
-            </div>
+        <div class="align-self-start align-self-md-center">
+            <span class="badge rounded-pill text-bg-light px-3 py-2">{{ role.capitalize() }} Account</span>
         </div>
     </div>
+</section>
 
-    <!-- Sign out -->
-    <div class="d-flex justify-content-end">
-        <form action="{{ url_for('logout') }}" method="POST">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-outline-danger px-4">
-                Sign Out
-            </button>
-        </form>
+<div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-end gap-2 mb-4">
+    <div><p class="eyebrow text-primary mb-1">Your workspace</p><h2 class="h3 fw-bold mb-1">Dashboard Overview</h2><p class="text-secondary mb-0">Choose a workspace to continue.</p></div>
+    <span class="badge rounded-pill border bg-white text-secondary px-3 py-2">Version 0.1 Demo</span>
+</div>
+
+{% if role == 'teacher' or role == 'admin' %}
+<div class="row g-3 mb-4">
+    <div class="col-12 col-md-6 col-lg-4">
+        <article class="surface-card h-100 p-4">
+            <div class="d-flex justify-content-between align-items-start mb-3"><span class="fs-2">👩‍🎓</span><span class="badge text-bg-success">Available</span></div>
+            <h3 class="h5 fw-bold">Student Records</h3>
+            <p class="text-secondary">Open the student records workspace to view registered demo records.</p>
+            <a href="{{ url_for('list_students') }}" class="btn btn-primary mt-auto">View Student Records <span aria-hidden="true">→</span></a>
+        </article>
     </div>
+    <div class="col-12 col-md-6 col-lg-4">
+        <article class="surface-card h-100 p-4">
+            <div class="d-flex justify-content-between align-items-start mb-3"><span class="fs-2">📝</span><span class="badge text-bg-secondary">Coming Soon</span></div>
+            <h3 class="h5 fw-bold">Class Grades</h3>
+            <p class="text-secondary">A future workspace for entering grades and reviewing student performance.</p>
+        </article>
+    </div>
+    <div class="col-12 col-md-6 col-lg-4">
+        <article class="surface-card h-100 p-4">
+            <div class="d-flex justify-content-between align-items-start mb-3"><span class="fs-2">📅</span><span class="badge text-bg-secondary">Coming Soon</span></div>
+            <h3 class="h5 fw-bold">Attendance & Assignments</h3>
+            <p class="text-secondary">Attendance registers and homework publishing are planned for a later release.</p>
+        </article>
+    </div>
+</div>
+{% elif role == 'student' %}
+<div class="row g-3 mb-4">
+    <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4"><div class="fs-2 mb-3">📊</div><span class="badge text-bg-secondary mb-3">Coming Soon</span><h3 class="h5 fw-bold">Academic Results</h3><p class="text-secondary mb-0">A future workspace for viewing term results and report cards.</p></article></div>
+    <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4"><div class="fs-2 mb-3">📚</div><span class="badge text-bg-secondary mb-3">Coming Soon</span><h3 class="h5 fw-bold">Learning Materials</h3><p class="text-secondary mb-0">Course materials and syllabuses will be made available here.</p></article></div>
+    <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4"><div class="fs-2 mb-3">📣</div><span class="badge text-bg-secondary mb-3">Coming Soon</span><h3 class="h5 fw-bold">School Announcements</h3><p class="text-secondary mb-0">A future space for school notices, dates, and activities.</p></article></div>
+</div>
+{% else %}
+<div class="surface-card p-4 mb-4"><h2 class="h5 fw-bold">Administrator Workspace</h2><p class="text-secondary mb-0">Your account is signed in. Administrative tools will be added as the demo develops.</p></div>
+{% endif %}
 
+<section class="surface-card p-4 p-md-5 mb-4">
+    <div class="d-flex align-items-center gap-3 mb-4"><div class="rounded-3 p-3" style="background:#eaf3fb;">🪪</div><div><p class="eyebrow text-primary mb-1">Account details</p><h2 class="h5 fw-bold mb-0">Your Account Information</h2></div></div>
+    <div class="row g-3">
+        <div class="col-12 col-md-6"><div class="rounded-3 p-3 h-100" style="background:#f3f6fb;"><div class="small text-secondary mb-1">Username</div><div class="fw-bold">{{ name }}</div></div></div>
+        <div class="col-12 col-md-6"><div class="rounded-3 p-3 h-100" style="background:#f3f6fb;"><div class="small text-secondary mb-1">Account Role</div><div class="fw-bold">{{ role.capitalize() }}</div></div></div>
+    </div>
+</section>
+
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <p class="small text-secondary mb-0">Demo environment · Please use fictional student information only.</p>
+    <form action="{{ url_for('logout') }}" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-outline-danger px-4">Sign Out</button>
+    </form>
 </div>
 {% endblock %}
