@@ -1,27 +1,37 @@
 {% extends "base.html" %}
+{% block title %}Portal Login | CMHS Digital Campus{% endblock %}
 {% block content %}
-<div class="row justify-content-center mt-5">
-    <div class="col-md-4">
-        <h3 class="text-center mb-3 text-secondary">Portal Login</h3>
+<div class="row justify-content-center align-items-center py-2 py-md-4">
+    <div class="col-12 col-md-8 col-lg-5">
+        <div class="text-center mb-4">
+            <div class="mx-auto d-grid place-items-center rounded-4 mb-3" style="width:4.25rem;height:4.25rem;background:#102a43;color:#fff;font-size:1.7rem;font-weight:800;">C</div>
+            <p class="eyebrow text-primary mb-2">Welcome back</p>
+            <h1 class="h2 fw-bold mb-2">Portal Login</h1>
+            <p class="text-secondary mb-0">Sign in to access your CMHS Digital Campus workspace.</p>
+        </div>
         {% with messages = get_flashed_messages() %}
             {% if messages %}
                 {% for message in messages %}
-                    <div class="alert alert-danger p-2 text-center">{{ message }}</div>
+                    <div class="alert alert-warning rounded-3" role="alert">{{ message }}</div>
                 {% endfor %}
             {% endif %}
         {% endwith %}
-        <form method="POST" class="card p-4 shadow-sm">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="mb-3">
-                <label class="form-label">Username</label>
-                <input type="text" name="username" class="form-control" required autocomplete="off">
-            </div>
-            <div class="mb-3">
-                <label class="form-label">Password</label>
-                <input type="password" name="password" class="form-control" required>
-            </div>
-            <button type="submit" class="btn btn-success w-100">Sign In</button>
-        </form>
+        <div class="surface-card p-4 p-md-5">
+            <form method="POST" autocomplete="on">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="mb-3">
+                    <label for="username" class="form-label fw-semibold">Username</label>
+                    <input id="username" type="text" name="username" class="form-control" placeholder="Enter your username" required autocomplete="username" autocapitalize="none">
+                </div>
+                <div class="mb-4">
+                    <label for="password" class="form-label fw-semibold">Password</label>
+                    <input id="password" type="password" name="password" class="form-control" placeholder="Enter your password" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn-primary btn-lg w-100">Sign In <span aria-hidden="true">→</span></button>
+            </form>
+            <div class="border-top mt-4 pt-3 small text-secondary text-center">For demonstration use only. Do not enter a personal or reused password.</div>
+        </div>
+        <p class="text-center mt-3 small"><a class="link-secondary" href="{{ url_for('index') }}">← Return to home page</a></p>
     </div>
 </div>
 {% endblock %}
