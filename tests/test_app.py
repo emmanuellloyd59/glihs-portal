@@ -102,6 +102,32 @@ class CMHSPortalTests(unittest.TestCase):
         self.assertIn(b"Jordan Example", response.data)
         self.assertIn(b"studentSearch", response.data)
 
+    def test_initial_admin_environment_bootstraps_and_repairs_account(self):
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            ("render_admin", generate_password_hash("old-password"), "teacher"),
+        )
+        connection.commit()
+        connection.close()
+
+        from unittest.mock import patch
+        with patch.dict(
+            os.environ,
+            {
+                "INITIAL_ADMIN_USERNAME": "render_admin",
+                "INITIAL_ADMIN_PASSWORD": "new-demo-password",
+            },
+        ):
+            portal.initialize_database()
+
+        user = portal.get_user_by_username("render_admin")
+        self.assertIsNotNone(user)
+        self.assertEqual(user.role, "admin")
+        from werkzeug.security import check_password_hash
+        self.assertTrue(check_password_hash(user.password_hash, "new-demo-password"))
+        self.assertFalse(check_password_hash(user.password_hash, "old-password"))
+
     def test_duplicate_admission_number_is_rejected_gracefully(self):
         self.login_as("teacher_demo", "test-teacher-password")
         data = {
