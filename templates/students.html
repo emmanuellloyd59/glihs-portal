@@ -1,106 +1,112 @@
-
 {% extends "base.html" %}
-
+{% block title %}Student Records | CMHS Digital Campus{% endblock %}
 {% block content %}
-<div class="container-fluid py-4">
-
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
-        <div>
-            <h1 class="h3 fw-bold mb-1">Student Records</h1>
-            <p class="text-muted mb-0">
-                View registered students in the CMHS Digital Campus.
-            </p>
-        </div>
-
-        <a href="{{ url_for('register_student') }}"
-           class="btn btn-primary">
-            + Register Student
-        </a>
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-md-end gap-3 mb-4">
+    <div>
+        <p class="eyebrow text-primary mb-1">Staff workspace</p>
+        <h1 class="h2 fw-bold mb-1">Student Records</h1>
+        <p class="text-secondary mb-0">View and manage the student records entered for this demonstration.</p>
     </div>
-
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% for category, message in messages %}
-            <div class="alert alert-{{ category }} alert-dismissible fade show">
-                {{ message }}
-                <button type="button" class="btn-close"
-                        data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>
-        {% endfor %}
-    {% endwith %}
-
-    <div class="card border-0 shadow-sm rounded-4">
-        <div class="card-body p-0">
-
-            <div class="p-4 border-bottom">
-                <h2 class="h5 fw-bold mb-1">Registered Students</h2>
-                <p class="text-muted small mb-0">
-                    Total records: {{ students|length }}
-                </p>
-            </div>
-
-            {% if students %}
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th class="px-3">Admission No.</th>
-                            <th>Full Name</th>
-                            <th>Class / Grade</th>
-                            <th>Date of Birth</th>
-                            <th>Guardian</th>
-                            <th>Guardian Phone</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-
-                    <tbody>
-                        {% for student in students %}
-                        <tr>
-                            <td class="px-3 fw-semibold">
-                                {{ student['admission_number'] }}
-                            </td>
-                            <td>{{ student['full_name'] }}</td>
-                            <td>{{ student['class_level'] }}</td>
-                            <td>{{ student['date_of_birth'] or '—' }}</td>
-                            <td>{{ student['guardian_name'] or '—' }}</td>
-                            <td>{{ student['guardian_phone'] or '—' }}</td>
-                            <td>
-                                {% if student['status'] == 'active' %}
-                                    <span class="badge bg-success">Active</span>
-                                {% else %}
-                                    <span class="badge bg-secondary">
-                                        {{ student['status']|capitalize }}
-                                    </span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% else %}
-            <div class="text-center py-5 px-3">
-                <div class="display-5 mb-3">🎓</div>
-                <h3 class="h5 fw-bold">No Students Registered Yet</h3>
-                <p class="text-muted">
-                    Register your first student to begin building the records.
-                </p>
-                <a href="{{ url_for('register_student') }}"
-                   class="btn btn-primary">
-                    Register First Student
-                </a>
-            </div>
-            {% endif %}
-
-        </div>
-    </div>
-
-    <div class="mt-4">
-        <a href="{{ url_for('dashboard') }}"
-           class="btn btn-outline-secondary">
-            Back to Dashboard
-        </a>
-    </div>
-
+    <a href="{{ url_for('register_student') }}" class="btn btn-primary px-4">+ Register Student</a>
 </div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+        <div class="alert alert-{{ category }} alert-dismissible fade show rounded-3" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    {% endfor %}
+{% endwith %}
+
+<section class="surface-card overflow-hidden">
+    <div class="p-4 p-md-4 border-bottom">
+        <div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-center">
+            <div>
+                <h2 class="h5 fw-bold mb-1">Registered Students</h2>
+                <p class="small text-secondary mb-0">Records currently stored in this demo database.</p>
+            </div>
+            <div class="d-flex gap-2 align-items-center">
+                <span class="badge rounded-pill text-bg-light border text-dark px-3 py-2">{{ students|length }} record{% if students|length != 1 %}s{% endif %}</span>
+            </div>
+        </div>
+        {% if students %}
+        <div class="mt-3">
+            <label for="studentSearch" class="form-label small fw-semibold">Search records</label>
+            <input id="studentSearch" type="search" class="form-control" placeholder="Search by admission number, name, or class…" autocomplete="off">
+        </div>
+        {% endif %}
+    </div>
+
+    {% if students %}
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" id="studentTable">
+            <thead style="background:#f3f6fb;">
+                <tr>
+                    <th class="px-3 py-3">Admission No.</th>
+                    <th class="py-3">Full Name</th>
+                    <th class="py-3">Class / Grade</th>
+                    <th class="py-3">Date of Birth</th>
+                    <th class="py-3">Parent / Guardian</th>
+                    <th class="py-3">Phone</th>
+                    <th class="py-3">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for student in students %}
+                <tr>
+                    <td class="px-3 fw-semibold">{{ student['admission_number'] }}</td>
+                    <td>{{ student['full_name'] }}</td>
+                    <td>{{ student['class_level'] }}</td>
+                    <td>{{ student['date_of_birth'] or '—' }}</td>
+                    <td>{{ student['guardian_name'] or '—' }}</td>
+                    <td>{{ student['guardian_phone'] or '—' }}</td>
+                    <td>
+                        {% if student['status'] == 'active' %}
+                            <span class="badge rounded-pill text-bg-success">Active</span>
+                        {% else %}
+                            <span class="badge rounded-pill text-bg-secondary">{{ student['status']|capitalize }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div id="noSearchResults" class="d-none text-center py-4 text-secondary">No records match your search.</div>
+    </div>
+    {% else %}
+    <div class="text-center py-5 px-4">
+        <div class="rounded-circle d-grid place-items-center mx-auto mb-3" style="width:4.5rem;height:4.5rem;background:#eaf3fb;font-size:2rem;">🎓</div>
+        <h3 class="h5 fw-bold">No Students Registered Yet</h3>
+        <p class="text-secondary mx-auto" style="max-width:28rem;">Once you register a fictional demo student, their record will appear here. Do not enter real student data into this demo.</p>
+        <a href="{{ url_for('register_student') }}" class="btn btn-primary px-4">Register First Student</a>
+    </div>
+    {% endif %}
+</section>
+
+<div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mt-4">
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">← Back to Dashboard</a>
+    <span class="small text-secondary">CMHS Digital Campus · Demo records only</span>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+    const search = document.getElementById("studentSearch");
+    const table = document.getElementById("studentTable");
+    const noResults = document.getElementById("noSearchResults");
+    if (!search || !table) return;
+    const rows = Array.from(table.querySelectorAll("tbody tr"));
+    search.addEventListener("input", function () {
+        const query = search.value.trim().toLocaleLowerCase();
+        let visible = 0;
+        rows.forEach(function (row) {
+            const matches = row.textContent.toLocaleLowerCase().includes(query);
+            row.classList.toggle("d-none", !matches);
+            if (matches) visible += 1;
+        });
+        noResults.classList.toggle("d-none", visible !== 0);
+    });
+})();
+</script>
 {% endblock %}
