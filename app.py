@@ -96,10 +96,19 @@ def initialize_database():
         initial_username = os.environ.get("INITIAL_ADMIN_USERNAME", "").strip()
         initial_password = os.environ.get("INITIAL_ADMIN_PASSWORD", "")
         if initial_username and initial_password:
+            # The configured deployment credentials are authoritative during
+            # bootstrap. This also repairs a pre-existing account with the same
+            # username but an outdated password or non-admin role. Once the
+            # administrator has signed in and the database is persistent, remove
+            # INITIAL_ADMIN_PASSWORD from the hosting environment to avoid
+            # resetting the account to a long-lived bootstrap credential.
             connection.execute(
                 """
-                INSERT OR IGNORE INTO users (username, password_hash, role)
+                INSERT INTO users (username, password_hash, role)
                 VALUES (?, ?, 'admin')
+                ON CONFLICT(username) DO UPDATE SET
+                    password_hash = excluded.password_hash,
+                    role = 'admin'
                 """,
                 (initial_username, generate_password_hash(initial_password)),
             )
