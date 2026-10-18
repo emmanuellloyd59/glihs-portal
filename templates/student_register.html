@@ -1,128 +1,84 @@
-
 {% extends "base.html" %}
-
+{% block title %}Register Student | CMHS Digital Campus{% endblock %}
 {% block content %}
-<div class="container py-4">
-    <div class="row justify-content-center">
-        <div class="col-12 col-lg-9 col-xl-8">
+<div class="mb-4">
+    <p class="eyebrow text-primary mb-1">Staff workspace</p>
+    <h1 class="h2 fw-bold mb-1">Register New Student</h1>
+    <p class="text-secondary mb-0">Add a fictional student record to demonstrate the registration workflow.</p>
+</div>
 
-            <div class="mb-4">
-                <h1 class="h3 fw-bold">Register New Student</h1>
-                <p class="text-muted">
-                    Enter the student's information below.
-                </p>
-            </div>
-
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} alert-dismissible fade show">
-                        {{ message }}
-                        <button type="button" class="btn-close"
-                                data-bs-dismiss="alert"
-                                aria-label="Close"></button>
-                    </div>
-                {% endfor %}
-            {% endwith %}
-
-            <div class="card border-0 shadow-sm rounded-4">
-                <div class="card-body p-4 p-md-5">
-
-                    <form method="POST" action="{{ url_for('register_student') }}">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
-                        <h2 class="h5 fw-bold mb-3">Student Information</h2>
-
-                        <div class="row g-3">
-                            <div class="col-12 col-md-6">
-                                <label for="admission_number" class="form-label">
-                                    Admission Number *
-                                </label>
-                                <input type="text" class="form-control"
-                                       id="admission_number"
-                                       name="admission_number"
-                                       maxlength="50" required>
-                            </div>
-
-                            <div class="col-12 col-md-6">
-                                <label for="full_name" class="form-label">
-                                    Full Name *
-                                </label>
-                                <input type="text" class="form-control"
-                                       id="full_name" name="full_name"
-                                       maxlength="150" required>
-                            </div>
-
-                            <div class="col-12 col-md-6">
-                                <label for="class_level" class="form-label">
-                                    Class / Grade *
-                                </label>
-                                <input type="text" class="form-control"
-                                       id="class_level" name="class_level"
-                                       maxlength="50"
-                                       placeholder="e.g. Grade 7" required>
-                            </div>
-
-                            <div class="col-12 col-md-6">
-                                <label for="date_of_birth" class="form-label">
-                                    Date of Birth
-                                </label>
-                                <input type="date" class="form-control"
-                                       id="date_of_birth"
-                                       name="date_of_birth">
-                            </div>
-                        </div>
-
-                        <hr class="my-4">
-
-                        <h2 class="h5 fw-bold mb-3">Parent / Guardian</h2>
-
-                        <div class="row g-3">
-                            <div class="col-12 col-md-6">
-                                <label for="guardian_name" class="form-label">
-                                    Guardian Name
-                                </label>
-                                <input type="text" class="form-control"
-                                       id="guardian_name"
-                                       name="guardian_name"
-                                       maxlength="150">
-                            </div>
-
-                            <div class="col-12 col-md-6">
-                                <label for="guardian_phone" class="form-label">
-                                    Guardian Phone
-                                </label>
-                                <input type="tel" class="form-control"
-                                       id="guardian_phone"
-                                       name="guardian_phone"
-                                       maxlength="30">
-                            </div>
-                        </div>
-
-                        <div class="d-flex flex-wrap gap-2 mt-4">
-                            <button type="submit" class="btn btn-primary px-4">
-                                Register Student
-                            </button>
-
-                            <a href="{{ url_for('list_students') }}"
-                               class="btn btn-outline-secondary px-4">
-                                View Students
-                            </a>
-
-                            <a href="{{ url_for('dashboard') }}"
-                               class="btn btn-light px-4">
-                                Dashboard
-                            </a>
-                        </div>
-
-                    </form>
-                </div>
-            </div>
-
-            <p class="text-muted small mt-3">
-                Fields marked with * are required.
-            </p>
-
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+        <div class="alert alert-{{ category }} alert-dismissible fade show rounded-3" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
+    {% endfor %}
+{% endwith %}
+
+<div class="row g-4 align-items-start">
+    <div class="col-12 col-lg-8">
+        <section class="surface-card p-4 p-md-5">
+            <form method="POST" action="{{ url_for('register_student') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="d-flex align-items-center gap-3 mb-4">
+                    <div class="rounded-3 p-3" style="background:#eaf3fb;font-size:1.4rem;">🎓</div>
+                    <div><h2 class="h5 fw-bold mb-1">Student Information</h2><p class="small text-secondary mb-0">Fields marked with * are required.</p></div>
+                </div>
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label for="admission_number" class="form-label fw-semibold">Admission Number *</label>
+                        <input type="text" class="form-control" id="admission_number" name="admission_number" maxlength="50" placeholder="e.g. DEMO-001" required>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label for="full_name" class="form-label fw-semibold">Full Name *</label>
+                        <input type="text" class="form-control" id="full_name" name="full_name" maxlength="150" placeholder="Fictional student name" required>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label for="class_level" class="form-label fw-semibold">Class / Grade *</label>
+                        <input type="text" class="form-control" id="class_level" name="class_level" maxlength="50" placeholder="e.g. Grade 7" required>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label for="date_of_birth" class="form-label fw-semibold">Date of Birth</label>
+                        <input type="date" class="form-control" id="date_of_birth" name="date_of_birth">
+                    </div>
+                </div>
+                <hr class="my-4">
+                <div class="d-flex align-items-center gap-3 mb-4">
+                    <div class="rounded-3 p-3" style="background:#eaf8f6;font-size:1.4rem;">👪</div>
+                    <div><h2 class="h5 fw-bold mb-1">Parent / Guardian</h2><p class="small text-secondary mb-0">Optional contact details for the demonstration.</p></div>
+                </div>
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label for="guardian_name" class="form-label fw-semibold">Guardian Name</label>
+                        <input type="text" class="form-control" id="guardian_name" name="guardian_name" maxlength="150" placeholder="Fictional guardian name">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label for="guardian_phone" class="form-label fw-semibold">Guardian Phone</label>
+                        <input type="tel" class="form-control" id="guardian_phone" name="guardian_phone" maxlength="30" placeholder="Use a fictional number">
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mt-4 pt-2">
+                    <button type="submit" class="btn btn-primary btn-lg px-4">Register Student</button>
+                    <a href="{{ url_for('list_students') }}" class="btn btn-outline-secondary btn-lg px-4">View Records</a>
+                </div>
+            </form>
+        </section>
     </div>
+    <aside class="col-12 col-lg-4">
+        <div class="surface-card p-4">
+            <div class="fs-2 mb-3">🛡️</div>
+            <h2 class="h5 fw-bold">Demonstration safety</h2>
+            <p class="text-secondary small">This version is for review and learning, not real school operations. Use invented names, dates, admission numbers, and contact details only.</p>
+            <hr>
+            <h3 class="small fw-bold">What happens after registration?</h3>
+            <ol class="small text-secondary ps-3 mb-0">
+                <li class="mb-2">The form validates required fields.</li>
+                <li class="mb-2">The app attempts to save the record in its configured database.</li>
+                <li>The student records page displays saved entries.</li>
+            </ol>
+        </div>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-link text-decoration-none mt-3 px-0">← Return to Dashboard</a>
+    </aside>
 </div>
 {% endblock %}
