@@ -174,6 +174,35 @@ def initialize_database():
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS grades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL REFERENCES students(id),
+                subject TEXT NOT NULL,
+                assessment TEXT NOT NULL,
+                score REAL NOT NULL CHECK (score >= 0 AND score <= 100),
+                max_score REAL NOT NULL CHECK (max_score > 0 AND score <= max_score),
+                recorded_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(student_id, subject, assessment)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS attendance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL REFERENCES students(id),
+                attendance_date TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('present', 'absent', 'late', 'excused')),
+                note TEXT,
+                recorded_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(student_id, attendance_date)
+            )
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 actor_user_id INTEGER,
@@ -507,6 +536,115 @@ def admin_users():
     return render_template(
         "admin_users.html", users=users, roles=STAFF_ROLES,
         audit_entries=audit_entries,
+    )
+
+
+# --------------------------------------------------
+# 6. GRADES AND ATTENDANCE
+# --------------------------------------------------
+
+ACADEMIC_ENTRY_ROLES = {"super_admin", "teacher", "academic_admin"}
+ACADEMIC_VIEW_ROLES = {"super_admin", "teacher", "academic_admin", "principal", "registrar"}
+
+
+@app.route("/academics", methods=["GET", "POST"])
+@login_required
+def academics():
+    """Record and review demo grades and daily attendance with role checks."""
+    if current_user.role not in ACADEMIC_VIEW_ROLES:
+        abort(403)
+
+    connection = get_db_connection()
+    try:
+        students = connection.execute(
+            "SELECT id, admission_number, full_name, class_level FROM students WHERE status = 'active' ORDER BY class_level, full_name"
+        ).fetchall()
+        if request.method == "POST":
+            if current_user.role not in ACADEMIC_ENTRY_ROLES:
+                abort(403)
+            action = request.form.get("action", "").strip()
+            student_id = request.form.get("student_id", "").strip()
+            student = connection.execute(
+                "SELECT id FROM students WHERE id = ? AND status = 'active'", (student_id,)
+            ).fetchone()
+            if not student:
+                flash("Choose a valid active student.", "danger")
+                return redirect(url_for("academics"))
+
+            if action == "grade":
+                subject = request.form.get("subject", "").strip()
+                assessment = request.form.get("assessment", "").strip()
+                score_text = request.form.get("score", "").strip()
+                max_text = request.form.get("max_score", "").strip()
+                if not subject or len(subject) > 80 or not assessment or len(assessment) > 100:
+                    flash("Enter a subject and assessment name within the stated limits.", "danger")
+                    return redirect(url_for("academics"))
+                try:
+                    score, max_score = float(score_text), float(max_text)
+                    if not (0 <= score <= 100 and 0 < max_score <= 100 and score <= max_score):
+                        raise ValueError
+                except (ValueError, TypeError):
+                    flash("Scores must be valid numbers: score 0–100, maximum 1–100, and score cannot exceed maximum.", "danger")
+                    return redirect(url_for("academics"))
+                try:
+                    connection.execute(
+                        """INSERT INTO grades (student_id, subject, assessment, score, max_score, recorded_by)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (student_id, subject, assessment, score, max_score, current_user.id),
+                    )
+                    connection.commit()
+                    write_audit(current_user.id, "grade_recorded", str(student_id),
+                                f"{subject} / {assessment}: {score}/{max_score}")
+                    flash("Grade saved successfully.", "success")
+                except sqlite3.IntegrityError:
+                    flash("A grade for this student, subject, and assessment already exists. Use a different assessment name.", "danger")
+            elif action == "attendance":
+                attendance_date = request.form.get("attendance_date", "").strip()
+                status = request.form.get("status", "").strip()
+                note = request.form.get("note", "").strip()
+                try:
+                    datetime.strptime(attendance_date, "%Y-%m-%d")
+                    if status not in {"present", "absent", "late", "excused"} or len(note) > 250:
+                        raise ValueError
+                except (ValueError, TypeError):
+                    flash("Choose a valid date and attendance status. Notes must be 250 characters or fewer.", "danger")
+                    return redirect(url_for("academics"))
+                try:
+                    connection.execute(
+                        """INSERT INTO attendance (student_id, attendance_date, status, note, recorded_by)
+                           VALUES (?, ?, ?, ?, ?)""",
+                        (student_id, attendance_date, status, note or None, current_user.id),
+                    )
+                    connection.commit()
+                    write_audit(current_user.id, "attendance_recorded", str(student_id),
+                                f"{attendance_date}: {status}")
+                    flash("Attendance saved successfully.", "success")
+                except sqlite3.IntegrityError:
+                    flash("Attendance has already been recorded for this student on that date.", "danger")
+            else:
+                flash("Unknown academic action.", "danger")
+            return redirect(url_for("academics"))
+
+        grades = connection.execute(
+            """SELECT g.id, s.full_name, s.admission_number, s.class_level, g.subject,
+                      g.assessment, g.score, g.max_score, u.username AS recorded_by, g.created_at
+               FROM grades g JOIN students s ON s.id = g.student_id
+               JOIN users u ON u.id = g.recorded_by ORDER BY g.id DESC LIMIT 100"""
+        ).fetchall()
+        attendance_rows = connection.execute(
+            """SELECT a.id, s.full_name, s.admission_number, s.class_level,
+                      a.attendance_date, a.status, a.note, u.username AS recorded_by
+               FROM attendance a JOIN students s ON s.id = a.student_id
+               JOIN users u ON u.id = a.recorded_by
+               ORDER BY a.attendance_date DESC, a.id DESC LIMIT 100"""
+        ).fetchall()
+    finally:
+        connection.close()
+    return render_template(
+        "academics.html", students=students, grades=grades,
+        attendance_rows=attendance_rows,
+        can_enter=current_user.role in ACADEMIC_ENTRY_ROLES,
+        today=datetime.now().strftime("%Y-%m-%d"),
     )
 
 
