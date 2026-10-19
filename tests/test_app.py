@@ -77,6 +77,31 @@ class CMHSPortalTests(unittest.TestCase):
         self.assertIn(b"Dashboard Overview", response.data)
         self.assertIn(b"Student Records", response.data)
 
+    def test_baseline_security_headers_are_set(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("X-Content-Type-Options"), "nosniff")
+        self.assertEqual(response.headers.get("X-Frame-Options"), "DENY")
+        self.assertEqual(response.headers.get("Referrer-Policy"), "strict-origin-when-cross-origin")
+        self.assertIn("camera=()", response.headers.get("Permissions-Policy", ""))
+
+    def test_failed_login_is_audited_without_revealing_account_existence(self):
+        response = self.client.post(
+            "/login",
+            data={"username": "missing_demo", "password": "incorrect"},
+            follow_redirects=True,
+        )
+        self.assertIn(b"Invalid username or password", response.data)
+        connection = portal.get_db_connection()
+        try:
+            row = connection.execute(
+                "SELECT action, target_username FROM audit_log ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            self.assertEqual(row["action"], "login_failed")
+            self.assertEqual(row["target_username"], "missing_demo")
+        finally:
+            connection.close()
+
     def test_database_connections_enforce_foreign_keys(self):
         connection = portal.get_db_connection()
         try:
