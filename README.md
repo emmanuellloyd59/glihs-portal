@@ -1,6 +1,6 @@
-# CMHS Digital Campus — Version 0.1 Demo
+# CMHS Digital Campus — Version 0.2 Development Preview
 
-CMHS Digital Campus is an early school-portal demonstration built with Flask, Flask-Login, SQLite, Flask-WTF, and Bootstrap.
+CMHS Digital Campus is a Flask-based school-portal demonstration built with Flask, Flask-Login, SQLite, Flask-WTF, and Bootstrap. This branch contains the Version 0.2 development preview; the production deployment remains separate until the pull request is reviewed, merged, and deployed.
 
 ## What is included
 
@@ -12,8 +12,13 @@ CMHS Digital Campus is an early school-portal demonstration built with Flask, Fl
 - CSRF protection on forms and POST-only sign-out.
 - Startup creation/migration of core database tables, including users, students, grades, attendance, and audit events.
 - Staff access requests and Super Administrator approval workflow.
-- Grade entry and review with score validation and duplicate prevention.
+- Grade entry and review with score validation, academic-year/term separation, and duplicate prevention.
+- Staff report-card previews with subject totals and percentages, role-restricted publish/unpublish actions, and student access to their own published report cards when a verified student account link exists.
+- Student-record-to-account linking with explicit identity confirmation and audit events.
+- Student profiles with enrollment/emergency-contact fields and role-limited editing.
+- Finance records with fee/payment validation and role-restricted access.
 - Attendance entry and review with date/status validation and duplicate prevention.
+- Print-specific report-card styling intended to print the selected report card without surrounding page controls.
 - Audit events for sign-in/sign-out, administrator actions, grades, and attendance.
 - Automated regression tests and a GitHub Actions workflow.
 
@@ -23,7 +28,7 @@ This is a development/demo build, not a production school management system. Do 
 
 The application currently uses SQLite. If the hosting provider's filesystem is ephemeral, database contents may be lost on a redeploy or restart. Reliable long-term storage needs an appropriately configured persistent disk or a managed database and corresponding application configuration. Do not assume a successful deployment means the database is persistent.
 
-Grades and attendance have initial demo workflows for staff roles. Homework, report cards, parent/student self-service, fees, timetable, and learning materials remain planned. The current implementation is not yet suitable for real student data or production school operations.
+These modules remain demonstration software and have not been approved for real student data or production school operations. Homework, timetable, parent self-service, and learning materials remain planned. Automated tests pass for the current development branch, but report-card printing still needs a real-browser/PDF visual check and deployment requires a separate staging, persistence, backup/restore, and security review.
 
 ## Suggested demonstration walkthrough
 
@@ -72,6 +77,17 @@ python app.py
 ```
 
 The application serves on port 5000. The first launch creates missing database tables but does not invent user credentials. Configure a demo account through the supported initial setup or an existing database. For automated tests, run `python -m unittest discover -s tests -v`. Tests use a separate temporary SQLite database and fictional accounts.
+
+## Version 0.2 pre-release checklist
+
+- [ ] Review the open Version 0.2 pull request and confirm its latest CI run passes.
+- [ ] In a staging browser, preview a fictional report card and use Print / Save as PDF.
+- [ ] Confirm the PDF contains only the report card, with readable headings and no clipped columns or hidden values.
+- [ ] Verify student users can view only their own published report card and cannot publish or access staff-only routes.
+- [ ] Test a backup and restore against a disposable staging database; confirm existing rows and foreign keys survive.
+- [ ] Verify the hosting database uses persistent storage and survives restart/redeploy.
+- [ ] Confirm production secrets and administrator bootstrap variables are configured safely.
+- [ ] Obtain approval before merging or deploying the release.
 
 ## Version 0.1 acceptance checklist
 
