@@ -676,7 +676,8 @@ def admin_users():
                 new_role = request.form.get("new_role", "").strip()
                 linked = connection.execute("SELECT 1 FROM students WHERE account_user_id = ?", (target_id_int,)).fetchone()
                 if target["is_super_admin"] or new_role not in STAFF_ROLES:
-                    flash("Super Administrator roles cannot be changed here.", "danger")                elif linked:
+                    flash("Super Administrator roles cannot be changed here.", "danger")
+                elif linked:
                     flash("Unlink this student record before changing the account's role.", "danger")
                 else:
                     connection.execute("UPDATE users SET role = ? WHERE id = ?", (new_role, target_id_int))
