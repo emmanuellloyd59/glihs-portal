@@ -494,5 +494,60 @@ class CMHSPortalTests(unittest.TestCase):
         duplicate = self.client.post("/academics", data=data, follow_redirects=True)
         self.assertIn(b"Attendance has already been recorded", duplicate.data)
 
+    def _student_count(self):
+        connection = portal.get_db_connection()
+        try:
+            return connection.execute("SELECT COUNT(*) FROM students").fetchone()[0]
+        finally:
+            connection.close()
+
+    def test_registration_rejects_invalid_guardian_phone_without_saving(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.post("/students/register", data={
+            "admission_number": "SEC-001", "full_name": "Jordan Example",
+            "class_level": "Grade 7", "guardian_phone": "call-me-now",
+        }, follow_redirects=True)
+        self.assertIn(b"valid guardian phone number", response.data)
+        self.assertEqual(self._student_count(), 0)
+
+    def test_registration_rejects_future_birth_date_and_invalid_admission_number(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        for admission, dob in (("SEC-002", "2999-01-01"), ("bad admission!", "2012-05-04")):
+            response = self.client.post("/students/register", data={
+                "admission_number": admission, "full_name": "Jordan Example",
+                "class_level": "Grade 7", "date_of_birth": dob,
+            }, follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._student_count(), 0)
+
+    def test_teacher_student_list_hides_private_fields(self):
+        connection = portal.get_db_connection()
+        connection.execute(
+            """INSERT INTO students
+               (admission_number, full_name, class_level, date_of_birth, guardian_name, guardian_phone)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ("PRIVACY-001", "Jordan Example", "Grade 7", "2012-05-04",
+             "Private Guardian", "+231 770 000 000"),
+        )
+        connection.commit()
+        connection.close()
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get("/students")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Jordan Example", response.data)
+        self.assertNotIn(b"Private Guardian", response.data)
+        self.assertNotIn(b"+231 770 000 000", response.data)
+        self.assertNotIn(b"2012-05-04", response.data)
+        self.assertNotIn(b"Parent / Guardian", response.data)
+        self.assertIn("no-store", response.headers.get("Cache-Control", ""))
+
+    def test_authenticated_pages_are_not_cached(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("no-store", response.headers.get("Cache-Control", ""))
+        self.assertIn("private", response.headers.get("Cache-Control", ""))
+        self.assertEqual(response.headers.get("Pragma"), "no-cache")
+
 if __name__ == "__main__":
     unittest.main()
