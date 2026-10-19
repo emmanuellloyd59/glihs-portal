@@ -63,8 +63,10 @@ STUDENT_RECORD_ROLES = {"super_admin", "principal", "registrar", "academic_admin
 # --------------------------------------------------
 
 def get_db_connection():
+    """Open a row-aware SQLite connection with referential integrity enabled."""
     connection = sqlite3.connect(DATABASE, timeout=10)
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
     return connection
 
 
@@ -214,27 +216,26 @@ def initialize_database():
             """
         )
 
-        # Optional deployment bootstrap. Remove INITIAL_ADMIN_PASSWORD after
-        # login works and persistent storage is verified to avoid resetting it
-        # at every process start.
+        # Optional one-time deployment bootstrap. Never modify an existing account
+        # on restart: doing so could reset a password or elevate a non-admin user.
+        # Use a fresh, unique username for initial setup, then remove both variables.
         initial_username = os.environ.get("INITIAL_ADMIN_USERNAME", "").strip()
         initial_password = os.environ.get("INITIAL_ADMIN_PASSWORD", "")
         if initial_username and initial_password:
-            connection.execute(
-                """
-                INSERT INTO users
-                    (username, full_name, password_hash, role, status, is_super_admin, approved_at)
-                VALUES (?, ?, ?, 'super_admin', 'active', 1, CURRENT_TIMESTAMP)
-                ON CONFLICT(username) DO UPDATE SET
-                    full_name = CASE WHEN users.full_name = '' THEN excluded.full_name ELSE users.full_name END,
-                    password_hash = excluded.password_hash,
-                    role = 'super_admin',
-                    status = 'active',
-                    is_super_admin = 1,
-                    approved_at = COALESCE(users.approved_at, CURRENT_TIMESTAMP)
-                """,
-                (initial_username, initial_username, generate_password_hash(initial_password)),
-            )
+            if (
+                len(initial_username) <= 64
+                and initial_username.replace("_", "").replace("-", "").isalnum()
+                and len(initial_password) >= 12
+            ):
+                connection.execute(
+                    """
+                    INSERT INTO users
+                        (username, full_name, password_hash, role, status, is_super_admin, approved_at)
+                    VALUES (?, ?, ?, 'super_admin', 'active', 1, CURRENT_TIMESTAMP)
+                    ON CONFLICT(username) DO NOTHING
+                    """,
+                    (initial_username, initial_username, generate_password_hash(initial_password)),
+                )
         connection.commit()
     finally:
         connection.close()
