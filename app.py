@@ -217,8 +217,7 @@ def initialize_database():
                 full_name TEXT NOT NULL DEFAULT '',
                 password_hash TEXT NOT NULL,
                 role TEXT NOT NULL CHECK (
-                    role IN ('super_admin', 'principal', 'registrar',
-                             'academic_admin', 'finance_admin', 'teacher', 'student')
+                    role IN ('super_admin', 'principal', 'registrar',                             'academic_admin', 'finance_admin', 'teacher', 'student')
                 ),
                 status TEXT NOT NULL DEFAULT 'active'
                     CHECK (status IN ('pending', 'active', 'suspended')),
@@ -252,6 +251,26 @@ def initialize_database():
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_account_user_id "
             "ON students(account_user_id) WHERE account_user_id IS NOT NULL"
         )
+        student_columns = {row["name"] for row in connection.execute("PRAGMA table_info(students)").fetchall()}
+        if "student_id_number" not in student_columns:
+            connection.execute("ALTER TABLE students ADD COLUMN student_id_number TEXT")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_student_id_number "
+            "ON students(student_id_number) WHERE student_id_number IS NOT NULL"
+        )
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS student_finances (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL REFERENCES students(id),
+                academic_year TEXT NOT NULL,
+                total_fee REAL NOT NULL CHECK (total_fee >= 0),
+                amount_paid REAL NOT NULL DEFAULT 0 CHECK (amount_paid >= 0 AND amount_paid <= total_fee),
+                notes TEXT,
+                updated_by INTEGER NOT NULL REFERENCES users(id),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(student_id, academic_year)
+            )
+        """)
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS grades (
@@ -437,8 +456,7 @@ def health_check():
     """Provide a minimal, non-sensitive readiness check for the hosting platform."""
     connection = None
     try:
-        connection = get_db_connection()
-        connection.execute("SELECT 1").fetchone()
+        connection = get_db_connection()        connection.execute("SELECT 1").fetchone()
         return jsonify({"status": "ok"}), 200
     except sqlite3.Error:
         app.logger.exception("Health check failed while accessing the database.")
@@ -657,8 +675,7 @@ def admin_users():
                 new_role = request.form.get("new_role", "").strip()
                 linked = connection.execute("SELECT 1 FROM students WHERE account_user_id = ?", (target_id_int,)).fetchone()
                 if target["is_super_admin"] or new_role not in STAFF_ROLES:
-                    flash("Super Administrator roles cannot be changed here.", "danger")
-                elif linked:
+                    flash("Super Administrator roles cannot be changed here.", "danger")                elif linked:
                     flash("Unlink this student record before changing the account's role.", "danger")
                 else:
                     connection.execute("UPDATE users SET role = ? WHERE id = ?", (new_role, target_id_int))
@@ -877,8 +894,7 @@ def my_report_cards():
 @login_required
 def report_cards():
     """Build subject summaries and control publication for a selected student and term."""
-    if current_user.role not in REPORT_CARD_VIEW_ROLES:
-        abort(403)
+    if current_user.role not in REPORT_CARD_VIEW_ROLES:        abort(403)
 
     connection = get_db_connection()
     try:
@@ -988,7 +1004,7 @@ def register_student():
 
         connection = get_db_connection()
         try:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO students (
                     admission_number, full_name, class_level,
@@ -997,6 +1013,11 @@ def register_student():
                 """,
                 (admission_number, full_name, class_level,
                  date_of_birth or None, guardian_name or None, guardian_phone or None),
+            )
+            student_id_number = f"CMHS-{datetime.now().year}-{cursor.lastrowid:05d}"
+            connection.execute(
+                "UPDATE students SET student_id_number = ? WHERE id = ?",
+                (student_id_number, cursor.lastrowid),
             )
             connection.commit()
             write_audit(current_user.id, "student_registered", admission_number,
@@ -1019,18 +1040,111 @@ def list_students():
         flash("You are not authorized to view student records.", "danger")
         return redirect(url_for("dashboard"))
 
+    class_filter = request.args.get("class_level", "").strip()
+    search_query = request.args.get("q", "").strip()[:100]
     connection = get_db_connection()
     try:
         students = connection.execute(
             """
-            SELECT id, admission_number, full_name, class_level,
-                   date_of_birth, guardian_name, guardian_phone, status
-            FROM students ORDER BY id DESC
-            """
+            SELECT s.id, s.student_id_number, s.admission_number, s.full_name, s.class_level,
+                   s.date_of_birth, s.guardian_name, s.guardian_phone, s.status,
+                   COALESCE(f.total_fee, 0) AS total_fee,
+                   COALESCE(f.amount_paid, 0) AS amount_paid,
+                   COALESCE(f.total_fee, 0) - COALESCE(f.amount_paid, 0) AS balance
+            FROM students s
+            LEFT JOIN student_finances f ON f.student_id = s.id
+                AND f.academic_year = ?
+            WHERE (? = '' OR s.class_level = ?)
+              AND (? = '' OR s.full_name LIKE ? OR s.admission_number LIKE ?
+                   OR COALESCE(s.student_id_number, '') LIKE ?)
+            ORDER BY s.class_level, s.full_name COLLATE NOCASE
+            """,
+            (f"{datetime.now().year}-{datetime.now().year + 1}", class_filter, class_filter,
+             search_query, f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"),
+        ).fetchall()
+        classes = connection.execute(
+            "SELECT DISTINCT class_level FROM students ORDER BY class_level COLLATE NOCASE"
         ).fetchall()
     finally:
         connection.close()
-    return render_template("students.html", students=students)
+    return render_template("students.html", students=students, classes=classes,
+                           class_filter=class_filter, search_query=search_query)
+
+
+@app.route("/student-finances", methods=["GET", "POST"])
+@login_required
+def student_finances():
+    if current_user.role not in {"super_admin", "principal", "registrar", "finance_admin"}:
+        abort(403)
+
+    connection = get_db_connection()
+    try:
+        if request.method == "POST":
+            student_id = request.form.get("student_id", "").strip()
+            academic_year = request.form.get("academic_year", "").strip()
+            total_text = request.form.get("total_fee", "").strip()
+            paid_text = request.form.get("amount_paid", "").strip()
+            notes = request.form.get("notes", "").strip()
+            valid_year = (len(academic_year) == 9 and academic_year[4] == "-"
+                          and academic_year[:4].isdigit() and academic_year[5:].isdigit()
+                          and int(academic_year[5:]) == int(academic_year[:4]) + 1)
+            student = connection.execute(
+                "SELECT id, admission_number FROM students WHERE id = ? AND status = 'active'",
+                (student_id,),
+            ).fetchone()
+            try:
+                total_fee, amount_paid = float(total_text), float(paid_text)
+                if not (0 <= amount_paid <= total_fee and total_fee <= 100000000
+                        and len(notes) <= 250 and valid_year and student):
+                    raise ValueError
+            except (ValueError, TypeError):
+                flash("Check the student, academic year, fee and payment amounts. Payments cannot exceed fees.", "danger")
+                return redirect(url_for("student_finances"))
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id, academic_year, total_fee, amount_paid, notes, updated_by)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(student_id, academic_year) DO UPDATE SET
+                     total_fee = excluded.total_fee, amount_paid = excluded.amount_paid,
+                     notes = excluded.notes, updated_by = excluded.updated_by,
+                     updated_at = CURRENT_TIMESTAMP""",
+                (student_id, academic_year, total_fee, amount_paid, notes or None, current_user.id),
+            )
+            connection.commit()
+            write_audit(current_user.id, "student_finance_updated", student["admission_number"],
+                        f"{academic_year}; fees={total_fee:.2f}; paid={amount_paid:.2f}")
+            flash("Student financial record saved.", "success")
+            return redirect(url_for("student_finances", academic_year=academic_year))
+
+        academic_year = request.args.get("academic_year", f"{datetime.now().year}-{datetime.now().year + 1}")
+        valid_year = (len(academic_year) == 9 and academic_year[4] == "-"
+                      and academic_year[:4].isdigit() and academic_year[5:].isdigit()
+                      and int(academic_year[5:]) == int(academic_year[:4]) + 1)
+        if not valid_year:
+            academic_year = f"{datetime.now().year}-{datetime.now().year + 1}"
+        students = connection.execute(
+            "SELECT id, student_id_number, admission_number, full_name, class_level FROM students "
+            "WHERE status = 'active' ORDER BY class_level, full_name"
+        ).fetchall()
+        records = connection.execute(
+            """SELECT s.student_id_number, s.admission_number, s.full_name, s.class_level,
+                      f.total_fee, f.amount_paid, f.total_fee - f.amount_paid AS balance,
+                      f.updated_at, f.notes
+               FROM student_finances f JOIN students s ON s.id = f.student_id
+               WHERE f.academic_year = ? ORDER BY s.class_level, s.full_name COLLATE NOCASE""",
+            (academic_year,),
+        ).fetchall()
+        summary = connection.execute(
+            """SELECT COALESCE(SUM(total_fee), 0) AS total_fees,
+                      COALESCE(SUM(amount_paid), 0) AS total_paid,
+                      COALESCE(SUM(total_fee - amount_paid), 0) AS total_balance
+               FROM student_finances WHERE academic_year = ?""",
+            (academic_year,),
+        ).fetchone()
+    finally:
+        connection.close()
+    return render_template("student_finances.html", students=students, records=records,
+                           academic_year=academic_year, summary=summary)
 
 
 if __name__ == "__main__":
