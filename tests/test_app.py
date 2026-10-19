@@ -275,6 +275,13 @@ class CMHSPortalTests(unittest.TestCase):
         self.assertEqual(rows[1]["password_hash"], "existing-teacher-hash")
         self.assertEqual(rows[1]["role"], "teacher")
 
+    def test_feature_center_page_loads_and_explains_planned_modules(self):
+        response = self.client.get("/features")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Feature Center", response.data)
+        self.assertIn(b"Grades, attendance and homework", response.data)
+        self.assertIn(b"Planned", response.data)
+
     def test_duplicate_admission_number_is_rejected_gracefully(self):
         self.login_as("teacher_demo", "test-teacher-password")
         data = {
