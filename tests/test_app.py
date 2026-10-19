@@ -5,6 +5,7 @@ Tests use a temporary SQLite database and fictional accounts only.
 """
 import os
 import tempfile
+import sqlite3
 import unittest
 from pathlib import Path
 
@@ -234,6 +235,45 @@ class CMHSPortalTests(unittest.TestCase):
         )
         self.assertIn(b"Invalid username or password", response.data)
         self.assertNotIn(b"Dashboard Overview", response.data)
+
+
+    def test_legacy_users_table_migrates_without_losing_accounts(self):
+        legacy = sqlite3.connect(":memory:")
+        legacy.row_factory = sqlite3.Row
+        legacy.execute(
+            """CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('student', 'teacher', 'admin'))
+            )"""
+        )
+        legacy.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            ("old_admin", "existing-admin-hash", "admin"),
+        )
+        legacy.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            ("old_teacher", "existing-teacher-hash", "teacher"),
+        )
+        legacy.commit()
+
+        portal.migrate_users_table(legacy)
+        rows = legacy.execute(
+            "SELECT username, password_hash, role, status, is_super_admin, full_name FROM users ORDER BY id"
+        ).fetchall()
+        legacy.close()
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["username"], "old_admin")
+        self.assertEqual(rows[0]["password_hash"], "existing-admin-hash")
+        self.assertEqual(rows[0]["role"], "super_admin")
+        self.assertEqual(rows[0]["status"], "active")
+        self.assertEqual(rows[0]["is_super_admin"], 1)
+        self.assertEqual(rows[0]["full_name"], "old_admin")
+        self.assertEqual(rows[1]["username"], "old_teacher")
+        self.assertEqual(rows[1]["password_hash"], "existing-teacher-hash")
+        self.assertEqual(rows[1]["role"], "teacher")
 
     def test_duplicate_admission_number_is_rejected_gracefully(self):
         self.login_as("teacher_demo", "test-teacher-password")
