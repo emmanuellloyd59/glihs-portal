@@ -410,6 +410,7 @@ class CMHSPortalTests(unittest.TestCase):
         grade_response = self.client.post("/academics", data={
             "action": "grade", "student_id": str(student_id), "subject": "Mathematics",
             "assessment": "Quiz 1", "score": "18", "max_score": "20",
+            "academic_year": "2026-2027", "term": "Term 1",
         }, follow_redirects=True)
         self.assertEqual(grade_response.status_code, 200)
         self.assertIn(b"Grade saved successfully", grade_response.data)
@@ -452,6 +453,7 @@ class CMHSPortalTests(unittest.TestCase):
         invalid = self.client.post("/academics", data={
             "action": "grade", "student_id": str(student_id), "subject": "Science",
             "assessment": "Test", "score": "120", "max_score": "100",
+            "academic_year": "2026-2027", "term": "Term 1",
         }, follow_redirects=True)
         self.assertIn(b"Scores must be valid numbers", invalid.data)
         data = {
