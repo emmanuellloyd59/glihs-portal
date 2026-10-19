@@ -205,6 +205,26 @@ def initialize_database():
             )
             """
         )
+        grade_columns = {row["name"] for row in connection.execute("PRAGMA table_info(grades)").fetchall()}
+        if "academic_year" not in grade_columns:
+            connection.execute("ALTER TABLE grades ADD COLUMN academic_year TEXT NOT NULL DEFAULT 'Unassigned'")
+        if "term" not in grade_columns:
+            connection.execute("ALTER TABLE grades ADD COLUMN term TEXT NOT NULL DEFAULT 'Unassigned'")
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS report_cards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL REFERENCES students(id),
+                academic_year TEXT NOT NULL,
+                term TEXT NOT NULL CHECK (term IN ('Term 1', 'Term 2', 'Term 3')),
+                published INTEGER NOT NULL DEFAULT 0 CHECK (published IN (0, 1)),
+                published_by INTEGER REFERENCES users(id),
+                published_at TEXT,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(student_id, academic_year, term)
+            )
+            """
+        )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS attendance (
@@ -610,10 +630,18 @@ def academics():
             if action == "grade":
                 subject = request.form.get("subject", "").strip()
                 assessment = request.form.get("assessment", "").strip()
+                academic_year = request.form.get("academic_year", "").strip()
+                term = request.form.get("term", "").strip()
                 score_text = request.form.get("score", "").strip()
                 max_text = request.form.get("max_score", "").strip()
                 if not subject or len(subject) > 80 or not assessment or len(assessment) > 100:
                     flash("Enter a subject and assessment name within the stated limits.", "danger")
+                    return redirect(url_for("academics"))
+                if (len(academic_year) != 9 or academic_year[4] != "-"
+                        or not academic_year[:4].isdigit() or not academic_year[5:].isdigit()
+                        or int(academic_year[5:]) != int(academic_year[:4]) + 1
+                        or term not in {"Term 1", "Term 2", "Term 3"}):
+                    flash("Choose a valid academic year (for example 2026-2027) and term.", "danger")
                     return redirect(url_for("academics"))
                 try:
                     score, max_score = float(score_text), float(max_text)
@@ -624,9 +652,10 @@ def academics():
                     return redirect(url_for("academics"))
                 try:
                     connection.execute(
-                        """INSERT INTO grades (student_id, subject, assessment, score, max_score, recorded_by)
-                           VALUES (?, ?, ?, ?, ?, ?)""",
-                        (student_id, subject, assessment, score, max_score, current_user.id),
+                        """INSERT INTO grades
+                           (student_id, subject, assessment, score, max_score, recorded_by, academic_year, term)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (student_id, subject, assessment, score, max_score, current_user.id, academic_year, term),
                     )
                     connection.commit()
                     write_audit(current_user.id, "grade_recorded", str(student_id),
@@ -663,7 +692,8 @@ def academics():
 
         grades = connection.execute(
             """SELECT g.id, s.full_name, s.admission_number, s.class_level, g.subject,
-                      g.assessment, g.score, g.max_score, u.username AS recorded_by, g.created_at
+                      g.assessment, g.score, g.max_score, g.academic_year, g.term,
+                      u.username AS recorded_by, g.created_at
                FROM grades g JOIN students s ON s.id = g.student_id
                JOIN users u ON u.id = g.recorded_by ORDER BY g.id DESC LIMIT 100"""
         ).fetchall()
@@ -685,7 +715,105 @@ def academics():
 
 
 # --------------------------------------------------
-# 6. STUDENT RECORDS
+# 6. REPORT CARDS
+# --------------------------------------------------
+
+REPORT_CARD_VIEW_ROLES = {"super_admin", "principal", "academic_admin", "teacher", "registrar"}
+REPORT_CARD_PUBLISH_ROLES = {"super_admin", "principal", "academic_admin"}
+
+
+@app.route("/report-cards", methods=["GET", "POST"])
+@login_required
+def report_cards():
+    """Build subject summaries and control publication for a selected student and term."""
+    if current_user.role not in REPORT_CARD_VIEW_ROLES:
+        abort(403)
+
+    connection = get_db_connection()
+    try:
+        students = connection.execute(
+            "SELECT id, admission_number, full_name, class_level FROM students WHERE status = 'active' ORDER BY class_level, full_name"
+        ).fetchall()
+        student_id = request.values.get("student_id", "").strip()
+        academic_year = request.values.get("academic_year", "").strip()
+        term = request.values.get("term", "").strip()
+        selected_student = None
+        subject_rows = []
+        publication = None
+
+        if student_id and academic_year and term in {"Term 1", "Term 2", "Term 3"}:
+            selected_student = connection.execute(
+                "SELECT id, admission_number, full_name, class_level FROM students WHERE id = ? AND status = 'active'",
+                (student_id,),
+            ).fetchone()
+
+        if request.method == "POST":
+            if current_user.role not in REPORT_CARD_PUBLISH_ROLES:
+                abort(403)
+            action = request.form.get("action", "").strip()
+            year_valid = (len(academic_year) == 9 and academic_year[4] == "-"
+                          and academic_year[:4].isdigit() and academic_year[5:].isdigit()
+                          and int(academic_year[5:]) == int(academic_year[:4]) + 1)
+            if not selected_student or not year_valid or term not in {"Term 1", "Term 2", "Term 3"}:
+                flash("Select a valid student, academic year, and term.", "danger")
+                return redirect(url_for("report_cards"))
+            has_grades = connection.execute(
+                "SELECT 1 FROM grades WHERE student_id = ? AND academic_year = ? AND term = ? LIMIT 1",
+                (student_id, academic_year, term),
+            ).fetchone()
+            if not has_grades:
+                flash("A report card can only be published after grades have been recorded for that term.", "danger")
+                return redirect(url_for("report_cards", student_id=student_id, academic_year=academic_year, term=term))
+            if action not in {"publish", "unpublish"}:
+                flash("Unknown report-card action.", "danger")
+                return redirect(url_for("report_cards"))
+            published = 1 if action == "publish" else 0
+            connection.execute(
+                """INSERT INTO report_cards (student_id, academic_year, term, published, published_by, published_at)
+                   VALUES (?, ?, ?, ?, ?, CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END)
+                   ON CONFLICT(student_id, academic_year, term) DO UPDATE SET
+                     published = excluded.published, published_by = excluded.published_by,
+                     published_at = CASE WHEN excluded.published = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
+                     updated_at = CURRENT_TIMESTAMP""",
+                (student_id, academic_year, term, published, current_user.id, published),
+            )
+            connection.commit()
+            write_audit(current_user.id, "report_card_" + action, selected_student["admission_number"],
+                        academic_year + " / " + term)
+            flash("Report card publication updated.", "success")
+            return redirect(url_for("report_cards", student_id=student_id, academic_year=academic_year, term=term))
+
+        if selected_student:
+            raw_grades = connection.execute(
+                """SELECT subject, score, max_score, assessment FROM grades
+                   WHERE student_id = ? AND academic_year = ? AND term = ?
+                   ORDER BY subject COLLATE NOCASE, assessment COLLATE NOCASE""",
+                (student_id, academic_year, term),
+            ).fetchall()
+            by_subject = {}
+            for grade in raw_grades:
+                item = by_subject.setdefault(grade["subject"], {"subject": grade["subject"], "earned": 0.0, "possible": 0.0, "assessments": 0})
+                item["earned"] += float(grade["score"])
+                item["possible"] += float(grade["max_score"])
+                item["assessments"] += 1
+            subject_rows = [dict(item, percentage=round(item["earned"] / item["possible"] * 100, 1))
+                            for item in by_subject.values() if item["possible"] > 0]
+            publication = connection.execute(
+                "SELECT published, published_at FROM report_cards WHERE student_id = ? AND academic_year = ? AND term = ?",
+                (student_id, academic_year, term),
+            ).fetchone()
+    finally:
+        connection.close()
+
+    return render_template(
+        "report_cards.html", students=students, selected_student=selected_student,
+        academic_year=academic_year, term=term, subject_rows=subject_rows,
+        publication=publication, can_publish=current_user.role in REPORT_CARD_PUBLISH_ROLES,
+    )
+
+
+# --------------------------------------------------
+# 7. STUDENT RECORDS
 # --------------------------------------------------
 
 @app.route("/students/register", methods=["GET", "POST"])
