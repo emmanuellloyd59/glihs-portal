@@ -676,11 +676,17 @@ def admin_users():
     try:
         users = connection.execute(
             """
-            SELECT id, username, full_name, role, status, is_super_admin, created_at, approved_at
-            FROM users ORDER BY
-                CASE status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END,
-                username COLLATE NOCASE
+            SELECT u.id, u.username, u.full_name, u.role, u.status, u.is_super_admin,
+                   u.created_at, u.approved_at, s.id AS linked_student_id,
+                   s.full_name AS linked_student_name, s.admission_number AS linked_admission_number
+            FROM users u LEFT JOIN students s ON s.account_user_id = u.id
+            ORDER BY CASE u.status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END,
+                     u.username COLLATE NOCASE
             """
+        ).fetchall()
+        available_students = connection.execute(
+            """SELECT id, full_name, admission_number, class_level, account_user_id
+               FROM students WHERE status = 'active' ORDER BY class_level, full_name"""
         ).fetchall()
         audit_entries = connection.execute(
             """
@@ -695,7 +701,7 @@ def admin_users():
 
     return render_template(
         "admin_users.html", users=users, roles=STAFF_ROLES,
-        audit_entries=audit_entries,
+        available_students=available_students, audit_entries=audit_entries,
     )
 
 
