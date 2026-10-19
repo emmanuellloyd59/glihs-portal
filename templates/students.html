@@ -58,6 +58,7 @@
                     <th class="py-3">Financial Status</th>
                     <th class="py-3">Balance</th>
                     <th class="py-3">Status</th>
+                    <th class="py-3">Profile</th>
                 </tr>
             </thead>
             <tbody>
@@ -84,6 +85,7 @@
                             <span class="badge rounded-pill text-bg-secondary">{{ student['status']|capitalize }}</span>
                         {% endif %}
                     </td>
+                    <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('student_detail', student_id=student['id']) }}">Open Profile</a></td>
                 </tr>
                 {% endfor %}
             </tbody>
