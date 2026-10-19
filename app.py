@@ -62,6 +62,10 @@ def add_security_headers(response):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    # Authenticated responses can contain sensitive student, guardian, or finance data.
+    if current_user.is_authenticated:
+        response.headers["Cache-Control"] = "no-store, private"
+        response.headers["Pragma"] = "no-cache"
     return response
 
 
@@ -1027,9 +1031,25 @@ def register_student():
             flash("Check required fields and ensure all values are within the allowed length.", "danger")
             return redirect(url_for("register_student"))
 
-        if not admission_number or not full_name or not class_level:
-            flash("Admission number, full name, and class are required.", "danger")
+        # Validate untrusted form input on the server; browser validation is not sufficient.
+        if not admission_number.replace("-", "").replace("_", "").isalnum():
+            flash("Admission number may contain only letters, numbers, hyphens, and underscores.", "danger")
             return redirect(url_for("register_student"))
+        if any(ord(ch) < 32 or ord(ch) == 127 for value in (full_name, class_level, guardian_name)
+               for ch in value):
+            flash("Names and class fields contain invalid control characters.", "danger")
+            return redirect(url_for("register_student"))
+        if guardian_phone and any(ch not in "0123456789+()- ." for ch in guardian_phone):
+            flash("Enter a valid guardian phone number.", "danger")
+            return redirect(url_for("register_student"))
+        if date_of_birth:
+            try:
+                parsed_dob = datetime.strptime(date_of_birth, "%Y-%m-%d").date()
+                if parsed_dob.isoformat() != date_of_birth or parsed_dob > datetime.now().date():
+                    raise ValueError
+            except (ValueError, TypeError):
+                flash("Enter a valid date of birth that is not in the future.", "danger")
+                return redirect(url_for("register_student"))
 
         connection = get_db_connection()
         try:
@@ -1175,10 +1195,17 @@ def list_students():
     search_query = request.args.get("q", "").strip()[:100]
     connection = get_db_connection()
     try:
+        # Teachers need class/identity details for instruction, not private guardian
+        # contact information or student birth dates. Expressions are fixed constants.
+        private_student_fields = (
+            "NULL AS date_of_birth, NULL AS guardian_name, NULL AS guardian_phone"
+            if current_user.role == "teacher"
+            else "s.date_of_birth, s.guardian_name, s.guardian_phone"
+        )
         students = connection.execute(
-            """
+            f"""
             SELECT s.id, s.student_id_number, s.admission_number, s.full_name, s.class_level,
-                   s.date_of_birth, s.guardian_name, s.guardian_phone, s.status,
+                   {private_student_fields}, s.status,
                    COALESCE(f.total_fee, 0) AS total_fee,
                    COALESCE(f.amount_paid, 0) AS amount_paid,
                    COALESCE(f.total_fee, 0) - COALESCE(f.amount_paid, 0) AS balance
