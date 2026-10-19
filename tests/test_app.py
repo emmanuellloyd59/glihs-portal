@@ -39,6 +39,12 @@ class CMHSPortalTests(unittest.TestCase):
             "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
             ("student_demo", generate_password_hash("test-student-password"), "student"),
         )
+        connection.execute(
+            """INSERT INTO users
+               (username, password_hash, role, status, is_super_admin)
+               VALUES (?, ?, 'super_admin', 'active', 1)""",
+            ("super_demo", generate_password_hash("test-super-password")),
+        )
         connection.commit()
         connection.close()
         self.client.post("/logout")  # Clear a prior authenticated test session if any.
@@ -123,10 +129,110 @@ class CMHSPortalTests(unittest.TestCase):
 
         user = portal.get_user_by_username("render_admin")
         self.assertIsNotNone(user)
-        self.assertEqual(user.role, "admin")
+        self.assertEqual(user.role, "super_admin")
+        self.assertTrue(user.is_super_admin)
         from werkzeug.security import check_password_hash
         self.assertTrue(check_password_hash(user.password_hash, "new-demo-password"))
         self.assertFalse(check_password_hash(user.password_hash, "old-password"))
+
+
+    def test_non_super_admin_cannot_open_administrator_management(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get("/admin/users")
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_request_stays_pending_and_cannot_sign_in(self):
+        response = self.client.post(
+            "/admin/request-access",
+            data={
+                "full_name": "Morgan Example",
+                "username": "registrar_example",
+                "requested_role": "registrar",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        row = connection.execute(
+            "SELECT status, role FROM users WHERE username = ?",
+            ("registrar_example",),
+        ).fetchone()
+        connection.close()
+        self.assertEqual(row["status"], "pending")
+        self.assertEqual(row["role"], "registrar")
+        login_response = self.client.post(
+            "/login",
+            data={"username": "registrar_example", "password": "anything"},
+            follow_redirects=True,
+        )
+        self.assertIn(b"Invalid username or password", login_response.data)
+        self.assertNotIn(b"Dashboard Overview", login_response.data)
+
+    def test_super_admin_can_approve_request_and_activate_account(self):
+        self.client.post(
+            "/admin/request-access",
+            data={
+                "full_name": "Morgan Example",
+                "username": "registrar_example",
+                "requested_role": "registrar",
+            },
+        )
+        self.login_as("super_demo", "test-super-password")
+        response = self.client.post(
+            "/admin/users",
+            data={
+                "action": "approve",
+                "user_id": self._user_id("registrar_example"),
+                "temporary_password": "Temporary-Example-2026!",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        row = connection.execute(
+            "SELECT status, role, approved_by FROM users WHERE username = ?",
+            ("registrar_example",),
+        ).fetchone()
+        connection.close()
+        self.assertEqual(row["status"], "active")
+        self.assertEqual(row["role"], "registrar")
+        self.assertIsNotNone(row["approved_by"])
+        login_response = self.client.post(
+            "/login",
+            data={
+                "username": "registrar_example",
+                "password": "Temporary-Example-2026!",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(login_response.status_code, 200)
+        self.assertIn(b"Dashboard Overview", login_response.data)
+
+    def _user_id(self, username):
+        connection = portal.get_db_connection()
+        try:
+            row = connection.execute(
+                "SELECT id FROM users WHERE username = ?", (username,)
+            ).fetchone()
+            return row["id"]
+        finally:
+            connection.close()
+
+    def test_suspended_account_cannot_sign_in(self):
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT INTO users (username, password_hash, role, status) VALUES (?, ?, ?, 'suspended')",
+            ("suspended_demo", generate_password_hash("test-suspended-password"), "teacher"),
+        )
+        connection.commit()
+        connection.close()
+        response = self.client.post(
+            "/login",
+            data={"username": "suspended_demo", "password": "test-suspended-password"},
+            follow_redirects=True,
+        )
+        self.assertIn(b"Invalid username or password", response.data)
+        self.assertNotIn(b"Dashboard Overview", response.data)
 
     def test_duplicate_admission_number_is_rejected_gracefully(self):
         self.login_as("teacher_demo", "test-teacher-password")
