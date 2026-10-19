@@ -36,7 +36,7 @@
         <tbody>
         {% for user in users %}
             <tr>
-                <td><div class="fw-bold">{{ user.username }}</div><div class="small text-secondary">Created {{ user.created_at }}</div>{% if user.is_super_admin %}<span class="badge text-bg-dark mt-1">Super Administrator</span>{% endif %}</td>
+                <td><div class="fw-bold">{{ user.full_name or user.username }}</div><div class="small text-secondary">@{{ user.username }} · Created {{ user.created_at }}</div>{% if user.is_super_admin %}<span class="badge text-bg-dark mt-1">Super Administrator</span>{% endif %}</td>
                 <td>{{ roles.get(user.role, user.role.replace('_', ' ').title()) }}</td>
                 <td><span class="status-pill status-{{ user.status }}">{{ user.status }}</span></td>
                 <td>
