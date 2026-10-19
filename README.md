@@ -24,11 +24,48 @@ CMHS Digital Campus is a Flask-based school-portal demonstration built with Flas
 
 ## Important demonstration limits
 
-This is a development/demo build, not a production school management system. Do not enter real student records, dates of birth, guardian details, or real contact information. Use fictional test data only.
+This is a development/demo build, not a production school management system. Do not enter real student records, dates of birth, guardian details, payment information, or real contact information. Use fictional test data only.
 
 The application currently uses SQLite. If the hosting provider's filesystem is ephemeral, database contents may be lost on a redeploy or restart. Reliable long-term storage needs an appropriately configured persistent disk or a managed database and corresponding application configuration. Do not assume a successful deployment means the database is persistent.
 
-These modules remain demonstration software and have not been approved for real student data or production school operations. Homework, timetable, parent self-service, and learning materials remain planned. Automated tests pass for the current development branch, but report-card printing still needs a real-browser/PDF visual check and deployment requires a separate staging, persistence, backup/restore, and security review.
+These modules remain demonstration software and have not been approved for real student data or production school operations. Homework, timetable management, parent self-service, and learning materials remain planned. Fee/payment code exists, but it must not be treated as a production accounting system until financial workflows, authorization, auditability, and recovery are comprehensively tested. Staff account approval exists; a complete staff-management module is still a future milestone. Notifications and multi-school tenant isolation are not yet verified as complete features.
+
+Automated tests passing is useful evidence, but does not by itself prove browser usability, production security, reliable hosting persistence, backup recovery, or readiness for real school operations. Report-card printing still needs a real-browser/PDF visual check, and deployment requires separate staging, persistence, backup/restore, and security reviews.
+
+## Future roadmap and release gates
+
+The prices below are **business-planning targets only**, not current product prices, guaranteed market rates, or proof that features are implemented. Offer a tier only after every capability promised in that tier has passed its acceptance tests.
+
+| Proposed tier | Minimum verified scope | Indicative annual license target |
+| --- | --- | ---: |
+| Pilot Edition | Core login/roles, student records, grades, attendance; tested on staging with fictional data | US$150–300 |
+| School Edition | Pilot scope plus verified report cards, staff management, and timetable management | US$300–600 |
+| Family & Finance Edition | School Edition plus verified parent access, fee/payment tracking, and notifications | US$600–1,000 |
+| Complete Campus Edition | Above modules plus reporting, enforced school-level data isolation, reliable backups/recovery, and defined support terms | US$1,000–1,800+ |
+
+Setup, data migration, staff training, dedicated hosting, messaging charges, and custom integrations should be scoped and priced separately. These estimates require validation with actual schools in Liberia. They are not a revenue forecast.
+
+### Implementation order
+
+1. **Multi-school isolation and data architecture:** decide between a properly isolated database per school and a tenant-aware shared database. Enforce school scope on every request and query; test that users and administrators from School A cannot read or modify School B records, reports, files, finance, or accounts.
+2. **Staff management:** staff profiles, role assignment, activation/suspension, safe account provisioning, least-privilege access, and audit history.
+3. **Timetable management:** create/update timetables and validate teacher, class, room, and period conflicts.
+4. **Fees and payment tracking:** fee schedules, invoices, partial/full payments, balance calculations, receipts, correction/refund controls, finance permissions, and auditable changes. Do not claim accounting-grade reliability until reconciliations and recovery tests pass.
+5. **Parent portal:** verified guardian-to-student links, least-privilege access, and tests proving parents cannot access unrelated students or private staff/finance information.
+6. **Notifications:** configurable channels, delivery/failure tracking, retry and duplicate handling, consent/preferences where applicable, and no sensitive student information exposed in insecure messages.
+7. **Release readiness:** responsive browser tests, accessibility checks, security review, durable database configuration, tested backup/restore, operational monitoring, support procedures, and rollback plan.
+
+### Acceptance gate for every module
+
+Before describing a module as complete or including it in a paid tier:
+
+- Add automated tests for normal, invalid, duplicate, unauthorized, and cross-school access cases as relevant.
+- Run the complete test suite on the current branch and review CI results.
+- Test workflows in a real browser on desktop and mobile, including print/PDF when applicable.
+- Verify records persist after refresh and a controlled staging restart.
+- Verify backup restoration against a disposable database and check data integrity.
+- Document limitations, permissions, and the exact features included in the customer's contract.
+- Keep production and staging data/secrets separate. Use fictional data until the production security and privacy review is approved.
 
 ## Suggested demonstration walkthrough
 
