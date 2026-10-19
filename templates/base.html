@@ -29,6 +29,17 @@
         footer { color:#64748b; }
         .demo-ribbon { background:#fff8e6; color:#805b10; border-bottom:1px solid #f2dfac; font-size:.83rem; }
         @media (max-width:575.98px) { .navbar-brand { font-size:1rem; } .brand-mark { width:2rem; height:2rem; } }
+        @media print {
+            @page { size: A4; margin: 12mm; }
+            body { min-height: 0; display: block; background: #fff !important; color: #000 !important; }
+            .demo-ribbon, .site-navbar, footer, .no-print, .alert, form, .btn, .navbar-toggler { display: none !important; }
+            main.page-shell { width: 100%; max-width: none; margin: 0; padding: 0 !important; }
+            .surface-card { border: 1px solid #d6dbe1 !important; border-radius: 0 !important; box-shadow: none !important; break-inside: avoid; }
+            table { width: 100% !important; font-size: 10pt; }
+            thead { display: table-header-group; }
+            tr, td, th { break-inside: avoid; }
+            a { color: #000 !important; text-decoration: none !important; }
+        }
     </style>
     {% block head %}{% endblock %}
 </head>
