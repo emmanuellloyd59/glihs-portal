@@ -69,7 +69,7 @@ class DatabaseMigrationTests(unittest.TestCase):
                         "SELECT id, username, role, status FROM users WHERE id = 1"
                     ).fetchone()
                     student = upgraded.execute(
-                        "SELECT id, admission_number, full_name, account_user_id FROM students WHERE id = 7"
+                        "SELECT id, admission_number, full_name, account_user_id, student_id_number FROM students WHERE id = 7"
                     ).fetchone()
                     grade = upgraded.execute(
                         "SELECT id, student_id, subject, assessment, score, max_score, academic_year, term "
@@ -86,6 +86,13 @@ class DatabaseMigrationTests(unittest.TestCase):
                                      (7, "LEGACY-007", "Fictional Legacy Student"))
                     self.assertIsNone(student["account_user_id"])
                     self.assertIn("account_user_id", columns)
+                    self.assertIn("student_id_number", columns)
+                    self.assertIn("enrollment_date", columns)
+                    self.assertIn("previous_school", columns)
+                    self.assertIn("emergency_contact_name", columns)
+                    self.assertIn("emergency_contact_phone", columns)
+                    self.assertIn("record_notes", columns)
+                    self.assertTrue(student["student_id_number"].startswith("CMHS-"))
                     self.assertEqual(
                         (grade["id"], grade["student_id"], grade["subject"], grade["assessment"],
                          grade["score"], grade["max_score"], grade["academic_year"], grade["term"]),
