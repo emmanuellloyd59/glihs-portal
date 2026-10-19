@@ -296,5 +296,74 @@ class CMHSPortalTests(unittest.TestCase):
         self.assertIn(b"That admission number already exists", second.data)
 
 
+
+    def test_teacher_can_save_grade_and_attendance(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+            ("ACADEMIC-001", "Jamie Example", "Grade 7"),
+        )
+        student_id = connection.execute(
+            "SELECT id FROM students WHERE admission_number = ?", ("ACADEMIC-001",)
+        ).fetchone()["id"]
+        connection.commit()
+        connection.close()
+
+        grade_response = self.client.post("/academics", data={
+            "action": "grade", "student_id": str(student_id), "subject": "Mathematics",
+            "assessment": "Quiz 1", "score": "18", "max_score": "20",
+        }, follow_redirects=True)
+        self.assertEqual(grade_response.status_code, 200)
+        self.assertIn(b"Grade saved successfully", grade_response.data)
+        self.assertIn(b"Mathematics", grade_response.data)
+
+        attendance_response = self.client.post("/academics", data={
+            "action": "attendance", "student_id": str(student_id),
+            "attendance_date": "2026-10-19", "status": "present", "note": "Demo attendance",
+        }, follow_redirects=True)
+        self.assertEqual(attendance_response.status_code, 200)
+        self.assertIn(b"Attendance saved successfully", attendance_response.data)
+        self.assertIn(b"Present", attendance_response.data)
+
+    def test_student_and_finance_roles_cannot_open_academics(self):
+        self.login_as("student_demo", "test-student-password")
+        self.assertEqual(self.client.get("/academics").status_code, 403)
+        self.client.post("/logout")
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            ("finance_demo", generate_password_hash("test-finance-password"), "finance_admin"),
+        )
+        connection.commit()
+        connection.close()
+        self.login_as("finance_demo", "test-finance-password")
+        self.assertEqual(self.client.get("/academics").status_code, 403)
+
+    def test_duplicate_attendance_and_invalid_grade_are_rejected(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+            ("ACADEMIC-002", "Alex Example", "Grade 8"),
+        )
+        student_id = connection.execute(
+            "SELECT id FROM students WHERE admission_number = ?", ("ACADEMIC-002",)
+        ).fetchone()["id"]
+        connection.commit()
+        connection.close()
+        invalid = self.client.post("/academics", data={
+            "action": "grade", "student_id": str(student_id), "subject": "Science",
+            "assessment": "Test", "score": "120", "max_score": "100",
+        }, follow_redirects=True)
+        self.assertIn(b"Scores must be valid numbers", invalid.data)
+        data = {
+            "action": "attendance", "student_id": str(student_id),
+            "attendance_date": "2026-10-19", "status": "present", "note": "",
+        }
+        self.client.post("/academics", data=data)
+        duplicate = self.client.post("/academics", data=data, follow_redirects=True)
+        self.assertIn(b"Attendance has already been recorded", duplicate.data)
+
 if __name__ == "__main__":
     unittest.main()
