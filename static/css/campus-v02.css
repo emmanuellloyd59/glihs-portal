@@ -2,25 +2,25 @@
    Responsive, accessible enhancements layered over Bootstrap 5.3.3. */
 :root {
   color-scheme: light;
-  --campus-navy: #102a43;
-  --campus-blue: #1769aa;
-  --campus-teal: #16a6a1;
-  --campus-ink: #172b4d;
-  --campus-muted: #61758a;
-  --campus-canvas: #f4f7fb;
-  --campus-border: #e1e9f2;
+  --campus-navy: #171b32;
+  --campus-blue: #202744;
+  --campus-teal: #d5a51e;
+  --campus-ink: #222638;
+  --campus-muted: #666b7b;
+  --campus-canvas: #f7f7f8;
+  --campus-border: #e6e1d5;
   --campus-radius: 1.1rem;
-  --campus-shadow: 0 10px 30px rgba(16, 42, 67, .075);
-  --campus-shadow-hover: 0 18px 42px rgba(16, 42, 67, .14);
+  --campus-shadow: 0 10px 30px rgba(23, 27, 50, .085);
+  --campus-shadow-hover: 0 18px 42px rgba(23, 27, 50, .16);
 }
 html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
-body { background: radial-gradient(ellipse at 12% 0%, rgba(22,166,161,.06), transparent 34%), var(--campus-canvas); color: var(--campus-ink); line-height: 1.6; -webkit-font-smoothing: antialiased; }
-::selection { background: rgba(22,166,161,.22); color: var(--campus-navy); }
+body { background: radial-gradient(ellipse at 12% 0%, rgba(213,165,30,.09), transparent 34%), var(--campus-canvas); color: var(--campus-ink); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+::selection { background: rgba(213,165,30,.25); color: var(--campus-navy); }
 a { text-underline-offset: .2em; }
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
-  outline: 3px solid rgba(22,166,161,.75) !important; outline-offset: 3px;
+  outline: 3px solid rgba(213,165,30,.9) !important; outline-offset: 3px;
 }
-.site-navbar { position: sticky; top: 0; z-index: 1030; background: linear-gradient(112deg,#102a43 0%,#164e78 72%,#1769aa 100%); border-bottom: 1px solid rgba(255,255,255,.12); }
+.site-navbar { position: sticky; top: 0; z-index: 1030; background: linear-gradient(112deg,#171b32 0%,#252b49 72%,#343047 100%); border-bottom: 1px solid rgba(255,255,255,.12); }
 .site-navbar .navbar-brand { min-height: 44px; }
 .site-navbar .nav-link { padding: .65rem .8rem; border-radius: .65rem; transition: background-color .18s ease, color .18s ease; }
 .site-navbar .nav-link:hover, .site-navbar .nav-link:focus-visible { background: rgba(255,255,255,.1); color: #fff !important; }
@@ -38,7 +38,7 @@ a.surface-card, .surface-card a { text-decoration-thickness: .08em; }
 .btn:active { transform: translateY(1px); }
 .btn-lg { min-height: 50px; }
 .btn-primary { --bs-btn-bg: var(--campus-blue); --bs-btn-border-color: var(--campus-blue); --bs-btn-hover-bg: #12558b; --bs-btn-hover-border-color: #12558b; --bs-btn-active-bg: #104b7b; }
-.btn-outline-primary { --bs-btn-color: var(--campus-blue); --bs-btn-border-color: #9dbbd5; --bs-btn-hover-bg: var(--campus-blue); --bs-btn-hover-border-color: var(--campus-blue); }
+.btn-outline-primary { --bs-btn-color: var(--campus-blue); --bs-btn-border-color: #c9b777; --bs-btn-hover-bg: var(--campus-blue); --bs-btn-hover-border-color: var(--campus-blue); }
 .form-label { color: #263f58; }
 .form-control, .form-select, .input-group-text { min-height: 46px; border-color: #cfdae6; border-radius: .75rem; }
 .form-control, .form-select { padding: .65rem .85rem; }
@@ -76,4 +76,32 @@ footer .fw-bold { letter-spacing: .015em; }
   html, body { background: #fff !important; color: #000 !important; }
   .site-navbar { position: static; }
   .surface-card { box-shadow: none !important; }
+}
+
+/* Christian Martyrs High School identity: deep navy, academic gold, and white. */
+:root {
+  --cmhs-navy: #171b32;
+  --cmhs-gold: #d5a51e;
+  --cmhs-gold-light: #f6e8b7;
+  --cmhs-white: #ffffff;
+}
+.site-navbar { background: linear-gradient(112deg, #171b32 0%, #252b49 68%, #343047 100%); border-bottom: 3px solid var(--cmhs-gold); }
+.brand-mark { background: var(--cmhs-gold) !important; color: var(--cmhs-navy) !important; border-radius: .6rem; }
+.site-navbar .nav-link:hover, .site-navbar .nav-link:focus-visible { color: var(--cmhs-gold-light) !important; }
+.site-navbar .btn-light { background: var(--cmhs-gold); color: var(--cmhs-navy); }
+.site-navbar .btn-light:hover { background: #f0c84e; color: var(--cmhs-navy); }
+.btn-primary { --bs-btn-bg: #202744; --bs-btn-border-color: #202744; --bs-btn-hover-bg: #343047; --bs-btn-hover-border-color: #343047; --bs-btn-active-bg: #171b32; }
+.btn-teal { background: var(--cmhs-gold); color: var(--cmhs-navy); }
+.btn-teal:hover { background: #edc448; color: var(--cmhs-navy); }
+.eyebrow, .text-primary { --bs-text-opacity: 1; }
+.text-primary { color: #8a6810 !important; }
+.surface-card { border-top: 3px solid rgba(213,165,30,.45); }
+.demo-ribbon { background: #fff8e6; color: #59430a; border-bottom-color: #e8ce79; }
+.table thead th { background: #f5efdc; color: #292b3b; }
+.form-control:focus, .form-select:focus { border-color: #c69b20; box-shadow: 0 0 0 .22rem rgba(213,165,30,.2); }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline-color: #c69b20 !important; }
+section.rounded-4.text-white.p-4.p-md-5.mb-4 { background: linear-gradient(120deg,#171b32,#252b49 65%,#3b3548) !important; border-bottom: 4px solid var(--cmhs-gold); }
+section.rounded-4.text-white.p-4.p-md-5.mb-4 .eyebrow { color: #f3d56f !important; }
+@media print {
+  .surface-card { border-top-color: #bbb !important; }
 }
