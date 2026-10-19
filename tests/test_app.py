@@ -77,6 +77,22 @@ class CMHSPortalTests(unittest.TestCase):
         self.assertIn(b"Dashboard Overview", response.data)
         self.assertIn(b"Student Records", response.data)
 
+    def test_database_connections_enforce_foreign_keys(self):
+        connection = portal.get_db_connection()
+        try:
+            enabled = connection.execute("PRAGMA foreign_keys").fetchone()[0]
+            self.assertEqual(enabled, 1)
+        finally:
+            connection.close()
+
+    def test_teacher_dashboard_marks_grades_and_attendance_available(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Class Grades &amp; Attendance", response.data)
+        self.assertIn(b"Open Grades &amp; Attendance", response.data)
+        self.assertNotIn(b"Class Grades &amp; Attendance</h3><p class=\"text-secondary\">Enter assessment scores", response.data)
+
     def test_invalid_password_does_not_authenticate(self):
         response = self.client.post(
             "/login",
