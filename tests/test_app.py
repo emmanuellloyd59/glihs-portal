@@ -93,6 +93,34 @@ class CMHSPortalTests(unittest.TestCase):
         self.assertEqual(response.headers.get("X-Frame-Options"), "DENY")
         self.assertEqual(response.headers.get("Referrer-Policy"), "strict-origin-when-cross-origin")
         self.assertIn("camera=()", response.headers.get("Permissions-Policy", ""))
+        self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+
+    def test_csrf_protection_rejects_post_without_token(self):
+        previous = portal.app.config["WTF_CSRF_ENABLED"]
+        portal.app.config["WTF_CSRF_ENABLED"] = True
+        try:
+            response = self.client.post("/login", data={"username": "teacher_demo", "password": "test-teacher-password"})
+            self.assertEqual(response.status_code, 400)
+        finally:
+            portal.app.config["WTF_CSRF_ENABLED"] = previous
+
+    def test_logout_cannot_be_triggered_by_get_request(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get("/logout")
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(self.client.get("/dashboard").status_code, 200)
+
+    def test_suspending_an_active_user_invalidates_the_existing_session(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        connection = portal.get_db_connection()
+        try:
+            connection.execute("UPDATE users SET status = 'suspended' WHERE username = 'teacher_demo'")
+            connection.commit()
+        finally:
+            connection.close()
+        response = self.client.get("/dashboard", follow_redirects=True)
+        self.assertIn(b"Portal Login", response.data)
+        self.assertNotIn(b"Dashboard Overview", response.data)
 
     def test_failed_login_is_audited_without_revealing_account_existence(self):
         response = self.client.post(
