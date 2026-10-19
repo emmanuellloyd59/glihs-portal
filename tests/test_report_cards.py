@@ -107,6 +107,10 @@ class ReportCardTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Print / Save as PDF", response.data)
         self.assertIn(b"window.print()", response.data)
+        self.assertIn(b'id="report-card-print"', response.data)
+        self.assertIn(b"main.page-shell > * { display: none !important; }", response.data)
+        self.assertIn(b"main.page-shell > #report-card-print { display: block !important; }", response.data)
+        self.assertIn(b"#report-card-print .table-responsive { overflow: visible !important; }", response.data)
 
     def test_report_card_table_and_grade_term_columns_exist(self):
         connection = get_db_connection()
