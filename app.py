@@ -79,7 +79,7 @@ def migrate_users_table(connection):
     }
     if (
         "super_admin" in schema_sql
-        and {"status", "is_super_admin", "created_at", "approved_by", "approved_at"}.issubset(columns)
+        and {"status", "is_super_admin", "created_at", "approved_by", "approved_at", "full_name"}.issubset(columns)
     ):
         return
 
@@ -89,6 +89,7 @@ def migrate_users_table(connection):
         CREATE TABLE users_migrating (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
+            full_name TEXT NOT NULL DEFAULT '',
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL CHECK (
                 role IN ('super_admin', 'principal', 'registrar',
@@ -113,12 +114,13 @@ def migrate_users_table(connection):
         created_expr = "created_at" if "created_at" in old_columns else "CURRENT_TIMESTAMP"
         approved_by_expr = "approved_by" if "approved_by" in old_columns else "NULL"
         approved_at_expr = "approved_at" if "approved_at" in old_columns else "NULL"
+        full_name_expr = "full_name" if "full_name" in old_columns else "username"
         connection.execute(
             f"""
             INSERT INTO users_migrating
-                (id, username, password_hash, role, status, is_super_admin,
+                (id, username, full_name, password_hash, role, status, is_super_admin,
                  created_at, approved_by, approved_at)
-            SELECT id, username, password_hash,
+            SELECT id, username, {full_name_expr}, password_hash,
                    CASE WHEN role = 'admin' THEN 'super_admin' ELSE role END,
                    {status_expr},
                    CASE WHEN role = 'admin' THEN 1 ELSE {super_expr} END,
@@ -139,6 +141,7 @@ def initialize_database():
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL UNIQUE,
+                full_name TEXT NOT NULL DEFAULT '',
                 password_hash TEXT NOT NULL,
                 role TEXT NOT NULL CHECK (
                     role IN ('super_admin', 'principal', 'registrar',
@@ -191,16 +194,17 @@ def initialize_database():
             connection.execute(
                 """
                 INSERT INTO users
-                    (username, password_hash, role, status, is_super_admin, approved_at)
-                VALUES (?, ?, 'super_admin', 'active', 1, CURRENT_TIMESTAMP)
+                    (username, full_name, password_hash, role, status, is_super_admin, approved_at)
+                VALUES (?, ?, ?, 'super_admin', 'active', 1, CURRENT_TIMESTAMP)
                 ON CONFLICT(username) DO UPDATE SET
+                    full_name = CASE WHEN users.full_name = '' THEN excluded.full_name ELSE users.full_name END,
                     password_hash = excluded.password_hash,
                     role = 'super_admin',
                     status = 'active',
                     is_super_admin = 1,
                     approved_at = COALESCE(users.approved_at, CURRENT_TIMESTAMP)
                 """,
-                (initial_username, generate_password_hash(initial_password)),
+                (initial_username, initial_username, generate_password_hash(initial_password)),
             )
         connection.commit()
     finally:
@@ -366,10 +370,10 @@ def request_staff_access():
         try:
             connection.execute(
                 """
-                INSERT INTO users (username, password_hash, role, status, is_super_admin)
-                VALUES (?, ?, ?, 'pending', 0)
+                INSERT INTO users (username, full_name, password_hash, role, status, is_super_admin)
+                VALUES (?, ?, ?, ?, 'pending', 0)
                 """,
-                (username, placeholder_password, requested_role),
+                (username, full_name, placeholder_password, requested_role),
             )
             connection.commit()
             flash("Access request submitted. You cannot sign in until it is approved.", "success")
@@ -432,14 +436,8 @@ def admin_users():
                     flash("Account approved and activated. Share the temporary password securely.", "success")
             elif action in ("suspend", "reactivate"):
                 if target["is_super_admin"]:
-                    active_super_count = connection.execute(
-                        "SELECT COUNT(*) AS total FROM users WHERE is_super_admin = 1 AND status = 'active'"
-                    ).fetchone()["total"]
-                    if action == "suspend" and (
-                        target_id_int == int(current_user.id) or active_super_count <= 1
-                    ):
-                        flash("You cannot suspend yourself or the last active Super Administrator.", "danger")
-                        return redirect(url_for("admin_users"))
+                    flash("Super Administrator accounts cannot be suspended or reactivated from this page.", "danger")
+                    return redirect(url_for("admin_users"))
                 new_status = "suspended" if action == "suspend" else "active"
                 connection.execute(
                     "UPDATE users SET status = ? WHERE id = ?",
@@ -483,7 +481,7 @@ def admin_users():
     try:
         users = connection.execute(
             """
-            SELECT id, username, role, status, is_super_admin, created_at, approved_at
+            SELECT id, username, full_name, role, status, is_super_admin, created_at, approved_at
             FROM users ORDER BY
                 CASE status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END,
                 username COLLATE NOCASE
