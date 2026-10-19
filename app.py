@@ -138,6 +138,9 @@ def initialize_database():
     """Create or upgrade tables without intentionally resetting existing records."""
     connection = get_db_connection()
     try:
+        # The legacy users-table migration replaces the table. Temporarily disable
+        # FK enforcement for that schema operation, then re-enable it for normal use.
+        connection.execute("PRAGMA foreign_keys = OFF")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -237,6 +240,7 @@ def initialize_database():
                     (initial_username, initial_username, generate_password_hash(initial_password)),
                 )
         connection.commit()
+        connection.execute("PRAGMA foreign_keys = ON")
     finally:
         connection.close()
 
