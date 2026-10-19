@@ -159,7 +159,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         response = self.client.post("/admin/users", data={
             "action": "link_student", "user_id": str(account_id), "student_id": str(student_id),
         }, follow_redirects=True)
-        self.assertIn(b"Confirm that the student's identity", response.data)
+        self.assertIn(b"identity and admission number have been checked before linking", response.data)
         connection = portal.get_db_connection()
         try:
             linked = connection.execute(
