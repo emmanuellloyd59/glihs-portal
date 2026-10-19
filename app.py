@@ -267,6 +267,11 @@ def initialize_database():
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_student_id_number "
             "ON students(student_id_number) WHERE student_id_number IS NOT NULL"
         )
+        connection.execute(
+            """UPDATE students
+               SET student_id_number = 'CMHS-' || strftime('%Y', 'now') || '-' || printf('%05d', id)
+               WHERE student_id_number IS NULL"""
+        )
         connection.execute("""
             CREATE TABLE IF NOT EXISTS student_finances (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
