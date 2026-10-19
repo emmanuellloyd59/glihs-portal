@@ -197,6 +197,7 @@ class CMHSPortalTests(unittest.TestCase):
         self.assertEqual(row["status"], "active")
         self.assertEqual(row["role"], "registrar")
         self.assertIsNotNone(row["approved_by"])
+        self.client.post("/logout")
         login_response = self.client.post(
             "/login",
             data={
