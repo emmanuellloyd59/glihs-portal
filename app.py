@@ -1100,3 +1100,54 @@ def student_finances():
                         and len(notes) <= 250 and valid_year and student):
                     raise ValueError
             except (ValueError, TypeError):
+                flash("Check the student, academic year, fee and payment amounts. Payments cannot exceed the total fees.", "danger")
+                return redirect(url_for("student_finances"))
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id, academic_year, total_fee, amount_paid, notes, updated_by)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(student_id, academic_year) DO UPDATE SET
+                     total_fee = excluded.total_fee, amount_paid = excluded.amount_paid,
+                     notes = excluded.notes, updated_by = excluded.updated_by,
+                     updated_at = CURRENT_TIMESTAMP""",
+                (student_id, academic_year, total_fee, amount_paid, notes or None, current_user.id),
+            )
+            connection.commit()
+            write_audit(current_user.id, "student_finance_updated", student["admission_number"],
+                        f"{academic_year}; fees={total_fee:.2f}; paid={amount_paid:.2f}")
+            flash("Student financial record saved.", "success")
+            return redirect(url_for("student_finances", academic_year=academic_year))
+
+        academic_year = request.args.get("academic_year", f"{datetime.now().year}-{datetime.now().year + 1}")
+        valid_year = (len(academic_year) == 9 and academic_year[4] == "-"
+                      and academic_year[:4].isdigit() and academic_year[5:].isdigit()
+                      and int(academic_year[5:]) == int(academic_year[:4]) + 1)
+        if not valid_year:
+            academic_year = f"{datetime.now().year}-{datetime.now().year + 1}"
+        students = connection.execute(
+            "SELECT id, student_id_number, admission_number, full_name, class_level FROM students "
+            "WHERE status = 'active' ORDER BY class_level, full_name"
+        ).fetchall()
+        records = connection.execute(
+            """SELECT s.student_id_number, s.admission_number, s.full_name, s.class_level,
+                      f.total_fee, f.amount_paid, f.total_fee - f.amount_paid AS balance,
+                      f.updated_at, f.notes
+               FROM student_finances f JOIN students s ON s.id = f.student_id
+               WHERE f.academic_year = ? ORDER BY s.class_level, s.full_name COLLATE NOCASE""",
+            (academic_year,),
+        ).fetchall()
+        summary = connection.execute(
+            """SELECT COALESCE(SUM(total_fee), 0) AS total_fees,
+                      COALESCE(SUM(amount_paid), 0) AS total_paid,
+                      COALESCE(SUM(total_fee - amount_paid), 0) AS total_balance
+               FROM student_finances WHERE academic_year = ?""",
+            (academic_year,),
+        ).fetchone()
+    finally:
+        connection.close()
+    return render_template("student_finances.html", students=students, records=records,
+                           academic_year=academic_year, summary=summary)
+
+
+if __name__ == "__main__":
+    app.run(port=5000, debug=False)
