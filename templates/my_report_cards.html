@@ -13,6 +13,7 @@
   <p class="eyebrow text-primary mb-1">Verified student record</p>
   <h2 class="h4 fw-bold mb-1">{{ student.full_name }}</h2>
   <p class="text-secondary mb-0">{{ student.admission_number }} · {{ student.class_level }}</p>
+  {% if reports %}<button class="btn btn-outline-primary mt-3 no-print" type="button" onclick="window.print()">Print / Save as PDF</button>{% endif %}
 </section>
 {% if reports %}
 {% set report_groups = {} %}
