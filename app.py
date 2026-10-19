@@ -300,6 +300,12 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/features")
+def feature_center():
+    """Show the current feature map and send users to implemented workflows."""
+    return render_template("features.html")
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
