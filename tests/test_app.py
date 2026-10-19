@@ -279,7 +279,7 @@ class CMHSPortalTests(unittest.TestCase):
         response = self.client.get("/features")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Feature Center", response.data)
-        self.assertIn(b"Grades, attendance and homework", response.data)
+        self.assertIn(b"Grades and attendance", response.data)
         self.assertIn(b"Planned", response.data)
 
     def test_duplicate_admission_number_is_rejected_gracefully(self):
