@@ -245,6 +245,13 @@ def initialize_database():
             )
             """
         )
+        student_columns = {row["name"] for row in connection.execute("PRAGMA table_info(students)").fetchall()}
+        if "account_user_id" not in student_columns:
+            connection.execute("ALTER TABLE students ADD COLUMN account_user_id INTEGER REFERENCES users(id)")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_account_user_id "
+            "ON students(account_user_id) WHERE account_user_id IS NOT NULL"
+        )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS grades (
