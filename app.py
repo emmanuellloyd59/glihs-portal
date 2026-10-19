@@ -147,6 +147,57 @@ def migrate_users_table(connection):
     connection.execute("ALTER TABLE users_migrating RENAME TO users")
 
 
+def migrate_grade_assessment_uniqueness(connection):
+    """Allow the same assessment label in different terms while preserving grade rows."""
+    unique_indexes = connection.execute("PRAGMA index_list(grades)").fetchall()
+    legacy_constraint_found = False
+    for index in unique_indexes:
+        if not index["unique"]:
+            continue
+        quoted_index_name = index["name"].replace("'", "''")
+        index_columns = connection.execute(
+            "PRAGMA index_info('" + quoted_index_name + "')"
+        ).fetchall()
+        column_names = tuple(row["name"] for row in index_columns)
+        if column_names == ("student_id", "subject", "assessment"):
+            legacy_constraint_found = True
+            break
+
+    if not legacy_constraint_found:
+        return
+
+    connection.execute("DROP TABLE IF EXISTS grades_migrating")
+    connection.execute(
+        """
+        CREATE TABLE grades_migrating (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL REFERENCES students(id),
+            subject TEXT NOT NULL,
+            assessment TEXT NOT NULL,
+            score REAL NOT NULL CHECK (score >= 0 AND score <= 100),
+            max_score REAL NOT NULL CHECK (max_score > 0 AND score <= max_score),
+            recorded_by INTEGER NOT NULL REFERENCES users(id),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            academic_year TEXT NOT NULL DEFAULT 'Unassigned',
+            term TEXT NOT NULL DEFAULT 'Unassigned',
+            UNIQUE(student_id, subject, assessment, academic_year, term)
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO grades_migrating
+            (id, student_id, subject, assessment, score, max_score,
+             recorded_by, created_at, academic_year, term)
+        SELECT id, student_id, subject, assessment, score, max_score,
+               recorded_by, created_at, academic_year, term
+        FROM grades
+        """
+    )
+    connection.execute("DROP TABLE grades")
+    connection.execute("ALTER TABLE grades_migrating RENAME TO grades")
+
+
 def initialize_database():
     """Create or upgrade tables without intentionally resetting existing records."""
     connection = get_db_connection()
@@ -201,7 +252,7 @@ def initialize_database():
                 max_score REAL NOT NULL CHECK (max_score > 0 AND score <= max_score),
                 recorded_by INTEGER NOT NULL REFERENCES users(id),
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(student_id, subject, assessment)
+                UNIQUE(student_id, subject, assessment, academic_year, term)
             )
             """
         )
@@ -210,6 +261,7 @@ def initialize_database():
             connection.execute("ALTER TABLE grades ADD COLUMN academic_year TEXT NOT NULL DEFAULT 'Unassigned'")
         if "term" not in grade_columns:
             connection.execute("ALTER TABLE grades ADD COLUMN term TEXT NOT NULL DEFAULT 'Unassigned'")
+        migrate_grade_assessment_uniqueness(connection)
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS report_cards (
@@ -662,7 +714,7 @@ def academics():
                                 f"{subject} / {assessment}: {score}/{max_score}")
                     flash("Grade saved successfully.", "success")
                 except sqlite3.IntegrityError:
-                    flash("A grade for this student, subject, and assessment already exists. Use a different assessment name.", "danger")
+                    flash("This student already has that assessment in the selected subject, academic year, and term.", "danger")
             elif action == "attendance":
                 attendance_date = request.form.get("attendance_date", "").strip()
                 status = request.form.get("status", "").strip()
