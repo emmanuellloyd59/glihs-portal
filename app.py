@@ -613,6 +613,8 @@ def admin_users():
                 student_id = request.form.get("student_id", "").strip()
                 if target["role"] != "student" or target["status"] != "active":
                     flash("Only an active student account can be linked to a student record.", "danger")
+                elif request.form.get("verify_identity") != "yes":
+                    flash("Confirm that the student's identity and admission number have been checked before linking.", "danger")
                 else:
                     student = connection.execute(
                         "SELECT id, admission_number FROM students WHERE id = ? AND status = 'active'",
