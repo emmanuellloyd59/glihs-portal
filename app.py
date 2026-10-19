@@ -43,6 +43,9 @@ app.config["SESSION_COOKIE_SECURE"] = os.environ.get(
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
 app.config["SESSION_REFRESH_EACH_REQUEST"] = True
+# School records can contain sensitive information; do not let browsers or
+# intermediary caches retain rendered pages, and cap request bodies to limit abuse.
+app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024
 
 CSRFProtect(app)
 login_manager = LoginManager()
@@ -54,6 +57,7 @@ login_manager.login_message = "Please log in to continue."
 @app.after_request
 def add_security_headers(response):
     """Apply baseline browser security headers to every application response."""
+    response.headers.setdefault("Cache-Control", "no-store")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
