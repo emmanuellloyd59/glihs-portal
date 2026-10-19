@@ -58,6 +58,11 @@ def add_security_headers(response):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    # Authenticated pages may contain student, guardian, academic, or account data.
+    # Prevent browsers and shared caches from reusing those responses after logout.
+    if current_user.is_authenticated:
+        response.headers["Cache-Control"] = "no-store, private"
+        response.headers["Pragma"] = "no-cache"
     return response
 
 
@@ -703,9 +708,39 @@ def register_student():
         guardian_name = request.form.get("guardian_name", "").strip()
         guardian_phone = request.form.get("guardian_phone", "").strip()
 
+        # Enforce server-side validation; browser maxlength/type attributes are
+        # helpful UX but can be bypassed by direct HTTP requests.
         if not admission_number or not full_name or not class_level:
             flash("Admission number, full name, and class are required.", "danger")
             return redirect(url_for("register_student"))
+        if (
+            len(admission_number) > 50
+            or not admission_number.replace("-", "").replace("_", "").isalnum()
+            or len(full_name) > 150
+            or len(class_level) > 50
+            or len(guardian_name) > 150
+            or len(guardian_phone) > 30
+        ):
+            flash("One or more fields exceed the allowed length or contain invalid characters.", "danger")
+            return redirect(url_for("register_student"))
+        if any(ord(character) < 32 and character not in "\\t" for value in (
+            full_name, class_level, guardian_name
+        ) for character in value):
+            flash("Names and class fields cannot contain control characters.", "danger")
+            return redirect(url_for("register_student"))
+        if guardian_phone and not all(
+            character.isdigit() or character in "+()- ." for character in guardian_phone
+        ):
+            flash("Guardian phone may contain only digits, spaces, and + ( ) - punctuation.", "danger")
+            return redirect(url_for("register_student"))
+        if date_of_birth:
+            try:
+                parsed_birth_date = datetime.strptime(date_of_birth, "%Y-%m-%d").date()
+                if parsed_birth_date.isoformat() != date_of_birth or parsed_birth_date > datetime.now().date():
+                    raise ValueError
+            except (ValueError, TypeError):
+                flash("Enter a valid date of birth that is not in the future.", "danger")
+                return redirect(url_for("register_student"))
 
         connection = get_db_connection()
         try:
@@ -742,13 +777,25 @@ def list_students():
 
     connection = get_db_connection()
     try:
-        students = connection.execute(
-            """
-            SELECT id, admission_number, full_name, class_level,
-                   date_of_birth, guardian_name, guardian_phone, status
-            FROM students ORDER BY id DESC
-            """
-        ).fetchall()
+        if current_user.role == "teacher":
+            # Teachers need identifying/class details for instruction, not private
+            # guardian contact details or student dates of birth.
+            students = connection.execute(
+                """
+                SELECT id, admission_number, full_name, class_level,
+                       NULL AS date_of_birth, NULL AS guardian_name,
+                       NULL AS guardian_phone, status
+                FROM students ORDER BY id DESC
+                """
+            ).fetchall()
+        else:
+            students = connection.execute(
+                """
+                SELECT id, admission_number, full_name, class_level,
+                       date_of_birth, guardian_name, guardian_phone, status
+                FROM students ORDER BY id DESC
+                """
+            ).fetchall()
     finally:
         connection.close()
     return render_template("students.html", students=students)
