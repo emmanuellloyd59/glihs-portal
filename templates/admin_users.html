@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Administrator Management | CMHS Digital Campus{% endblock %}
+{% block head %}
+<style>
+    .admin-hero { background:linear-gradient(120deg,#102a43,#164e78 68%,#1769aa); }
+    .metric-card { border:1px solid #e6edf5; border-radius:1rem; background:#fff; padding:1rem 1.2rem; height:100%; }
+    .metric-number { font-size:1.8rem; font-weight:800; letter-spacing:-.04em; }
+    .table > :not(caption) > * > * { padding:.9rem .75rem; vertical-align:middle; }
+    .status-pill { display:inline-flex; align-items:center; border-radius:999px; padding:.35rem .65rem; font-size:.75rem; font-weight:800; text-transform:capitalize; }
+    .status-pending { background:#fff4d6; color:#805b10; }
+    .status-active { background:#dff7e8; color:#17633a; }
+    .status-suspended { background:#fee2e2; color:#991b1b; }
+</style>
+{% endblock %}
+{% block content %}
+<section class="admin-hero text-white rounded-4 p-4 p-md-5 mb-4">
+    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3">
+        <div><p class="eyebrow mb-2" style="color:#8ce7df;">RESTRICTED WORKSPACE</p><h1 class="display-6 fw-bold mb-2">Administrator Management</h1><p class="mb-0" style="color:#e1edf7;">Review staff access requests, manage roles and protect school accounts.</p></div>
+        <span class="badge rounded-pill text-bg-light px-3 py-2">Super Administrator</span>
+    </div>
+</section>
+<div class="alert alert-warning border-0 rounded-4 mb-4"><strong>Security reminder:</strong> Only approve people whose identity and school role have been verified. Use fictional information while this portal is in demonstration mode. Share temporary passwords privately, never in this page's notes or audit log.</div>
+{% set pending_count = users|selectattr('status', 'equalto', 'pending')|list|length %}
+{% set active_count = users|selectattr('status', 'equalto', 'active')|list|length %}
+{% set suspended_count = users|selectattr('status', 'equalto', 'suspended')|list|length %}
+<div class="row g-3 mb-4">
+    <div class="col-12 col-md-4"><div class="metric-card"><div class="small text-secondary mb-1">Pending requests</div><div class="metric-number">{{ pending_count }}</div><div class="small text-secondary">Awaiting a decision</div></div></div>
+    <div class="col-12 col-md-4"><div class="metric-card"><div class="small text-secondary mb-1">Active accounts</div><div class="metric-number">{{ active_count }}</div><div class="small text-secondary">Can sign in</div></div></div>
+    <div class="col-12 col-md-4"><div class="metric-card"><div class="small text-secondary mb-1">Suspended accounts</div><div class="metric-number">{{ suspended_count }}</div><div class="small text-secondary">Sign-in blocked</div></div></div>
+</div>
+<section class="surface-card p-3 p-md-4 mb-4">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3"><div><p class="eyebrow text-primary mb-1">Account directory</p><h2 class="h4 fw-bold mb-1">Staff accounts and requests</h2><p class="text-secondary small mb-0">Requests cannot sign in until you approve them and set a temporary password.</p></div><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('request_staff_access') }}" target="_blank" rel="noopener">Open request form ↗</a></div>
+    {% if users %}
+    <div class="table-responsive"><table class="table align-middle mb-0">
+        <thead><tr><th scope="col">Account</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col" style="min-width:300px;">Action</th></tr></thead>
+        <tbody>
+        {% for user in users %}
+            <tr>
+                <td><div class="fw-bold">{{ user.username }}</div><div class="small text-secondary">Created {{ user.created_at }}</div>{% if user.is_super_admin %}<span class="badge text-bg-dark mt-1">Super Administrator</span>{% endif %}</td>
+                <td>{{ roles.get(user.role, user.role.replace('_', ' ').title()) }}</td>
+                <td><span class="status-pill status-{{ user.status }}">{{ user.status }}</span></td>
+                <td>
+                    {% if user.status == 'pending' %}
+                    <form method="POST" class="d-flex flex-column gap-2">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="approve"><input type="hidden" name="user_id" value="{{ user.id }}">
+                        <label class="small fw-semibold" for="password-{{ user.id }}">Set temporary password (12+ characters)</label>
+                        <input class="form-control" id="password-{{ user.id }}" type="password" name="temporary_password" minlength="12" autocomplete="new-password" required placeholder="Set temporary password">
+                        <button class="btn btn-success btn-sm" type="submit">Approve and activate</button>
+                    </form>
+                    {% elif user.is_super_admin %}
+                    <span class="small text-secondary">Protected account. Super Administrator status cannot be changed here.</span>
+                    {% elif user.status == 'active' %}
+                    <form method="POST" class="d-flex flex-column gap-2">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" value="{{ user.id }}">
+                        <label class="small fw-semibold" for="role-{{ user.id }}">Change role</label>
+                        <div class="d-flex gap-2"><select class="form-select form-select-sm" id="role-{{ user.id }}" name="new_role">{% for role_key, role_label in roles.items() %}<option value="{{ role_key }}" {% if user.role == role_key %}selected{% endif %}>{{ role_label }}</option>{% endfor %}</select><button class="btn btn-outline-primary btn-sm" name="action" value="change_role" type="submit">Save role</button></div>
+                        <button class="btn btn-outline-danger btn-sm align-self-start" name="action" value="suspend" type="submit" onclick="return confirm('Suspend this account? The user will no longer be able to sign in.');">Suspend account</button>
+                    </form>
+                    {% else %}
+                    <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" value="{{ user.id }}"><button class="btn btn-outline-success btn-sm" name="action" value="reactivate" type="submit">Reactivate account</button></form>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% else %}
+    <div class="text-center py-5"><div class="fs-1 mb-2">🛡️</div><h3 class="h5 fw-bold">No staff accounts yet</h3><p class="text-secondary mb-0">Staff access requests will appear here after submission.</p></div>
+    {% endif %}
+</section>
+<section class="surface-card p-3 p-md-4 mb-4">
+    <div class="mb-3"><p class="eyebrow text-primary mb-1">Accountability</p><h2 class="h4 fw-bold mb-1">Recent audit activity</h2><p class="text-secondary small mb-0">A limited history of account and sign-in actions.</p></div>
+    {% if audit_entries %}
+    <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">Time</th><th scope="col">Action</th><th scope="col">Actor</th><th scope="col">Target</th><th scope="col">Details</th></tr></thead><tbody>{% for entry in audit_entries %}<tr><td class="text-nowrap small">{{ entry.created_at }}</td><td>{{ entry.action.replace('_', ' ').title() }}</td><td>{{ entry.actor_username or 'System / unavailable' }}</td><td>{{ entry.target_username or '—' }}</td><td class="small text-secondary">{{ entry.details or '—' }}</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}<p class="text-secondary mb-0">No audit activity has been recorded yet.</p>{% endif %}
+</section>
+<div class="d-flex flex-wrap gap-2"><a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">← Return to Dashboard</a><a href="{{ url_for('index') }}" class="btn btn-link">View public home page</a></div>
+{% endblock %}
