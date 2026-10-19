@@ -1068,17 +1068,19 @@ def student_detail(student_id):
     connection = get_db_connection()
     try:
         student = connection.execute(
-            """SELECT s.*, COALESCE(f.total_fee, 0) AS total_fee,
-                      COALESCE(f.amount_paid, 0) AS amount_paid,
-                      COALESCE(f.total_fee, 0) - COALESCE(f.amount_paid, 0) AS balance
-               FROM students s
-               LEFT JOIN student_finances f ON f.student_id = s.id
-                 AND f.academic_year = ?
-               WHERE s.id = ?""",
-            (f"{datetime.now().year}-{datetime.now().year + 1}", student_id),
+            "SELECT * FROM students WHERE id = ?", (student_id,)
         ).fetchone()
         if student is None:
             abort(404)
+        finance_summary = None
+        if current_user.role in {"super_admin", "principal", "registrar", "finance_admin"}:
+            finance_summary = connection.execute(
+                """SELECT COALESCE(total_fee, 0) AS total_fee,
+                          COALESCE(amount_paid, 0) AS amount_paid,
+                          COALESCE(total_fee, 0) - COALESCE(amount_paid, 0) AS balance
+                   FROM student_finances WHERE student_id = ? AND academic_year = ?""",
+                (student_id, f"{datetime.now().year}-{datetime.now().year + 1}"),
+            ).fetchone()
         attendance = connection.execute(
             """SELECT status, COUNT(*) AS total FROM attendance
                WHERE student_id = ? GROUP BY status""", (student_id,)
@@ -1094,7 +1096,7 @@ def student_detail(student_id):
         ).fetchall()
     finally:
         connection.close()
-    return render_template("student_detail.html", student=student,
+    return render_template("student_detail.html", student=student, finance_summary=finance_summary,
                            attendance=attendance, recent_grades=recent_grades,
                            recent_attendance=recent_attendance)
 
