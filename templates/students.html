@@ -52,9 +52,11 @@
                     <th class="py-3">Admission No.</th>
                     <th class="py-3">Full Name</th>
                     <th class="py-3">Class / Grade</th>
+                    {% if current_user.role != 'teacher' %}
                     <th class="py-3">Date of Birth</th>
                     <th class="py-3">Parent / Guardian</th>
                     <th class="py-3">Phone</th>
+                    {% endif %}
                     {% if can_view_finances %}<th class="py-3">Financial Status</th>
                     <th class="py-3">Balance</th>{% endif %}
                     <th class="py-3">Status</th>
@@ -68,9 +70,11 @@
                     <td>{{ student['admission_number'] }}</td>
                     <td>{{ student['full_name'] }}</td>
                     <td>{{ student['class_level'] }}</td>
+                    {% if current_user.role != 'teacher' %}
                     <td>{{ student['date_of_birth'] or '—' }}</td>
                     <td>{{ student['guardian_name'] or '—' }}</td>
                     <td>{{ student['guardian_phone'] or '—' }}</td>
+                    {% endif %}
                     {% if can_view_finances %}<td>
                         {% if student['total_fee'] <= 0 %}<span class="badge text-bg-secondary">Not set</span>
                         {% elif student['balance'] <= 0 %}<span class="badge text-bg-success">Paid</span>
