@@ -92,6 +92,22 @@ class ReportCardTests(unittest.TestCase):
         })
         self.assertEqual(response.status_code, 403)
 
+    def test_staff_report_preview_has_print_action(self):
+        client = self.login_as("test_teacher")
+        connection = get_db_connection()
+        try:
+            student_id = connection.execute(
+                "SELECT id FROM students WHERE admission_number='DEMO-001'"
+            ).fetchone()["id"]
+        finally:
+            connection.close()
+        response = client.get(
+            f"/report-cards?student_id={student_id}&academic_year=2026-2027&term=Term%201"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Print / Save as PDF", response.data)
+        self.assertIn(b"window.print()", response.data)
+
     def test_report_card_table_and_grade_term_columns_exist(self):
         connection = get_db_connection()
         try:
