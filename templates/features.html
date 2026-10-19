@@ -6,7 +6,7 @@
     <h1 class="display-6 fw-bold mb-2">Feature Center</h1>
     <p class="lead mb-0" style="color:#e1edf7;">A clear guide to what you can use today, what requires sign-in, and what is planned next.</p>
 </section>
-<div class="alert alert-info rounded-4"><strong>Demo reminder:</strong> This is a development version. Use fictional information only. Features marked “Planned” are not operational yet.</div>
+<div class="alert alert-info rounded-4"><strong>Demo reminder:</strong> This is a development version. Use fictional information only. Features marked “Planned” are not operational yet. Grades and attendance are now available to authorized academic staff.</div>
 <section class="mb-5">
     <p class="eyebrow text-primary mb-1">Available now</p><h2 class="h3 fw-bold mb-3">Working portal actions</h2>
     <div class="row g-3">
@@ -29,7 +29,7 @@
 <section id="learning-tools" class="mb-5">
     <p class="eyebrow text-primary mb-1">Development roadmap</p><h2 class="h3 fw-bold mb-3">Features still to build</h2>
     <div class="row g-3">
-        <div class="col-12 col-md-6"><article id="grades-attendance" class="surface-card p-4 h-100"><span class="badge text-bg-secondary mb-3">Planned</span><h3 class="h5 fw-bold">Grades, attendance and homework</h3><p class="text-secondary mb-0">Needs database tables, authorized teacher forms, validation, editing controls, and tests before it can be used.</p></article></div>
+        <div class="col-12 col-md-6"><article id="grades-attendance" class="surface-card p-4 h-100"><span class="badge text-bg-success mb-3">Available for staff</span><h3 class="h5 fw-bold">Grades and attendance</h3><p class="text-secondary mb-3">Authorized teachers and academic staff can save assessment scores, record daily attendance, and review the latest saved records. Homework is still planned.</p>{% if current_user.is_authenticated and current_user.role in ['super_admin', 'teacher', 'academic_admin', 'principal', 'registrar'] %}<a class="btn btn-primary" href="{{ url_for('academics') }}">Open Grades & Attendance →</a>{% else %}<a class="btn btn-outline-primary" href="{{ url_for('login') }}">Sign in for academic access →</a>{% endif %}</article></div>
         <div class="col-12 col-md-6"><article id="academic-results" class="surface-card p-4 h-100"><span class="badge text-bg-secondary mb-3">Planned</span><h3 class="h5 fw-bold">Academic results and report cards</h3><p class="text-secondary mb-0">Needs term-based result entry, student-specific access rules, calculation checks, and printable report cards.</p></article></div>
         <div class="col-12 col-md-6"><article id="learning-materials" class="surface-card p-4 h-100"><span class="badge text-bg-secondary mb-3">Planned</span><h3 class="h5 fw-bold">Learning materials</h3><p class="text-secondary mb-0">Needs a resource library with safe file upload/download, class visibility, and access checks.</p></article></div>
         <div class="col-12 col-md-6"><article id="announcements" class="surface-card p-4 h-100"><span class="badge text-bg-secondary mb-3">Planned</span><h3 class="h5 fw-bold">School announcements</h3><p class="text-secondary mb-0">Needs an authorized publishing form, editing and archiving, and a public/student-facing feed.</p></article></div>
