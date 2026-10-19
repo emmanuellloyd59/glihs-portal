@@ -32,6 +32,7 @@ class CMHSPortalTests(unittest.TestCase):
         connection = portal.get_db_connection()
         connection.execute("DELETE FROM grades")
         connection.execute("DELETE FROM attendance")
+        connection.execute("DELETE FROM report_cards")
         connection.execute("DELETE FROM student_finances")
         connection.execute("DELETE FROM audit_log")
         connection.execute("DELETE FROM students")
