@@ -2,9 +2,9 @@ import os
 import secrets
 import sqlite3
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from flask import Flask, render_template, redirect, url_for, request, flash, abort
+from flask import Flask, render_template, redirect, url_for, request, flash, abort, session
 from flask_login import (
     LoginManager,
     UserMixin,
@@ -41,12 +41,25 @@ app.config["SESSION_COOKIE_SECURE"] = os.environ.get(
     "SESSION_COOKIE_SECURE", "true"
 ).strip().lower() in ("1", "true", "yes", "on")
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
+app.config["SESSION_REFRESH_EACH_REQUEST"] = True
 
 CSRFProtect(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
 login_manager.login_message = "Please log in to continue."
+
+
+@app.after_request
+def add_security_headers(response):
+    """Apply baseline browser security headers to every application response."""
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    return response
+
 
 STAFF_ROLES = {
     "principal": "Principal / School Administrator",
@@ -354,9 +367,11 @@ def login():
 
         user = get_user_by_username(username)
         if user and check_password_hash(user.password_hash, password):
+            session.permanent = True
             login_user(user)
             write_audit(user.id, "login_success", user.username)
             return redirect(url_for("dashboard"))
+        write_audit(None, "login_failed", username[:64] or None)
         flash("Invalid username or password.")
 
     return render_template("login.html")
