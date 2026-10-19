@@ -187,6 +187,41 @@ class ReportCardTests(unittest.TestCase):
         }, follow_redirects=True)
         self.assertIn(b"Select a valid student, academic year, and term", response.data)
 
+    def test_published_report_card_blocks_new_grade_entries(self):
+        connection = get_db_connection()
+        try:
+            student_id = connection.execute(
+                "SELECT id FROM students WHERE admission_number='DEMO-001'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO report_cards
+                   (student_id, academic_year, term, published, published_at)
+                   VALUES (?, '2026-2027', 'Term 1', 1, CURRENT_TIMESTAMP)
+                   ON CONFLICT(student_id, academic_year, term)
+                   DO UPDATE SET published=1, published_at=CURRENT_TIMESTAMP""",
+                (student_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        response = self.login_as("test_teacher").post("/academics", data={
+            "action": "grade", "student_id": str(student_id), "subject": "Mathematics",
+            "assessment": "Post-Publication Quiz", "score": "9", "max_score": "10",
+            "academic_year": "2026-2027", "term": "Term 1",
+        }, follow_redirects=True)
+        self.assertIn(b"report card is published", response.data)
+        connection = get_db_connection()
+        try:
+            row = connection.execute(
+                """SELECT id FROM grades WHERE student_id=? AND subject='Mathematics'
+                   AND assessment='Post-Publication Quiz' AND academic_year='2026-2027' AND term='Term 1'""",
+                (student_id,),
+            ).fetchone()
+            self.assertIsNone(row)
+        finally:
+            connection.close()
+
     def test_same_assessment_label_is_allowed_in_different_terms(self):
         connection = get_db_connection()
         try:
