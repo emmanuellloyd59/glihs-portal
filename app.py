@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
-from flask import Flask, render_template, redirect, url_for, request, flash, abort, session
+from flask import Flask, render_template, redirect, url_for, request, flash, abort, session, jsonify
 from flask_login import (
     LoginManager,
     UserMixin,
@@ -345,6 +345,22 @@ def require_super_admin():
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/healthz")
+def health_check():
+    """Provide a minimal, non-sensitive readiness check for the hosting platform."""
+    connection = None
+    try:
+        connection = get_db_connection()
+        connection.execute("SELECT 1").fetchone()
+        return jsonify({"status": "ok"}), 200
+    except sqlite3.Error:
+        app.logger.exception("Health check failed while accessing the database.")
+        return jsonify({"status": "unavailable"}), 503
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 @app.route("/features")

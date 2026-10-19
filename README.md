@@ -36,6 +36,10 @@ Grades and attendance have initial demo workflows for staff roles. Homework, rep
 7. Sign out and confirm the protected dashboard redirects to login.
 8. Explain which modules are available and which are planned for later releases.
 
+## Hosting health check
+
+The public `GET /healthz` endpoint returns `200` with `{"status":"ok"}` when the app can query its database, or `503` with a generic status if the database check fails. It does not expose credentials, file paths, or database error details. Configure the hosting platform health-check path as `/healthz` if supported. A healthy response does **not** prove that SQLite storage is persistent; verify storage across restarts separately.
+
 ## Configuration
 
 Required environment variable:
