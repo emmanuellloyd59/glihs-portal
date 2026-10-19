@@ -704,6 +704,14 @@ def academics():
                 except (ValueError, TypeError):
                     flash("Scores must be valid numbers: score 0–100, maximum 1–100, and score cannot exceed maximum.", "danger")
                     return redirect(url_for("academics"))
+                published_report = connection.execute(
+                    """SELECT 1 FROM report_cards
+                       WHERE student_id = ? AND academic_year = ? AND term = ? AND published = 1""",
+                    (student_id, academic_year, term),
+                ).fetchone()
+                if published_report:
+                    flash("This term's report card is published. Unpublish it before recording additional grades.", "danger")
+                    return redirect(url_for("academics"))
                 try:
                     connection.execute(
                         """INSERT INTO grades
