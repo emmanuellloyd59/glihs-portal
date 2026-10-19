@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
-from flask import Flask, render_template, redirect, url_for, request, flash, abort, session
+from flask import Flask, render_template, redirect, url_for, request, flash, abort, session, jsonify
 from flask_login import (
     LoginManager,
     UserMixin,
