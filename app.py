@@ -609,20 +609,59 @@ def admin_users():
                 )
                 connection.commit()
                 flash("Account status updated.", "success")
+            elif action == "link_student":
+                student_id = request.form.get("student_id", "").strip()
+                if target["role"] != "student" or target["status"] != "active":
+                    flash("Only an active student account can be linked to a student record.", "danger")
+                else:
+                    student = connection.execute(
+                        "SELECT id, admission_number FROM students WHERE id = ? AND status = 'active'",
+                        (student_id,),
+                    ).fetchone()
+                    if not student:
+                        flash("Choose a valid active student record.", "danger")
+                    else:
+                        existing = connection.execute(
+                            "SELECT account_user_id FROM students WHERE id = ?", (student_id,)
+                        ).fetchone()
+                        if existing["account_user_id"] not in (None, target_id_int):
+                            flash("That student record is already linked to another account.", "danger")
+                        else:
+                            connection.execute("UPDATE students SET account_user_id = NULL WHERE account_user_id = ?", (target_id_int,))
+                            connection.execute("UPDATE students SET account_user_id = ? WHERE id = ?", (target_id_int, student["id"]))
+                            connection.execute(
+                                "INSERT INTO audit_log (actor_user_id, action, target_username, details) VALUES (?, 'student_account_linked', ?, ?)",
+                                (current_user.id, target_username, "Student record: " + student["admission_number"]),
+                            )
+                            connection.commit()
+                            flash("Student account linked to the verified student record.", "success")
+            elif action == "unlink_student":
+                linked = connection.execute(
+                    "SELECT admission_number FROM students WHERE account_user_id = ?", (target_id_int,)
+                ).fetchone()
+                if target["role"] != "student":
+                    flash("Only student accounts can be unlinked from student records.", "danger")
+                elif linked:
+                    connection.execute("UPDATE students SET account_user_id = NULL WHERE account_user_id = ?", (target_id_int,))
+                    connection.execute(
+                        "INSERT INTO audit_log (actor_user_id, action, target_username, details) VALUES (?, 'student_account_unlinked', ?, ?)",
+                        (current_user.id, target_username, "Student record: " + linked["admission_number"]),
+                    )
+                    connection.commit()
+                    flash("Student account unlinked.", "success")
+                else:
+                    flash("This account has no linked student record.", "info")
             elif action == "change_role":
                 new_role = request.form.get("new_role", "").strip()
+                linked = connection.execute("SELECT 1 FROM students WHERE account_user_id = ?", (target_id_int,)).fetchone()
                 if target["is_super_admin"] or new_role not in STAFF_ROLES:
                     flash("Super Administrator roles cannot be changed here.", "danger")
+                elif linked:
+                    flash("Unlink this student record before changing the account's role.", "danger")
                 else:
+                    connection.execute("UPDATE users SET role = ? WHERE id = ?", (new_role, target_id_int))
                     connection.execute(
-                        "UPDATE users SET role = ? WHERE id = ?",
-                        (new_role, target_id_int),
-                    )
-                    connection.execute(
-                        """
-                        INSERT INTO audit_log (actor_user_id, action, target_username, details)
-                        VALUES (?, 'staff_role_changed', ?, ?)
-                        """,
+                        "INSERT INTO audit_log (actor_user_id, action, target_username, details) VALUES (?, 'staff_role_changed', ?, ?)",
                         (current_user.id, target_username, "New role: " + new_role),
                     )
                     connection.commit()
