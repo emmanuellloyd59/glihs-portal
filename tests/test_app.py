@@ -65,6 +65,7 @@ class CMHSPortalTests(unittest.TestCase):
         response = self.client.get("/healthz")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), {"status": "ok"})
+        self.assertTrue(response.is_json)
         self.assertNotIn(b"glihs.db", response.data)
         self.assertEqual(response.headers.get("X-Content-Type-Options"), "nosniff")
 
