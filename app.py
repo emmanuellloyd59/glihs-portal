@@ -840,6 +840,37 @@ REPORT_CARD_VIEW_ROLES = {"super_admin", "principal", "academic_admin", "teacher
 REPORT_CARD_PUBLISH_ROLES = {"super_admin", "principal", "academic_admin"}
 
 
+@app.route("/my-report-cards")
+@login_required
+def my_report_cards():
+    """Students can see only published reports for their own linked record."""
+    if current_user.role != "student":
+        abort(403)
+    connection = get_db_connection()
+    try:
+        student = connection.execute(
+            """SELECT id, admission_number, full_name, class_level
+               FROM students WHERE account_user_id = ? AND status = 'active'""",
+            (current_user.id,),
+        ).fetchone()
+        reports = []
+        if student:
+            reports = connection.execute(
+                """SELECT rc.academic_year, rc.term, rc.published_at,
+                          g.subject, g.score, g.max_score, g.assessment
+                   FROM report_cards rc
+                   JOIN grades g ON g.student_id = rc.student_id
+                       AND g.academic_year = rc.academic_year AND g.term = rc.term
+                   WHERE rc.student_id = ? AND rc.published = 1
+                   ORDER BY rc.academic_year DESC, rc.term, g.subject COLLATE NOCASE,
+                            g.assessment COLLATE NOCASE""",
+                (student["id"],),
+            ).fetchall()
+    finally:
+        connection.close()
+    return render_template("my_report_cards.html", student=student, reports=reports)
+
+
 @app.route("/report-cards", methods=["GET", "POST"])
 @login_required
 def report_cards():
