@@ -50,12 +50,30 @@
                     {% elif user.is_super_admin %}
                     <span class="small text-secondary">Protected account. Super Administrator status cannot be changed here.</span>
                     {% elif user.status == 'active' %}
-                    <form method="POST" class="d-flex flex-column gap-2">
+                    {% if user.role == 'student' %}
+                    <div class="small mb-2">{% if user.linked_student_id %}<span class="text-success fw-semibold">Linked: {{ user.linked_student_name }} ({{ user.linked_admission_number }})</span>{% else %}<span class="text-warning fw-semibold">No student record linked</span>{% endif %}</div>
+                    <form method="POST" class="d-flex flex-column gap-2 mb-2">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" value="{{ user.id }}">
+                        <label class="small fw-semibold" for="student-link-{{ user.id }}">Verified student record</label>
+                        <select class="form-select form-select-sm" id="student-link-{{ user.id }}" name="student_id" required>
+                            <option value="">Choose a student record</option>
+                            {% for s in available_students %}
+                            {% if not s.account_user_id or s.account_user_id == user.id %}
+                            <option value="{{ s.id }}" {% if user.linked_student_id and user.linked_student_id|string == s.id|string %}selected{% endif %}>{{ s.full_name }} — {{ s.admission_number }} ({{ s.class_level }})</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-outline-primary btn-sm" name="action" value="link_student" type="submit">Save student link</button>
+                    </form>
+                    {% if user.linked_student_id %}<form method="POST" class="mb-2"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" value="{{ user.id }}"><button class="btn btn-outline-warning btn-sm" name="action" value="unlink_student" type="submit">Unlink student record</button></form>{% endif %}
+                    {% else %}
+                    <form method="POST" class="d-flex flex-column gap-2 mb-2">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" value="{{ user.id }}">
                         <label class="small fw-semibold" for="role-{{ user.id }}">Change role</label>
                         <div class="d-flex gap-2"><select class="form-select form-select-sm" id="role-{{ user.id }}" name="new_role">{% for role_key, role_label in roles.items() %}<option value="{{ role_key }}" {% if user.role == role_key %}selected{% endif %}>{{ role_label }}</option>{% endfor %}</select><button class="btn btn-outline-primary btn-sm" name="action" value="change_role" type="submit">Save role</button></div>
-                        <button class="btn btn-outline-danger btn-sm align-self-start" name="action" value="suspend" type="submit" onclick="return confirm('Suspend this account? The user will no longer be able to sign in.');">Suspend account</button>
                     </form>
+                    {% endif %}
+                    <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" value="{{ user.id }}"><button class="btn btn-outline-danger btn-sm" name="action" value="suspend" type="submit" onclick="return confirm('Suspend this account? The user will no longer be able to sign in.');">Suspend account</button></form>
                     {% else %}
                     <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" value="{{ user.id }}"><button class="btn btn-outline-success btn-sm" name="action" value="reactivate" type="submit">Reactivate account</button></form>
                     {% endif %}
