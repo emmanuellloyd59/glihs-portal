@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Edit Student Record | CMHS Digital Campus{% endblock %}
+{% block content %}
+<div class="mb-4"><p class="eyebrow text-primary mb-1">Restricted records management</p><h1 class="h2 fw-bold">Edit Student Record</h1><p class="text-secondary">{{ student['student_id_number'] or 'ID pending' }} · {{ student['admission_number'] }}</p></div>
+{% with messages = get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="alert alert-{{ category }}">{{ message }}</div>{% endfor %}{% endwith %}
+<section class="surface-card p-4"><form method="post" class="row g-3"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<div class="col-md-6"><label class="form-label" for="full_name">Full name *</label><input class="form-control" id="full_name" name="full_name" maxlength="150" value="{{ student['full_name'] }}" required></div>
+<div class="col-md-6"><label class="form-label" for="class_level">Class / Grade *</label><input class="form-control" id="class_level" name="class_level" maxlength="50" value="{{ student['class_level'] }}" required></div>
+<div class="col-md-6"><label class="form-label" for="date_of_birth">Date of birth</label><input class="form-control" type="date" id="date_of_birth" name="date_of_birth" value="{{ student['date_of_birth'] or '' }}"></div>
+<div class="col-md-6"><label class="form-label" for="enrollment_date">Enrollment date</label><input class="form-control" type="date" id="enrollment_date" name="enrollment_date" value="{{ student['enrollment_date'] or '' }}"></div>
+<div class="col-md-6"><label class="form-label" for="guardian_name">Guardian name</label><input class="form-control" id="guardian_name" name="guardian_name" maxlength="150" value="{{ student['guardian_name'] or '' }}"></div>
+<div class="col-md-6"><label class="form-label" for="guardian_phone">Guardian phone</label><input class="form-control" id="guardian_phone" name="guardian_phone" maxlength="30" value="{{ student['guardian_phone'] or '' }}"></div>
+<div class="col-md-6"><label class="form-label" for="previous_school">Previous school</label><input class="form-control" id="previous_school" name="previous_school" maxlength="150" value="{{ student['previous_school'] or '' }}"></div>
+<div class="col-md-6"><label class="form-label" for="emergency_contact_name">Emergency contact name</label><input class="form-control" id="emergency_contact_name" name="emergency_contact_name" maxlength="150" value="{{ student['emergency_contact_name'] or '' }}"></div>
+<div class="col-md-6"><label class="form-label" for="emergency_contact_phone">Emergency contact phone</label><input class="form-control" id="emergency_contact_phone" name="emergency_contact_phone" maxlength="30" value="{{ student['emergency_contact_phone'] or '' }}"></div>
+<div class="col-12"><label class="form-label" for="record_notes">Administrative notes</label><textarea class="form-control" id="record_notes" name="record_notes" maxlength="500" rows="3">{{ student['record_notes'] or '' }}</textarea></div>
+<div class="col-12 d-flex gap-2"><button class="btn btn-primary" type="submit">Save Changes</button><a class="btn btn-outline-secondary" href="{{ url_for('student_detail', student_id=student['id']) }}">Cancel</a></div></form></section>
+{% endblock %}
