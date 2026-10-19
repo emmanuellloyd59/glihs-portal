@@ -462,5 +462,97 @@ class CMHSPortalTests(unittest.TestCase):
         duplicate = self.client.post("/academics", data=data, follow_redirects=True)
         self.assertIn(b"Attendance has already been recorded", duplicate.data)
 
+    def test_student_registration_rejects_invalid_guardian_phone(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.post(
+            "/students/register",
+            data={
+                "admission_number": "DEMO-INVALID-PHONE",
+                "full_name": "Taylor Example",
+                "class_level": "Grade 7",
+                "date_of_birth": "",
+                "guardian_name": "Casey Example",
+                "guardian_phone": "555-ABC-1234",
+            },
+            follow_redirects=True,
+        )
+        self.assertIn(b"Guardian phone may contain only digits", response.data)
+        connection = portal.get_db_connection()
+        try:
+            count = connection.execute(
+                "SELECT COUNT(*) AS count FROM students WHERE admission_number = ?",
+                ("DEMO-INVALID-PHONE",),
+            ).fetchone()["count"]
+            self.assertEqual(count, 0)
+        finally:
+            connection.close()
+
+    def test_student_registration_rejects_future_birth_date_and_invalid_admission_number(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        future_response = self.client.post(
+            "/students/register",
+            data={
+                "admission_number": "DEMO-FUTURE-DOB",
+                "full_name": "Taylor Example",
+                "class_level": "Grade 7",
+                "date_of_birth": "2999-01-01",
+                "guardian_name": "",
+                "guardian_phone": "",
+            },
+            follow_redirects=True,
+        )
+        self.assertIn(b"valid date of birth that is not in the future", future_response.data)
+        invalid_id_response = self.client.post(
+            "/students/register",
+            data={
+                "admission_number": "BAD ID!",
+                "full_name": "Taylor Example",
+                "class_level": "Grade 7",
+                "date_of_birth": "",
+                "guardian_name": "",
+                "guardian_phone": "",
+            },
+            follow_redirects=True,
+        )
+        self.assertIn(b"fields exceed the allowed length or contain invalid characters", invalid_id_response.data)
+        connection = portal.get_db_connection()
+        try:
+            count = connection.execute(
+                "SELECT COUNT(*) AS count FROM students"
+            ).fetchone()["count"]
+            self.assertEqual(count, 0)
+        finally:
+            connection.close()
+
+    def test_teacher_student_list_hides_birth_dates_and_guardian_contact_details(self):
+        connection = portal.get_db_connection()
+        connection.execute(
+            """
+            INSERT INTO students
+                (admission_number, full_name, class_level, date_of_birth, guardian_name, guardian_phone)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("PRIVACY-001", "Jordan Example", "Grade 7", "2012-05-04", "Private Guardian", "+231 770 000 000"),
+        )
+        connection.commit()
+        connection.close()
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get("/students")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Jordan Example", response.data)
+        self.assertNotIn(b"Private Guardian", response.data)
+        self.assertNotIn(b"+231 770 000 000", response.data)
+        self.assertNotIn(b"2012-05-04", response.data)
+        self.assertNotIn(b"Parent / Guardian", response.data)
+        self.assertIn("no-store", response.headers.get("Cache-Control", ""))
+
+    def test_authenticated_dashboard_responses_are_not_cached(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("no-store", response.headers.get("Cache-Control", ""))
+        self.assertIn("private", response.headers.get("Cache-Control", ""))
+        self.assertEqual(response.headers.get("Pragma"), "no-cache")
+
 if __name__ == "__main__":
     unittest.main()
