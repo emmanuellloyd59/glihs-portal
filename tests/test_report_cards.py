@@ -237,11 +237,12 @@ class ReportCardTests(unittest.TestCase):
         }, follow_redirects=True)
         self.assertIn(b"Grade saved successfully", response.data)
 
-    def test_legacy_grade_constraint_migrates_without_losing_records(self):
+    def test_legacy_grade_constraint_migrates_real_old_schema_and_preserves_links(self):
         import sqlite3
         connection = sqlite3.connect(":memory:")
-        connection.row_factory = __import__("sqlite3").Row
+        connection.row_factory = sqlite3.Row
         try:
+            connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("CREATE TABLE users (id INTEGER PRIMARY KEY)")
             connection.execute("CREATE TABLE students (id INTEGER PRIMARY KEY)")
             connection.execute(
@@ -254,8 +255,6 @@ class ReportCardTests(unittest.TestCase):
                     max_score REAL NOT NULL CHECK (max_score > 0 AND score <= max_score),
                     recorded_by INTEGER NOT NULL REFERENCES users(id),
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    academic_year TEXT NOT NULL DEFAULT 'Unassigned',
-                    term TEXT NOT NULL DEFAULT 'Unassigned',
                     UNIQUE(student_id, subject, assessment)
                 )"""
             )
@@ -263,20 +262,44 @@ class ReportCardTests(unittest.TestCase):
             connection.execute("INSERT INTO students (id) VALUES (1)")
             connection.execute(
                 """INSERT INTO grades
-                   (id, student_id, subject, assessment, score, max_score, recorded_by, academic_year, term)
-                   VALUES (17, 1, 'Mathematics', 'Quiz 1', 8, 10, 1, '2026-2027', 'Term 1')"""
-            )
-            portal_migrate = __import__("app").migrate_grade_assessment_uniqueness
-            portal_migrate(connection)
-            saved = connection.execute("SELECT id, score, term FROM grades WHERE id=17").fetchone()
-            self.assertEqual((saved["id"], saved["score"], saved["term"]), (17, 8, "Term 1"))
-            connection.execute(
-                """INSERT INTO grades
-                   (student_id, subject, assessment, score, max_score, recorded_by, academic_year, term)
-                   VALUES (1, 'Mathematics', 'Quiz 1', 9, 10, 1, '2026-2027', 'Term 2')"""
+                   (id, student_id, subject, assessment, score, max_score, recorded_by)
+                   VALUES (17, 1, 'Mathematics', 'Quiz 1', 8, 10, 1)"""
             )
             connection.commit()
-            self.assertEqual(connection.execute("SELECT COUNT(*) FROM grades").fetchone()[0], 2)
+
+            # Match initialize_database(): disable FK enforcement for the schema
+            # migration, add term columns to the old table, then rebuild its constraint.
+            connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute(
+                "ALTER TABLE grades ADD COLUMN academic_year TEXT NOT NULL DEFAULT 'Unassigned'"
+            )
+            connection.execute(
+                "ALTER TABLE grades ADD COLUMN term TEXT NOT NULL DEFAULT 'Unassigned'"
+            )
+            __import__("app").migrate_grade_assessment_uniqueness(connection)
+            connection.commit()
+            connection.execute("PRAGMA foreign_keys = ON")
+
+            saved = connection.execute(
+                "SELECT id, score, academic_year, term FROM grades WHERE id=17"
+            ).fetchone()
+            self.assertEqual(
+                (saved["id"], saved["score"], saved["academic_year"], saved["term"]),
+                (17, 8, "Unassigned", "Unassigned"),
+            )
+            self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
+
+            # The same assessment can now be recorded in separate terms.
+            for term in ("Term 1", "Term 2"):
+                connection.execute(
+                    """INSERT INTO grades
+                       (student_id, subject, assessment, score, max_score, recorded_by, academic_year, term)
+                       VALUES (1, 'Mathematics', 'Quiz 1', 9, 10, 1, '2026-2027', ?)""",
+                    (term,),
+                )
+            connection.commit()
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM grades").fetchone()[0], 3)
+            self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
         finally:
             connection.close()
 
