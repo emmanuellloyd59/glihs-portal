@@ -46,9 +46,11 @@
                     <th class="px-3 py-3">Admission No.</th>
                     <th class="py-3">Full Name</th>
                     <th class="py-3">Class / Grade</th>
+                    {% if current_user.role != 'teacher' %}
                     <th class="py-3">Date of Birth</th>
                     <th class="py-3">Parent / Guardian</th>
                     <th class="py-3">Phone</th>
+                    {% endif %}
                     <th class="py-3">Status</th>
                 </tr>
             </thead>
@@ -58,9 +60,11 @@
                     <td class="px-3 fw-semibold">{{ student['admission_number'] }}</td>
                     <td>{{ student['full_name'] }}</td>
                     <td>{{ student['class_level'] }}</td>
+                    {% if current_user.role != 'teacher' %}
                     <td>{{ student['date_of_birth'] or '—' }}</td>
                     <td>{{ student['guardian_name'] or '—' }}</td>
                     <td>{{ student['guardian_phone'] or '—' }}</td>
+                    {% endif %}
                     <td>
                         {% if student['status'] == 'active' %}
                             <span class="badge rounded-pill text-bg-success">Active</span>
