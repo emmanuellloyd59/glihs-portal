@@ -141,6 +141,34 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertIn(b"Student record not linked yet", response.data)
         self.assertNotIn(b"Private Example", response.data)
 
+    def test_student_record_link_requires_identity_verification_confirmation(self):
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+            ("VERIFY-001", "Verification Example", "Grade 9"),
+        )
+        student_id = connection.execute(
+            "SELECT id FROM students WHERE admission_number = 'VERIFY-001'"
+        ).fetchone()["id"]
+        account_id = connection.execute(
+            "SELECT id FROM users WHERE username = 'student_route_test'"
+        ).fetchone()["id"]
+        connection.commit()
+        connection.close()
+        self.login_as("super_route_test")
+        response = self.client.post("/admin/users", data={
+            "action": "link_student", "user_id": str(account_id), "student_id": str(student_id),
+        }, follow_redirects=True)
+        self.assertIn(b"Confirm that the student's identity", response.data)
+        connection = portal.get_db_connection()
+        try:
+            linked = connection.execute(
+                "SELECT account_user_id FROM students WHERE id = ?", (student_id,)
+            ).fetchone()["account_user_id"]
+        finally:
+            connection.close()
+        self.assertIsNone(linked)
+
     def test_super_admin_links_student_and_student_sees_only_own_published_report(self):
         connection = portal.get_db_connection()
         connection.execute(
@@ -193,6 +221,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.login_as("super_route_test")
         link_response = self.client.post("/admin/users", data={
             "action": "link_student", "user_id": str(student_user_id), "student_id": str(own_id),
+            "verify_identity": "yes",
         }, follow_redirects=True)
         self.assertEqual(link_response.status_code, 200)
         self.assertIn(b"Own Student Example", link_response.data)
