@@ -252,6 +252,8 @@ def initialize_database():
                 max_score REAL NOT NULL CHECK (max_score > 0 AND score <= max_score),
                 recorded_by INTEGER NOT NULL REFERENCES users(id),
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                academic_year TEXT NOT NULL DEFAULT 'Unassigned',
+                term TEXT NOT NULL DEFAULT 'Unassigned',
                 UNIQUE(student_id, subject, assessment, academic_year, term)
             )
             """
