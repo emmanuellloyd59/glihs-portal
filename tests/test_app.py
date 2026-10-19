@@ -89,8 +89,8 @@ class CMHSPortalTests(unittest.TestCase):
         self.login_as("teacher_demo", "test-teacher-password")
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Class Grades &amp; Attendance", response.data)
-        self.assertIn(b"Open Grades &amp; Attendance", response.data)
+        self.assertIn(b"Class Grades & Attendance", response.data)
+        self.assertIn(b"Open Grades & Attendance", response.data)
         self.assertNotIn(b"Class Grades &amp; Attendance</h3><p class=\"text-secondary\">Enter assessment scores", response.data)
 
     def test_invalid_password_does_not_authenticate(self):
