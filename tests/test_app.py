@@ -30,6 +30,9 @@ class CMHSPortalTests(unittest.TestCase):
 
     def setUp(self):
         connection = portal.get_db_connection()
+        connection.execute("DELETE FROM grades")
+        connection.execute("DELETE FROM attendance")
+        connection.execute("DELETE FROM audit_log")
         connection.execute("DELETE FROM students")
         connection.execute("DELETE FROM users")
         connection.execute(
@@ -74,6 +77,47 @@ class CMHSPortalTests(unittest.TestCase):
         self.assertIn(b"Dashboard Overview", response.data)
         self.assertIn(b"Student Records", response.data)
 
+    def test_baseline_security_headers_are_set(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("X-Content-Type-Options"), "nosniff")
+        self.assertEqual(response.headers.get("X-Frame-Options"), "DENY")
+        self.assertEqual(response.headers.get("Referrer-Policy"), "strict-origin-when-cross-origin")
+        self.assertIn("camera=()", response.headers.get("Permissions-Policy", ""))
+
+    def test_failed_login_is_audited_without_revealing_account_existence(self):
+        response = self.client.post(
+            "/login",
+            data={"username": "missing_demo", "password": "incorrect"},
+            follow_redirects=True,
+        )
+        self.assertIn(b"Invalid username or password", response.data)
+        connection = portal.get_db_connection()
+        try:
+            row = connection.execute(
+                "SELECT action, target_username FROM audit_log ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            self.assertEqual(row["action"], "login_failed")
+            self.assertEqual(row["target_username"], "missing_demo")
+        finally:
+            connection.close()
+
+    def test_database_connections_enforce_foreign_keys(self):
+        connection = portal.get_db_connection()
+        try:
+            enabled = connection.execute("PRAGMA foreign_keys").fetchone()[0]
+            self.assertEqual(enabled, 1)
+        finally:
+            connection.close()
+
+    def test_teacher_dashboard_marks_grades_and_attendance_available(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Class Grades & Attendance", response.data)
+        self.assertIn(b"Open Grades & Attendance", response.data)
+        self.assertIn(b"badge text-bg-success", response.data)
+
     def test_invalid_password_does_not_authenticate(self):
         response = self.client.post(
             "/login",
@@ -109,7 +153,11 @@ class CMHSPortalTests(unittest.TestCase):
         self.assertIn(b"Jordan Example", response.data)
         self.assertIn(b"studentSearch", response.data)
 
-    def test_initial_admin_environment_bootstraps_and_repairs_account(self):
+    def test_initial_admin_bootstrap_creates_account_only_when_username_is_unused(self):
+        from unittest.mock import patch
+        from werkzeug.security import check_password_hash
+
+        # Existing account must not be reset or promoted by startup environment.
         connection = portal.get_db_connection()
         connection.execute(
             "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
@@ -118,24 +166,64 @@ class CMHSPortalTests(unittest.TestCase):
         connection.commit()
         connection.close()
 
-        from unittest.mock import patch
         with patch.dict(
             os.environ,
             {
                 "INITIAL_ADMIN_USERNAME": "render_admin",
-                "INITIAL_ADMIN_PASSWORD": "new-demo-password",
+                "INITIAL_ADMIN_PASSWORD": "new-demo-password-long",
             },
         ):
             portal.initialize_database()
 
-        user = portal.get_user_by_username("render_admin")
-        self.assertIsNotNone(user)
-        self.assertEqual(user.role, "super_admin")
-        self.assertTrue(user.is_super_admin)
-        from werkzeug.security import check_password_hash
-        self.assertTrue(check_password_hash(user.password_hash, "new-demo-password"))
-        self.assertFalse(check_password_hash(user.password_hash, "old-password"))
+        existing = portal.get_user_by_username("render_admin")
+        self.assertIsNotNone(existing)
+        self.assertEqual(existing.role, "teacher")
+        self.assertFalse(existing.is_super_admin)
+        self.assertTrue(check_password_hash(existing.password_hash, "old-password"))
+        self.assertFalse(check_password_hash(existing.password_hash, "new-demo-password-long"))
 
+        # A new, unique username can still be bootstrapped once.
+        with patch.dict(
+            os.environ,
+            {
+                "INITIAL_ADMIN_USERNAME": "first_super_admin",
+                "INITIAL_ADMIN_PASSWORD": "new-demo-password-long",
+            },
+        ):
+            portal.initialize_database()
+
+        created = portal.get_user_by_username("first_super_admin")
+        self.assertIsNotNone(created)
+        self.assertEqual(created.role, "super_admin")
+        self.assertTrue(created.is_super_admin)
+        self.assertTrue(check_password_hash(created.password_hash, "new-demo-password-long"))
+
+        # Changing the environment password on a later startup must not reset it.
+        with patch.dict(
+            os.environ,
+            {
+                "INITIAL_ADMIN_USERNAME": "first_super_admin",
+                "INITIAL_ADMIN_PASSWORD": "different-password-long",
+            },
+        ):
+            portal.initialize_database()
+        unchanged = portal.get_user_by_username("first_super_admin")
+        self.assertTrue(check_password_hash(unchanged.password_hash, "new-demo-password-long"))
+        self.assertFalse(check_password_hash(unchanged.password_hash, "different-password-long"))
+
+    def test_initial_admin_bootstrap_ignores_short_passwords(self):
+        from unittest.mock import patch
+
+        with patch.dict(
+            os.environ,
+            {
+                "INITIAL_ADMIN_USERNAME": "weak_admin",
+                "INITIAL_ADMIN_PASSWORD": "short",
+            },
+        ):
+            portal.initialize_database()
+
+        self.assertIsNone(portal.get_user_by_username("weak_admin"))
 
     def test_non_super_admin_cannot_open_administrator_management(self):
         self.login_as("teacher_demo", "test-teacher-password")

@@ -10,7 +10,12 @@ CMHS Digital Campus is an early school-portal demonstration built with Flask, Fl
 - Teacher/administrator student registration and records listing.
 - Search across visible student records.
 - CSRF protection on forms and POST-only sign-out.
-- Startup creation of the `users` and `students` tables if missing.
+- Startup creation/migration of core database tables, including users, students, grades, attendance, and audit events.
+- Staff access requests and Super Administrator approval workflow.
+- Grade entry and review with score validation and duplicate prevention.
+- Attendance entry and review with date/status validation and duplicate prevention.
+- Audit events for sign-in/sign-out, administrator actions, grades, and attendance.
+- Automated regression tests and a GitHub Actions workflow.
 
 ## Important demonstration limits
 
@@ -18,7 +23,7 @@ This is a development/demo build, not a production school management system. Do 
 
 The application currently uses SQLite. If the hosting provider's filesystem is ephemeral, database contents may be lost on a redeploy or restart. Reliable long-term storage needs an appropriately configured persistent disk or a managed database and corresponding application configuration. Do not assume a successful deployment means the database is persistent.
 
-Grades, attendance, homework, report cards, and learning materials are not implemented yet; they are clearly marked as planned.
+Grades and attendance have initial demo workflows for staff roles. Homework, report cards, parent/student self-service, fees, timetable, and learning materials remain planned. The current implementation is not yet suitable for real student data or production school operations.
 
 ## Suggested demonstration walkthrough
 
@@ -42,7 +47,7 @@ Optional first administrator setup:
 - `INITIAL_ADMIN_USERNAME`
 - `INITIAL_ADMIN_PASSWORD`
 
-Set both optional variables in the hosting environment to create the initial administrator account on startup. The password is stored as a hash. Choose a unique demonstration password, and do not publish it in this README or commit it to Git.
+Set both optional variables temporarily to create an initial administrator only when that username does not already exist. The password must be at least 12 characters and is stored as a hash. Existing accounts are never reset or promoted by startup. Use a fresh, unique username; after verifying access, remove both variables from the hosting environment. Never publish credentials in this README or commit them to Git.
 
 Optional database location:
 
@@ -62,7 +67,7 @@ Configure `SECRET_KEY` in your local environment, then start the app:
 python app.py
 ```
 
-The application serves on port 5000. The first launch creates missing database tables, but it does not invent user credentials. A demonstration user must be configured through the supported setup or an existing database.
+The application serves on port 5000. The first launch creates missing database tables but does not invent user credentials. Configure a demo account through the supported initial setup or an existing database. For automated tests, run `python -m unittest discover -s tests -v`. Tests use a separate temporary SQLite database and fictional accounts.
 
 ## Version 0.1 acceptance checklist
 
@@ -70,7 +75,9 @@ The application serves on port 5000. The first launch creates missing database t
 - [ ] Login works with a configured demo account.
 - [ ] Dashboard is protected when signed out.
 - [ ] Student accounts cannot open staff-only student-record pages.
-- [ ] Teacher/admin can register fictional students and see saved records.
+- [ ] Authorized staff can register fictional students and see saved records.
+- [ ] Authorized staff can enter grades and attendance; invalid and duplicate records are rejected.
+- [ ] Administrator approval and role restrictions are verified with automated tests.
 - [ ] Duplicate admission numbers are handled with a friendly message.
 - [ ] Records search filters the visible table.
 - [ ] Sign-out works and protected pages require login again.

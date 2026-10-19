@@ -2,9 +2,9 @@ import os
 import secrets
 import sqlite3
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from flask import Flask, render_template, redirect, url_for, request, flash, abort
+from flask import Flask, render_template, redirect, url_for, request, flash, abort, session
 from flask_login import (
     LoginManager,
     UserMixin,
@@ -41,12 +41,25 @@ app.config["SESSION_COOKIE_SECURE"] = os.environ.get(
     "SESSION_COOKIE_SECURE", "true"
 ).strip().lower() in ("1", "true", "yes", "on")
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
+app.config["SESSION_REFRESH_EACH_REQUEST"] = True
 
 CSRFProtect(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
 login_manager.login_message = "Please log in to continue."
+
+
+@app.after_request
+def add_security_headers(response):
+    """Apply baseline browser security headers to every application response."""
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    return response
+
 
 STAFF_ROLES = {
     "principal": "Principal / School Administrator",
@@ -63,8 +76,10 @@ STUDENT_RECORD_ROLES = {"super_admin", "principal", "registrar", "academic_admin
 # --------------------------------------------------
 
 def get_db_connection():
+    """Open a row-aware SQLite connection with referential integrity enabled."""
     connection = sqlite3.connect(DATABASE, timeout=10)
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
     return connection
 
 
@@ -136,6 +151,9 @@ def initialize_database():
     """Create or upgrade tables without intentionally resetting existing records."""
     connection = get_db_connection()
     try:
+        # The legacy users-table migration replaces the table. Temporarily disable
+        # FK enforcement for that schema operation, then re-enable it for normal use.
+        connection.execute("PRAGMA foreign_keys = OFF")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -214,28 +232,28 @@ def initialize_database():
             """
         )
 
-        # Optional deployment bootstrap. Remove INITIAL_ADMIN_PASSWORD after
-        # login works and persistent storage is verified to avoid resetting it
-        # at every process start.
+        # Optional one-time deployment bootstrap. Never modify an existing account
+        # on restart: doing so could reset a password or elevate a non-admin user.
+        # Use a fresh, unique username for initial setup, then remove both variables.
         initial_username = os.environ.get("INITIAL_ADMIN_USERNAME", "").strip()
         initial_password = os.environ.get("INITIAL_ADMIN_PASSWORD", "")
         if initial_username and initial_password:
-            connection.execute(
-                """
-                INSERT INTO users
-                    (username, full_name, password_hash, role, status, is_super_admin, approved_at)
-                VALUES (?, ?, ?, 'super_admin', 'active', 1, CURRENT_TIMESTAMP)
-                ON CONFLICT(username) DO UPDATE SET
-                    full_name = CASE WHEN users.full_name = '' THEN excluded.full_name ELSE users.full_name END,
-                    password_hash = excluded.password_hash,
-                    role = 'super_admin',
-                    status = 'active',
-                    is_super_admin = 1,
-                    approved_at = COALESCE(users.approved_at, CURRENT_TIMESTAMP)
-                """,
-                (initial_username, initial_username, generate_password_hash(initial_password)),
-            )
+            if (
+                len(initial_username) <= 64
+                and initial_username.replace("_", "").replace("-", "").isalnum()
+                and len(initial_password) >= 12
+            ):
+                connection.execute(
+                    """
+                    INSERT INTO users
+                        (username, full_name, password_hash, role, status, is_super_admin, approved_at)
+                    VALUES (?, ?, ?, 'super_admin', 'active', 1, CURRENT_TIMESTAMP)
+                    ON CONFLICT(username) DO NOTHING
+                    """,
+                    (initial_username, initial_username, generate_password_hash(initial_password)),
+                )
         connection.commit()
+        connection.execute("PRAGMA foreign_keys = ON")
     finally:
         connection.close()
 
@@ -349,9 +367,11 @@ def login():
 
         user = get_user_by_username(username)
         if user and check_password_hash(user.password_hash, password):
+            session.permanent = True
             login_user(user)
             write_audit(user.id, "login_success", user.username)
             return redirect(url_for("dashboard"))
+        write_audit(None, "login_failed", username[:64] or None)
         flash("Invalid username or password.")
 
     return render_template("login.html")
