@@ -3,70 +3,37 @@
 {% block content %}
 <section class="rounded-4 text-white p-4 p-md-5 mb-4" style="background:linear-gradient(120deg,#102a43,#164e78 65%,#1769aa);">
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
-        <div>
-            <p class="eyebrow mb-2" style="color:#8ce7df;">CMHS DIGITAL CAMPUS</p>
-            <h1 class="display-6 fw-bold mb-2">Welcome, {{ name }}!</h1>
-            <p class="mb-0" style="color:#e1edf7;">Your school workspace, all in one place.</p>
-        </div>
-        <div class="align-self-start align-self-md-center">
-            <span class="badge rounded-pill text-bg-light px-3 py-2">{{ role.capitalize() }} Account</span>
-        </div>
+        <div><p class="eyebrow mb-2" style="color:#8ce7df;">CMHS DIGITAL CAMPUS</p><h1 class="display-6 fw-bold mb-2">Welcome, {{ name }}!</h1><p class="mb-0" style="color:#e1edf7;">Your school workspace, all in one place.</p></div>
+        <div class="align-self-start align-self-md-center"><span class="badge rounded-pill text-bg-light px-3 py-2">{{ role.replace('_', ' ').title() }} Account</span></div>
     </div>
 </section>
-
 <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-end gap-2 mb-4">
     <div><p class="eyebrow text-primary mb-1">Your workspace</p><h2 class="h3 fw-bold mb-1">Dashboard Overview</h2><p class="text-secondary mb-0">Choose a workspace to continue.</p></div>
     <span class="badge rounded-pill border bg-white text-secondary px-3 py-2">Version 0.1 Demo</span>
 </div>
-
-{% if role == 'teacher' or role == 'admin' %}
+{% if role in ['teacher', 'super_admin', 'registrar', 'principal', 'academic_admin'] %}
 <div class="row g-3 mb-4">
-    <div class="col-12 col-md-6 col-lg-4">
-        <article class="surface-card h-100 p-4">
-            <div class="d-flex justify-content-between align-items-start mb-3"><span class="fs-2">👩‍🎓</span><span class="badge text-bg-success">Available</span></div>
-            <h3 class="h5 fw-bold">Student Records</h3>
-            <p class="text-secondary">Open the student records workspace to view registered demo records.</p>
-            <a href="{{ url_for('list_students') }}" class="btn btn-primary mt-auto">View Student Records <span aria-hidden="true">→</span></a>
-        </article>
-    </div>
-    <div class="col-12 col-md-6 col-lg-4">
-        <article class="surface-card h-100 p-4">
-            <div class="d-flex justify-content-between align-items-start mb-3"><span class="fs-2">📝</span><span class="badge text-bg-secondary">Coming Soon</span></div>
-            <h3 class="h5 fw-bold">Class Grades</h3>
-            <p class="text-secondary">A future workspace for entering grades and reviewing student performance.</p>
-        </article>
-    </div>
-    <div class="col-12 col-md-6 col-lg-4">
-        <article class="surface-card h-100 p-4">
-            <div class="d-flex justify-content-between align-items-start mb-3"><span class="fs-2">📅</span><span class="badge text-bg-secondary">Coming Soon</span></div>
-            <h3 class="h5 fw-bold">Attendance & Assignments</h3>
-            <p class="text-secondary">Attendance registers and homework publishing are planned for a later release.</p>
-        </article>
-    </div>
+    <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4"><div class="d-flex justify-content-between align-items-start mb-3"><span class="fs-2">👩‍🎓</span><span class="badge text-bg-success">Available</span></div><h3 class="h5 fw-bold">Student Records</h3><p class="text-secondary">Open the student records workspace to view registered demo records.</p><a href="{{ url_for('list_students') }}" class="btn btn-primary mt-auto">View Student Records <span aria-hidden="true">→</span></a></article></div>
+    {% if role in ['teacher', 'super_admin', 'registrar'] %}
+    <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4"><div class="d-flex justify-content-between align-items-start mb-3"><span class="fs-2">🪪</span><span class="badge text-bg-success">Available</span></div><h3 class="h5 fw-bold">Student Registration</h3><p class="text-secondary">Register a fictional student for demonstration and workflow testing.</p><a href="{{ url_for('register_student') }}" class="btn btn-outline-primary mt-auto">Register Student <span aria-hidden="true">→</span></a></article></div>
+    {% endif %}
+    <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4"><div class="d-flex justify-content-between align-items-start mb-3"><span class="fs-2">📚</span><span class="badge text-bg-secondary">Coming Soon</span></div><h3 class="h5 fw-bold">Class Grades & Attendance</h3><p class="text-secondary mb-0">Grade entry, attendance and homework tools are planned for a later release.</p></article></div>
 </div>
+{% elif role == 'finance_admin' %}
+<div class="surface-card p-4 mb-4"><h2 class="h5 fw-bold">Finance Workspace</h2><p class="text-secondary mb-0">Finance permissions are reserved, but fee management is not implemented in Version 0.1. No financial records can be managed here yet.</p></div>
 {% elif role == 'student' %}
 <div class="row g-3 mb-4">
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4"><div class="fs-2 mb-3">📊</div><span class="badge text-bg-secondary mb-3">Coming Soon</span><h3 class="h5 fw-bold">Academic Results</h3><p class="text-secondary mb-0">A future workspace for viewing term results and report cards.</p></article></div>
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4"><div class="fs-2 mb-3">📚</div><span class="badge text-bg-secondary mb-3">Coming Soon</span><h3 class="h5 fw-bold">Learning Materials</h3><p class="text-secondary mb-0">Course materials and syllabuses will be made available here.</p></article></div>
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4"><div class="fs-2 mb-3">📣</div><span class="badge text-bg-secondary mb-3">Coming Soon</span><h3 class="h5 fw-bold">School Announcements</h3><p class="text-secondary mb-0">A future space for school notices, dates, and activities.</p></article></div>
 </div>
-{% else %}
-<div class="surface-card p-4 mb-4"><h2 class="h5 fw-bold">Administrator Workspace</h2><p class="text-secondary mb-0">Your account is signed in. Administrative tools will be added as the demo develops.</p></div>
 {% endif %}
-
+{% if current_user.is_super_admin %}
+<section class="surface-card p-4 mb-4"><div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3"><div><p class="eyebrow text-primary mb-1">Restricted tools</p><h2 class="h5 fw-bold mb-1">Administrator Management</h2><p class="text-secondary mb-0">Review staff access requests, approve accounts and manage staff permissions.</p></div><a class="btn btn-primary" href="{{ url_for('admin_users') }}">Open Management <span aria-hidden="true">→</span></a></div></section>
+{% endif %}
 <section class="surface-card p-4 p-md-5 mb-4">
     <div class="d-flex align-items-center gap-3 mb-4"><div class="rounded-3 p-3" style="background:#eaf3fb;">🪪</div><div><p class="eyebrow text-primary mb-1">Account details</p><h2 class="h5 fw-bold mb-0">Your Account Information</h2></div></div>
-    <div class="row g-3">
-        <div class="col-12 col-md-6"><div class="rounded-3 p-3 h-100" style="background:#f3f6fb;"><div class="small text-secondary mb-1">Username</div><div class="fw-bold">{{ name }}</div></div></div>
-        <div class="col-12 col-md-6"><div class="rounded-3 p-3 h-100" style="background:#f3f6fb;"><div class="small text-secondary mb-1">Account Role</div><div class="fw-bold">{{ role.capitalize() }}</div></div></div>
-    </div>
+    <div class="row g-3"><div class="col-12 col-md-6"><div class="rounded-3 p-3 h-100" style="background:#f3f6fb;"><div class="small text-secondary mb-1">Username</div><div class="fw-bold">{{ name }}</div></div></div><div class="col-12 col-md-6"><div class="rounded-3 p-3 h-100" style="background:#f3f6fb;"><div class="small text-secondary mb-1">Account Role</div><div class="fw-bold">{{ role.replace('_', ' ').title() }}</div></div></div></div>
 </section>
-
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
-    <p class="small text-secondary mb-0">Demo environment · Please use fictional student information only.</p>
-    <form action="{{ url_for('logout') }}" method="POST">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn btn-outline-danger px-4">Sign Out</button>
-    </form>
-</div>
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3"><p class="small text-secondary mb-0">Demo environment · Please use fictional student information only.</p><form action="{{ url_for('logout') }}" method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-outline-danger px-4">Sign Out</button></form></div>
 {% endblock %}

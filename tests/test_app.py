@@ -5,6 +5,7 @@ Tests use a temporary SQLite database and fictional accounts only.
 """
 import os
 import tempfile
+import sqlite3
 import unittest
 from pathlib import Path
 
@@ -38,6 +39,12 @@ class CMHSPortalTests(unittest.TestCase):
         connection.execute(
             "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
             ("student_demo", generate_password_hash("test-student-password"), "student"),
+        )
+        connection.execute(
+            """INSERT INTO users
+               (username, password_hash, role, status, is_super_admin)
+               VALUES (?, ?, 'super_admin', 'active', 1)""",
+            ("super_demo", generate_password_hash("test-super-password")),
         )
         connection.commit()
         connection.close()
@@ -123,10 +130,150 @@ class CMHSPortalTests(unittest.TestCase):
 
         user = portal.get_user_by_username("render_admin")
         self.assertIsNotNone(user)
-        self.assertEqual(user.role, "admin")
+        self.assertEqual(user.role, "super_admin")
+        self.assertTrue(user.is_super_admin)
         from werkzeug.security import check_password_hash
         self.assertTrue(check_password_hash(user.password_hash, "new-demo-password"))
         self.assertFalse(check_password_hash(user.password_hash, "old-password"))
+
+
+    def test_non_super_admin_cannot_open_administrator_management(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get("/admin/users")
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_request_stays_pending_and_cannot_sign_in(self):
+        response = self.client.post(
+            "/admin/request-access",
+            data={
+                "full_name": "Morgan Example",
+                "username": "registrar_example",
+                "requested_role": "registrar",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        row = connection.execute(
+            "SELECT status, role FROM users WHERE username = ?",
+            ("registrar_example",),
+        ).fetchone()
+        connection.close()
+        self.assertEqual(row["status"], "pending")
+        self.assertEqual(row["role"], "registrar")
+        login_response = self.client.post(
+            "/login",
+            data={"username": "registrar_example", "password": "anything"},
+            follow_redirects=True,
+        )
+        self.assertIn(b"Invalid username or password", login_response.data)
+        self.assertNotIn(b"Dashboard Overview", login_response.data)
+
+    def test_super_admin_can_approve_request_and_activate_account(self):
+        self.client.post(
+            "/admin/request-access",
+            data={
+                "full_name": "Morgan Example",
+                "username": "registrar_example",
+                "requested_role": "registrar",
+            },
+        )
+        self.login_as("super_demo", "test-super-password")
+        response = self.client.post(
+            "/admin/users",
+            data={
+                "action": "approve",
+                "user_id": self._user_id("registrar_example"),
+                "temporary_password": "Temporary-Example-2026!",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        row = connection.execute(
+            "SELECT status, role, approved_by FROM users WHERE username = ?",
+            ("registrar_example",),
+        ).fetchone()
+        connection.close()
+        self.assertEqual(row["status"], "active")
+        self.assertEqual(row["role"], "registrar")
+        self.assertIsNotNone(row["approved_by"])
+        self.client.post("/logout")
+        login_response = self.client.post(
+            "/login",
+            data={
+                "username": "registrar_example",
+                "password": "Temporary-Example-2026!",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(login_response.status_code, 200)
+        self.assertIn(b"Dashboard Overview", login_response.data)
+
+    def _user_id(self, username):
+        connection = portal.get_db_connection()
+        try:
+            row = connection.execute(
+                "SELECT id FROM users WHERE username = ?", (username,)
+            ).fetchone()
+            return row["id"]
+        finally:
+            connection.close()
+
+    def test_suspended_account_cannot_sign_in(self):
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT INTO users (username, password_hash, role, status) VALUES (?, ?, ?, 'suspended')",
+            ("suspended_demo", generate_password_hash("test-suspended-password"), "teacher"),
+        )
+        connection.commit()
+        connection.close()
+        response = self.client.post(
+            "/login",
+            data={"username": "suspended_demo", "password": "test-suspended-password"},
+            follow_redirects=True,
+        )
+        self.assertIn(b"Invalid username or password", response.data)
+        self.assertNotIn(b"Dashboard Overview", response.data)
+
+
+    def test_legacy_users_table_migrates_without_losing_accounts(self):
+        legacy = sqlite3.connect(":memory:")
+        legacy.row_factory = sqlite3.Row
+        legacy.execute(
+            """CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('student', 'teacher', 'admin'))
+            )"""
+        )
+        legacy.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            ("old_admin", "existing-admin-hash", "admin"),
+        )
+        legacy.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            ("old_teacher", "existing-teacher-hash", "teacher"),
+        )
+        legacy.commit()
+
+        portal.migrate_users_table(legacy)
+        rows = legacy.execute(
+            "SELECT username, password_hash, role, status, is_super_admin, full_name FROM users ORDER BY id"
+        ).fetchall()
+        legacy.close()
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["username"], "old_admin")
+        self.assertEqual(rows[0]["password_hash"], "existing-admin-hash")
+        self.assertEqual(rows[0]["role"], "super_admin")
+        self.assertEqual(rows[0]["status"], "active")
+        self.assertEqual(rows[0]["is_super_admin"], 1)
+        self.assertEqual(rows[0]["full_name"], "old_admin")
+        self.assertEqual(rows[1]["username"], "old_teacher")
+        self.assertEqual(rows[1]["password_hash"], "existing-teacher-hash")
+        self.assertEqual(rows[1]["role"], "teacher")
 
     def test_duplicate_admission_number_is_rejected_gracefully(self):
         self.login_as("teacher_demo", "test-teacher-password")
