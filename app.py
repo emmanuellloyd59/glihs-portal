@@ -252,6 +252,15 @@ def initialize_database():
             "ON students(account_user_id) WHERE account_user_id IS NOT NULL"
         )
         student_columns = {row["name"] for row in connection.execute("PRAGMA table_info(students)").fetchall()}
+        for column_name, column_type in (
+            ("enrollment_date", "TEXT"),
+            ("previous_school", "TEXT"),
+            ("emergency_contact_name", "TEXT"),
+            ("emergency_contact_phone", "TEXT"),
+            ("record_notes", "TEXT"),
+        ):
+            if column_name not in student_columns:
+                connection.execute(f"ALTER TABLE students ADD COLUMN {column_name} {column_type}")
         if "student_id_number" not in student_columns:
             connection.execute("ALTER TABLE students ADD COLUMN student_id_number TEXT")
         connection.execute(
@@ -999,6 +1008,19 @@ def register_student():
         date_of_birth = request.form.get("date_of_birth", "").strip()
         guardian_name = request.form.get("guardian_name", "").strip()
         guardian_phone = request.form.get("guardian_phone", "").strip()
+        enrollment_date = request.form.get("enrollment_date", "").strip()
+        previous_school = request.form.get("previous_school", "").strip()
+        emergency_contact_name = request.form.get("emergency_contact_name", "").strip()
+        emergency_contact_phone = request.form.get("emergency_contact_phone", "").strip()
+        record_notes = request.form.get("record_notes", "").strip()
+
+        if (not admission_number or not full_name or not class_level
+                or len(admission_number) > 50 or len(full_name) > 150 or len(class_level) > 50
+                or len(guardian_name) > 150 or len(guardian_phone) > 30
+                or len(previous_school) > 150 or len(emergency_contact_name) > 150
+                or len(emergency_contact_phone) > 30 or len(record_notes) > 500):
+            flash("Check required fields and ensure all values are within the allowed length.", "danger")
+            return redirect(url_for("register_student"))
 
         if not admission_number or not full_name or not class_level:
             flash("Admission number, full name, and class are required.", "danger")
@@ -1009,12 +1031,15 @@ def register_student():
             cursor = connection.execute(
                 """
                 INSERT INTO students (
-                    admission_number, full_name, class_level,
-                    date_of_birth, guardian_name, guardian_phone
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    admission_number, full_name, class_level, date_of_birth,
+                    guardian_name, guardian_phone, enrollment_date, previous_school,
+                    emergency_contact_name, emergency_contact_phone, record_notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (admission_number, full_name, class_level,
-                 date_of_birth or None, guardian_name or None, guardian_phone or None),
+                (admission_number, full_name, class_level, date_of_birth or None,
+                 guardian_name or None, guardian_phone or None, enrollment_date or None,
+                 previous_school or None, emergency_contact_name or None,
+                 emergency_contact_phone or None, record_notes or None),
             )
             student_id_number = f"CMHS-{datetime.now().year}-{cursor.lastrowid:05d}"
             connection.execute(
@@ -1033,6 +1058,103 @@ def register_student():
             connection.close()
 
     return render_template("student_register.html")
+
+
+@app.route("/students/<int:student_id>", methods=["GET"])
+@login_required
+def student_detail(student_id):
+    if current_user.role not in STUDENT_RECORD_ROLES:
+        abort(403)
+    connection = get_db_connection()
+    try:
+        student = connection.execute(
+            """SELECT s.*, COALESCE(f.total_fee, 0) AS total_fee,
+                      COALESCE(f.amount_paid, 0) AS amount_paid,
+                      COALESCE(f.total_fee, 0) - COALESCE(f.amount_paid, 0) AS balance
+               FROM students s
+               LEFT JOIN student_finances f ON f.student_id = s.id
+                 AND f.academic_year = ?
+               WHERE s.id = ?""",
+            (f"{datetime.now().year}-{datetime.now().year + 1}", student_id),
+        ).fetchone()
+        if student is None:
+            abort(404)
+        attendance = connection.execute(
+            """SELECT status, COUNT(*) AS total FROM attendance
+               WHERE student_id = ? GROUP BY status""", (student_id,)
+        ).fetchall()
+        recent_grades = connection.execute(
+            """SELECT subject, assessment, score, max_score, academic_year, term, created_at
+               FROM grades WHERE student_id = ?
+               ORDER BY created_at DESC, id DESC LIMIT 12""", (student_id,)
+        ).fetchall()
+        recent_attendance = connection.execute(
+            """SELECT attendance_date, status, note FROM attendance
+               WHERE student_id = ? ORDER BY attendance_date DESC LIMIT 10""", (student_id,)
+        ).fetchall()
+    finally:
+        connection.close()
+    return render_template("student_detail.html", student=student,
+                           attendance=attendance, recent_grades=recent_grades,
+                           recent_attendance=recent_attendance)
+
+
+@app.route("/students/<int:student_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_student(student_id):
+    if current_user.role not in {"super_admin", "principal", "registrar"}:
+        abort(403)
+    connection = get_db_connection()
+    try:
+        student = connection.execute("SELECT * FROM students WHERE id = ?", (student_id,)).fetchone()
+        if student is None:
+            abort(404)
+        if request.method == "POST":
+            fields = {
+                "full_name": request.form.get("full_name", "").strip(),
+                "class_level": request.form.get("class_level", "").strip(),
+                "date_of_birth": request.form.get("date_of_birth", "").strip(),
+                "guardian_name": request.form.get("guardian_name", "").strip(),
+                "guardian_phone": request.form.get("guardian_phone", "").strip(),
+                "enrollment_date": request.form.get("enrollment_date", "").strip(),
+                "previous_school": request.form.get("previous_school", "").strip(),
+                "emergency_contact_name": request.form.get("emergency_contact_name", "").strip(),
+                "emergency_contact_phone": request.form.get("emergency_contact_phone", "").strip(),
+                "record_notes": request.form.get("record_notes", "").strip(),
+            }
+            limits = {"full_name":150,"class_level":50,"guardian_name":150,"guardian_phone":30,
+                      "previous_school":150,"emergency_contact_name":150,
+                      "emergency_contact_phone":30,"record_notes":500,"date_of_birth":10,"enrollment_date":10}
+            if not fields["full_name"] or not fields["class_level"] or any(len(v)>limits[k] for k,v in fields.items()):
+                flash("Name and class are required. Please check field lengths.", "danger")
+                return redirect(url_for("edit_student", student_id=student_id))
+            for date_field in ("date_of_birth", "enrollment_date"):
+                if fields[date_field]:
+                    try:
+                        datetime.strptime(fields[date_field], "%Y-%m-%d")
+                    except ValueError:
+                        flash("Dates must use the valid YYYY-MM-DD format.", "danger")
+                        return redirect(url_for("edit_student", student_id=student_id))
+            old_class = student["class_level"]
+            connection.execute(
+                """UPDATE students SET full_name=?, class_level=?, date_of_birth=?,
+                   guardian_name=?, guardian_phone=?, enrollment_date=?, previous_school=?,
+                   emergency_contact_name=?, emergency_contact_phone=?, record_notes=?
+                   WHERE id=?""",
+                (fields["full_name"], fields["class_level"], fields["date_of_birth"] or None,
+                 fields["guardian_name"] or None, fields["guardian_phone"] or None,
+                 fields["enrollment_date"] or None, fields["previous_school"] or None,
+                 fields["emergency_contact_name"] or None, fields["emergency_contact_phone"] or None,
+                 fields["record_notes"] or None, student_id),
+            )
+            connection.commit()
+            write_audit(current_user.id, "student_record_updated", student["admission_number"],
+                        f"class changed from {old_class} to {fields['class_level']}")
+            flash("Student record updated successfully.", "success")
+            return redirect(url_for("student_detail", student_id=student_id))
+    finally:
+        connection.close()
+    return render_template("student_edit.html", student=student)
 
 
 @app.route("/students")
