@@ -117,5 +117,95 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
 
 
+    def _id_for(self, table, column, value):
+        connection = portal.get_db_connection()
+        try:
+            row = connection.execute(
+                f"SELECT id FROM {table} WHERE {column} = ?", (value,)
+            ).fetchone()
+            return row["id"]
+        finally:
+            connection.close()
+
+    def test_unlinked_student_does_not_see_student_records(self):
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+            ("PRIVATE-001", "Private Example", "Grade 8"),
+        )
+        connection.commit()
+        connection.close()
+        self.login_as("student_route_test")
+        response = self.client.get("/my-report-cards")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Student record not linked yet", response.data)
+        self.assertNotIn(b"Private Example", response.data)
+
+    def test_super_admin_links_student_and_student_sees_only_own_published_report(self):
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT INTO users (username, password_hash, role, status) VALUES (?, ?, 'student', 'active')",
+            ("student_two_route_test", generate_password_hash("test-password-for-route")),
+        )
+        connection.execute(
+            "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+            ("OWN-001", "Own Student Example", "Grade 7"),
+        )
+        own_id = connection.execute(
+            "SELECT id FROM students WHERE admission_number = 'OWN-001'"
+        ).fetchone()["id"]
+        connection.execute(
+            "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+            ("OTHER-001", "Other Student Example", "Grade 8"),
+        )
+        other_id = connection.execute(
+            "SELECT id FROM students WHERE admission_number = 'OTHER-001'"
+        ).fetchone()["id"]
+        teacher_id = connection.execute(
+            "SELECT id FROM users WHERE username = 'teacher_route_test'"
+        ).fetchone()["id"]
+        super_id = connection.execute(
+            "SELECT id FROM users WHERE username = 'super_route_test'"
+        ).fetchone()["id"]
+        connection.execute(
+            """INSERT INTO grades (student_id, subject, assessment, score, max_score,
+                   recorded_by, academic_year, term)
+               VALUES (?, 'Own Subject', 'Quiz 1', 18, 20, ?, '2026-2027', 'Term 1')""",
+            (own_id, teacher_id),
+        )
+        connection.execute(
+            """INSERT INTO grades (student_id, subject, assessment, score, max_score,
+                   recorded_by, academic_year, term)
+               VALUES (?, 'Private Subject', 'Quiz 1', 10, 10, ?, '2026-2027', 'Term 1')""",
+            (other_id, teacher_id),
+        )
+        for sid in (own_id, other_id):
+            connection.execute(
+                """INSERT INTO report_cards (student_id, academic_year, term, published,
+                       published_by, published_at)
+                   VALUES (?, '2026-2027', 'Term 1', 1, ?, CURRENT_TIMESTAMP)""",
+                (sid, super_id),
+            )
+        connection.commit()
+        connection.close()
+
+        student_user_id = self._id_for("users", "username", "student_route_test")
+        self.login_as("super_route_test")
+        link_response = self.client.post("/admin/users", data={
+            "action": "link_student", "user_id": str(student_user_id), "student_id": str(own_id),
+        }, follow_redirects=True)
+        self.assertEqual(link_response.status_code, 200)
+        self.assertIn(b"Own Student Example", link_response.data)
+
+        self.client.post("/logout")
+        self.login_as("student_route_test")
+        response = self.client.get("/my-report-cards")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Own Student Example", response.data)
+        self.assertIn(b"Own Subject", response.data)
+        self.assertNotIn(b"Other Student Example", response.data)
+        self.assertNotIn(b"Private Subject", response.data)
+
+
 if __name__ == "__main__":
     unittest.main()
