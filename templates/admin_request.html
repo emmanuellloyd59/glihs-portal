@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Request Staff Access | CMHS Digital Campus{% endblock %}
+{% block content %}
+<div class="row justify-content-center"><div class="col-12 col-lg-8 col-xl-7">
+    <section class="rounded-4 text-white p-4 p-md-5 mb-4" style="background:linear-gradient(120deg,#102a43,#164e78 65%,#1769aa);"><p class="eyebrow mb-2" style="color:#8ce7df;">STAFF ACCOUNT REQUEST</p><h1 class="h2 fw-bold mb-2">Request Portal Access</h1><p class="mb-0" style="color:#e1edf7;">Submit your school role for review. This form does not create an active account or give immediate access.</p></section>
+    <div class="alert alert-info rounded-4"><strong>Approval required.</strong> A Super Administrator must verify and approve your request. Do not submit student information or passwords here.</div>
+    <section class="surface-card p-4 p-md-5">
+        <form method="POST" action="{{ url_for('request_staff_access') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="mb-3"><label for="full_name" class="form-label fw-semibold">Full name</label><input id="full_name" class="form-control" name="full_name" maxlength="120" autocomplete="name" required placeholder="Your name as known by the school"></div>
+            <div class="mb-3"><label for="username" class="form-label fw-semibold">Requested username</label><input id="username" class="form-control" name="username" maxlength="64" pattern="[A-Za-z0-9_-]+" autocapitalize="none" autocomplete="username" required placeholder="e.g. registrar_jones"><div class="form-text">Use letters, numbers, underscores or hyphens. Usernames are visible to authorized administrators.</div></div>
+            <div class="mb-4"><label for="requested_role" class="form-label fw-semibold">School position / requested role</label><select id="requested_role" class="form-select" name="requested_role" required><option value="">Choose a role</option>{% for role_key, role_label in roles.items() %}<option value="{{ role_key }}">{{ role_label }}</option>{% endfor %}</select><div class="form-text">Super Administrator access cannot be requested through this form.</div></div>
+            <button class="btn btn-primary btn-lg w-100" type="submit">Submit for Approval <span aria-hidden="true">→</span></button>
+        </form>
+    </section>
+    <p class="text-center mt-3 small"><a href="{{ url_for('login') }}">Already approved? Return to login.</a></p>
+</div></div>
+{% endblock %}
