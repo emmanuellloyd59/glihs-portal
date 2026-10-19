@@ -1199,7 +1199,8 @@ def list_students():
     finally:
         connection.close()
     return render_template("students.html", students=students, classes=classes,
-                           class_filter=class_filter, search_query=search_query)
+                           class_filter=class_filter, search_query=search_query,
+                           can_view_finances=current_user.role in {"super_admin", "principal", "registrar", "finance_admin"})
 
 
 @app.route("/student-finances", methods=["GET", "POST"])
