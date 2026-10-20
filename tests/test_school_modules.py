@@ -167,6 +167,28 @@ class SchoolModuleTests(unittest.TestCase):
         self.assertIn(b"Fictional Math", response.data)
         self.assertNotIn(b"Private Science", response.data)
 
+
+    def test_student_cannot_see_staff_only_announcements(self):
+        conn = portal.get_db_connection()
+        conn.execute("""INSERT INTO users (username, full_name, password_hash, role, status)
+                        VALUES ('module_student', 'Fictional Student', ?, 'student', 'active')""",
+                     (generate_password_hash("test-module-student-password"),))
+        teacher = conn.execute("SELECT id FROM users WHERE username='module_teacher'").fetchone()
+        conn.execute("""INSERT INTO school_announcements (title, body, audience, published, created_by)
+                        VALUES ('Student Announcement', 'Visible to students', 'students', 1, ?)""",
+                     (teacher["id"],))
+        conn.execute("""INSERT INTO school_announcements (title, body, audience, published, created_by)
+                        VALUES ('Staff Confidential Notice', 'Staff only', 'staff', 1, ?)""",
+                     (teacher["id"],))
+        conn.commit()
+        conn.close()
+
+        self.login("module_student", "test-module-student-password")
+        response = self.client.get("/school-tools")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Student Announcement", response.data)
+        self.assertNotIn(b"Staff Confidential Notice", response.data)
+
     def test_staff_profile_can_be_saved_by_super_admin(self):
         self.login("module_admin", "test-module-admin-password")
         conn = portal.get_db_connection()
