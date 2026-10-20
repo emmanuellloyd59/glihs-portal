@@ -707,5 +707,39 @@ class CMHSPortalTests(unittest.TestCase):
             connection.close()
 
 
+
+    def test_admission_numbers_are_unique_per_school_not_globally(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO schools (name, slug) VALUES (?, ?)",
+                ("Fictional School Admission Test", "fictional-admission-test"),
+            )
+            school_two_id = connection.execute(
+                "SELECT id FROM schools WHERE slug = ?",
+                ("fictional-admission-test",),
+            ).fetchone()["id"]
+            connection.execute(
+                "INSERT INTO students (admission_number, full_name, class_level, school_id) "
+                "VALUES (?, ?, ?, 1)",
+                ("SHARED-ADM-001", "Student One Example", "Grade 7"),
+            )
+            connection.execute(
+                "INSERT INTO students (admission_number, full_name, class_level, school_id) "
+                "VALUES (?, ?, ?, ?)",
+                ("SHARED-ADM-001", "Student Two Example", "Grade 7", school_two_id),
+            )
+            connection.commit()
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM students WHERE admission_number = ?",
+                    ("SHARED-ADM-001",),
+                ).fetchone()[0],
+                2,
+            )
+        finally:
+            connection.close()
+
+
 if __name__ == "__main__":
     unittest.main()
