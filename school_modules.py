@@ -147,9 +147,13 @@ def school_tools():
                     clash = conn.execute("""
                         SELECT 1 FROM timetable_entries
                         WHERE day_of_week = ? AND start_time < ? AND end_time > ?
-                          AND (class_name = ? OR teacher_name = ? OR (room <> '' AND room = ?))
+                          AND (
+                              lower(trim(class_name)) = lower(trim(?))
+                              OR lower(trim(teacher_name)) = lower(trim(?))
+                              OR (trim(?) <> '' AND lower(trim(room)) = lower(trim(?)))
+                          )
                         LIMIT 1
-                    """, (day, end, start, class_name, teacher, room)).fetchone()
+                    """, (day, end, start, class_name, teacher, room, room)).fetchone()
                     if clash:
                         raise ValueError("Timetable conflict: that class, teacher, or room is already booked during this period.")
                     conn.execute("""INSERT INTO timetable_entries
