@@ -7,6 +7,7 @@ import sqlite3
 from datetime import date
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask_login import login_required as flask_login_required
 
 bp = Blueprint("school_modules", __name__)
 DB = None
@@ -93,7 +94,7 @@ def _clean(field, max_length, required=True):
 
 
 @bp.route("/school-tools", methods=["GET", "POST"])
-@login_required
+@flask_login_required
 def school_tools():
     _role_allowed(STAFF | {"finance_admin"})
     if request.method == "POST":
