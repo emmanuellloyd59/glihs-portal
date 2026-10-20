@@ -197,21 +197,21 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         ).fetchone()["id"]
         connection.execute(
             """INSERT INTO grades (student_id, subject, assessment, score, max_score,
-                   recorded_by, academic_year, term)
-               VALUES (?, 'Own Subject', 'Quiz 1', 18, 20, ?, '2026-2027', 'Term 1')""",
+                   recorded_by, academic_year, term, school_id)
+               VALUES (?, 'Own Subject', 'Quiz 1', 18, 20, ?, '2026-2027', 'Term 1', 1)""",
             (own_id, teacher_id),
         )
         connection.execute(
             """INSERT INTO grades (student_id, subject, assessment, score, max_score,
-                   recorded_by, academic_year, term)
-               VALUES (?, 'Private Subject', 'Quiz 1', 10, 10, ?, '2026-2027', 'Term 1')""",
+                   recorded_by, academic_year, term, school_id)
+               VALUES (?, 'Private Subject', 'Quiz 1', 10, 10, ?, '2026-2027', 'Term 1', 1)""",
             (other_id, teacher_id),
         )
         for sid in (own_id, other_id):
             connection.execute(
                 """INSERT INTO report_cards (student_id, academic_year, term, published,
-                       published_by, published_at)
-                   VALUES (?, '2026-2027', 'Term 1', 1, ?, CURRENT_TIMESTAMP)""",
+                       published_by, published_at, school_id)
+                   VALUES (?, '2026-2027', 'Term 1', 1, ?, CURRENT_TIMESTAMP, 1)""",
                 (sid, super_id),
             )
         connection.commit()
