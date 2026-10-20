@@ -520,6 +520,55 @@ class CMHSPortalTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
         self.assertEqual(self._student_count(), 0)
 
+    def test_student_edit_rejects_invalid_phone_and_future_birth_date(self):
+        connection = portal.get_db_connection()
+        try:
+            cursor = connection.execute(
+                """INSERT INTO students
+                   (admission_number, full_name, class_level, school_id)
+                   VALUES (?, ?, ?, 1)""",
+                ("EDIT-VALIDATION-001", "Riley Example", "Grade 7"),
+            )
+            student_id = cursor.lastrowid
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("super_demo", "test-super-password")
+        invalid_cases = (
+            {"guardian_phone": "abc<script>", "date_of_birth": "2010-01-01"},
+            {"guardian_phone": "000-000-0000", "date_of_birth": "2099-01-01"},
+        )
+        for changes in invalid_cases:
+            response = self.client.post(
+                f"/students/{student_id}/edit",
+                data={
+                    "full_name": "Riley Example",
+                    "class_level": "Grade 7",
+                    "date_of_birth": changes["date_of_birth"],
+                    "guardian_name": "Casey Example",
+                    "guardian_phone": changes["guardian_phone"],
+                    "enrollment_date": "",
+                    "previous_school": "",
+                    "emergency_contact_name": "",
+                    "emergency_contact_phone": "",
+                    "record_notes": "",
+                },
+                follow_redirects=True,
+            )
+            self.assertIn(b"valid phone number", response.data) if changes["guardian_phone"].startswith("abc") else self.assertIn(b"future", response.data)
+
+        connection = portal.get_db_connection()
+        try:
+            row = connection.execute(
+                "SELECT date_of_birth, guardian_phone FROM students WHERE id = ?",
+                (student_id,),
+            ).fetchone()
+            self.assertIsNone(row["date_of_birth"])
+            self.assertIsNone(row["guardian_phone"])
+        finally:
+            connection.close()
+
     def test_teacher_student_list_hides_private_fields(self):
         connection = portal.get_db_connection()
         connection.execute(
