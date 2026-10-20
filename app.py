@@ -841,7 +841,8 @@ def academics():
     connection = get_db_connection()
     try:
         students = connection.execute(
-            "SELECT id, admission_number, full_name, class_level FROM students WHERE status = 'active' ORDER BY class_level, full_name"
+            "SELECT id, admission_number, full_name, class_level FROM students WHERE school_id = ? AND status = 'active' ORDER BY class_level, full_name",
+            (current_user.school_id,),
         ).fetchall()
         if request.method == "POST":
             if current_user.role not in ACADEMIC_ENTRY_ROLES:
@@ -849,7 +850,8 @@ def academics():
             action = request.form.get("action", "").strip()
             student_id = request.form.get("student_id", "").strip()
             student = connection.execute(
-                "SELECT id FROM students WHERE id = ? AND status = 'active'", (student_id,)
+                "SELECT id FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
+                (student_id, current_user.school_id),
             ).fetchone()
             if not student:
                 flash("Choose a valid active student.", "danger")
@@ -1137,13 +1139,13 @@ def register_student():
                 INSERT INTO students (
                     admission_number, full_name, class_level, date_of_birth,
                     guardian_name, guardian_phone, enrollment_date, previous_school,
-                    emergency_contact_name, emergency_contact_phone, record_notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    emergency_contact_name, emergency_contact_phone, record_notes, school_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (admission_number, full_name, class_level, date_of_birth or None,
                  guardian_name or None, guardian_phone or None, enrollment_date or None,
                  previous_school or None, emergency_contact_name or None,
-                 emergency_contact_phone or None, record_notes or None),
+                 emergency_contact_phone or None, record_notes or None, current_user.school_id),
             )
             student_id_number = f"CMHS-{datetime.now().year}-{cursor.lastrowid:05d}"
             connection.execute(
@@ -1172,7 +1174,7 @@ def student_detail(student_id):
     connection = get_db_connection()
     try:
         student = connection.execute(
-            "SELECT * FROM students WHERE id = ?", (student_id,)
+            "SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, current_user.school_id)
         ).fetchone()
         if student is None:
             abort(404)
@@ -1212,7 +1214,7 @@ def edit_student(student_id):
         abort(403)
     connection = get_db_connection()
     try:
-        student = connection.execute("SELECT * FROM students WHERE id = ?", (student_id,)).fetchone()
+        student = connection.execute("SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, current_user.school_id)).fetchone()
         if student is None:
             abort(404)
         if request.method == "POST":
@@ -1340,13 +1342,13 @@ def student_finances():
                 return redirect(url_for("student_finances"))
             connection.execute(
                 """INSERT INTO student_finances
-                   (student_id, academic_year, total_fee, amount_paid, notes, updated_by)
-                   VALUES (?, ?, ?, ?, ?, ?)
+                   (student_id, academic_year, total_fee, amount_paid, notes, updated_by, school_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(student_id, academic_year) DO UPDATE SET
                      total_fee = excluded.total_fee, amount_paid = excluded.amount_paid,
                      notes = excluded.notes, updated_by = excluded.updated_by,
                      updated_at = CURRENT_TIMESTAMP""",
-                (student_id, academic_year, total_fee, amount_paid, notes or None, current_user.id),
+                (student_id, academic_year, total_fee, amount_paid, notes or None, current_user.id, current_user.school_id),
             )
             connection.commit()
             write_audit(current_user.id, "student_finance_updated", student["admission_number"],
