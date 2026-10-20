@@ -541,14 +541,27 @@ def write_audit(actor_user_id, action, target_username=None, details=None):
 # --------------------------------------------------
 
 def require_school_context():
-    """Return the authenticated user's assigned school or fail closed.
+    """Return an active school for the authenticated user or fail closed.
 
     A missing tenant assignment must never silently grant access to the
-    legacy/default school's records. Platform-level administrators need an
-    explicit school-selection workflow before using tenant-scoped routes.
+    legacy/default school's records. Re-check school status on each protected
+    request so suspending a school also blocks sessions that are already open.
+    Platform administrators need an explicit school assignment before using
+    tenant-scoped routes.
     """
     school_id = getattr(current_user, "school_id", None)
     if not current_user.is_authenticated or school_id is None:
+        abort(403)
+
+    connection = get_db_connection()
+    try:
+        school = connection.execute(
+            "SELECT status FROM schools WHERE id = ?", (school_id,)
+        ).fetchone()
+    finally:
+        connection.close()
+
+    if school is None or school["status"] != "active":
         abort(403)
     return school_id
 
