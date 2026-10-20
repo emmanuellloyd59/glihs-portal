@@ -311,7 +311,6 @@ def school_tools():
                 ORDER BY CASE day_of_week WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2
                 WHEN 'Wednesday' THEN 3 WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 ELSE 6 END,
                 start_time, class_name""").fetchall()
-        else:
             homework = conn.execute("""SELECT h.*, u.username AS author FROM homework_assignments h
                 JOIN users u ON u.id = h.created_by ORDER BY h.due_date, h.id DESC LIMIT 100""").fetchall()
         if current_user.role in ALL_ADMINS:
