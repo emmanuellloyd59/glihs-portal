@@ -460,10 +460,10 @@ def write_audit(actor_user_id, action, target_username=None, details=None):
     try:
         connection.execute(
             """
-            INSERT INTO audit_log (actor_user_id, action, target_username, details)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO audit_log (actor_user_id, action, target_username, details, school_id)
+            VALUES (?, ?, ?, ?, COALESCE((SELECT school_id FROM users WHERE id = ?), 1))
             """,
-            (actor_user_id, action, target_username, details),
+            (actor_user_id, action, target_username, details, actor_user_id),
         )
         connection.commit()
     finally:
@@ -516,7 +516,7 @@ def get_user_by_username(username):
         if row is None:
             return None
         return User(row["id"], row["username"], row["password_hash"],
-                    row["role"], row["is_super_admin"])
+                    row["role"], row["is_super_admin"], row["school_id"])
     finally:
         connection.close()
 
