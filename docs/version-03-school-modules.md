@@ -8,7 +8,9 @@ This branch adds a first usable school-operations workspace to the existing Flas
 - Timetable conflict checks for overlapping class, teacher, or room bookings.
 - Homework assignment creation for teaching staff, including due dates and optional HTTP(S) resource links.
 - School announcements with role restrictions and audience selection.
-- Staff-account overview that links to the existing administrator approval/suspension workflow.
+- Staff profiles with job title, subjects, assigned classes, and work contact, editable only by authorized administrators.
+- Homework text submissions for active student accounts linked to a verified student record; submissions are restricted to assignments matching that student's class.
+- Teachers can review submissions they created; academic administrators can review all submissions.
 - Operational counts and navigation to existing grades, attendance, report cards, and finance pages.
 - CSRF-protected forms (using the app's existing Flask-WTF configuration), role checks, validation, audit events, and automated tests.
 
@@ -17,7 +19,7 @@ This branch adds a first usable school-operations workspace to the existing Flas
 - Parent portal: no parent role/account onboarding or guardian self-service is enabled. Guardian links must not be used until role migration, identity verification, access scoping, and negative authorization tests are implemented.
 - Staff management: this branch provides a staff account overview and reuses existing account approval controls; it does not yet implement a full staff profile/assignment module.
 - Finance: links to existing fee tracking; it does not add invoice/receipt/refund accounting or reconciliation.
-- Learning materials/submissions: homework supports optional external resource links, but not file uploads, student submissions, or teacher feedback.
+- Learning materials: text submissions and teacher feedback are implemented in this branch. File uploads, plagiarism checks, offline/mobile sync, and richer rubric grading are not implemented.
 - Notifications: announcements are stored and displayed in-app; email/SMS/push delivery and read receipts are not implemented.
 - Analytics: counts are operational summaries only, not a validated reporting/exports suite.
 - Multi-school isolation: explicitly NOT implemented. The legacy students, grades, attendance, finance, user, and report-card queries are still single-school. Do not onboard multiple schools or real personal data.

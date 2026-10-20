@@ -21,8 +21,10 @@ class SchoolModuleTests(unittest.TestCase):
 
     def setUp(self):
         conn = portal.get_db_connection()
-        for table in ("timetable_entries", "homework_assignments", "school_announcements", "parent_student_links"):
+        for table in ("homework_submissions", "staff_profiles", "timetable_entries", "homework_assignments", "school_announcements", "parent_student_links"):
             conn.execute(f"DELETE FROM {table}")
+        conn.execute("DELETE FROM students WHERE admission_number='DEMO-HW-001'")
+        conn.execute("DELETE FROM users WHERE username='module_student'")
         conn.execute("""INSERT INTO users (username, full_name, password_hash, role, status, is_super_admin)
                         VALUES ('module_admin', 'Module Admin', ?, 'super_admin', 'active', 1)
                         ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash,
@@ -39,8 +41,10 @@ class SchoolModuleTests(unittest.TestCase):
 
     def tearDown(self):
         conn = portal.get_db_connection()
-        for table in ("timetable_entries", "homework_assignments", "school_announcements", "parent_student_links"):
+        for table in ("homework_submissions", "staff_profiles", "timetable_entries", "homework_assignments", "school_announcements", "parent_student_links"):
             conn.execute(f"DELETE FROM {table}")
+        conn.execute("DELETE FROM students WHERE admission_number='DEMO-HW-001'")
+        conn.execute("DELETE FROM users WHERE username='module_student'")
         conn.commit()
         conn.close()
         self.client.post("/logout")
@@ -96,6 +100,84 @@ class SchoolModuleTests(unittest.TestCase):
         count = conn.execute("SELECT COUNT(*) FROM timetable_entries").fetchone()[0]
         conn.close()
         self.assertEqual(count, 1)
+
+
+    def test_student_only_sees_and_submits_homework_for_linked_class(self):
+        conn = portal.get_db_connection()
+        teacher = conn.execute("SELECT id FROM users WHERE username='module_teacher'").fetchone()
+        conn.execute("""INSERT INTO students (admission_number, full_name, class_level, status, account_user_id)
+                        VALUES ('DEMO-HW-001', 'Fictional Student', 'Grade 8', 'active',
+                        (SELECT id FROM users WHERE username='module_student'))""")
+        conn.execute("""INSERT INTO homework_assignments
+                        (title, class_name, subject, instructions, due_date, created_by)
+                        VALUES ('Fictional Grade 8 Task', 'Grade 8', 'Math', 'Solve questions 1-3',
+                        '2099-05-01', ?)""", (teacher["id"],))
+        conn.execute("""INSERT INTO homework_assignments
+                        (title, class_name, subject, instructions, due_date, created_by)
+                        VALUES ('Other Class Task', 'Grade 9', 'Math', 'Not for this class',
+                        '2099-05-01', ?)""", (teacher["id"],))
+        conn.execute("""INSERT INTO users (username, full_name, password_hash, role, status)
+                        VALUES ('module_student', 'Fictional Student', ?, 'student', 'active')""",
+                     (generate_password_hash("test-module-student-password"),))
+        # The account was inserted after the student above; link it explicitly.
+        conn.execute("UPDATE students SET account_user_id=(SELECT id FROM users WHERE username='module_student') WHERE admission_number='DEMO-HW-001'")
+        conn.commit()
+        conn.close()
+        self.login("module_student", "test-module-student-password")
+        response = self.client.get("/school-tools")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Fictional Grade 8 Task", response.data)
+        self.assertNotIn(b"Other Class Task", response.data)
+        conn = portal.get_db_connection()
+        assignment_id = conn.execute("SELECT id FROM homework_assignments WHERE title='Fictional Grade 8 Task'").fetchone()["id"]
+        conn.close()
+        response = self.client.post("/school-tools", data={
+            "action": "submit_homework", "assignment_id": str(assignment_id),
+            "submission_text": "Fictional answer for testing."
+        }, follow_redirects=True)
+        self.assertIn(b"Homework submitted successfully", response.data)
+        conn = portal.get_db_connection()
+        row = conn.execute("SELECT submission_text FROM homework_submissions").fetchone()
+        conn.close()
+        self.assertEqual(row["submission_text"], "Fictional answer for testing.")
+
+    def test_staff_profile_can_be_saved_by_super_admin(self):
+        self.login("module_admin", "test-module-admin-password")
+        conn = portal.get_db_connection()
+        staff_id = conn.execute("SELECT id FROM users WHERE username='module_teacher'").fetchone()["id"]
+        conn.close()
+        response = self.client.post("/school-tools", data={
+            "action": "save_staff_profile", "staff_user_id": str(staff_id),
+            "job_title": "Mathematics Teacher", "staff_subjects": "Mathematics",
+            "assigned_classes": "Grade 8", "work_phone": "000-000-0000"
+        }, follow_redirects=True)
+        self.assertIn(b"Staff profile saved", response.data)
+        conn = portal.get_db_connection()
+        row = conn.execute("SELECT job_title, subjects, assigned_classes FROM staff_profiles WHERE user_id=?",
+                           (staff_id,)).fetchone()
+        conn.close()
+        self.assertEqual((row["job_title"], row["subjects"], row["assigned_classes"]),
+                         ("Mathematics Teacher", "Mathematics", "Grade 8"))
+
+    def test_student_cannot_manage_timetable_or_staff_profiles(self):
+        conn = portal.get_db_connection()
+        conn.execute("""INSERT INTO users (username, full_name, password_hash, role, status)
+                        VALUES ('module_student', 'Fictional Student', ?, 'student', 'active')""",
+                     (generate_password_hash("test-module-student-password"),))
+        conn.commit()
+        conn.close()
+        self.login("module_student", "test-module-student-password")
+        response = self.client.post("/school-tools", data={
+            "action": "add_timetable", "class_name": "Grade 8", "subject": "Math",
+            "teacher_name": "Teacher", "room": "A1", "day_of_week": "Monday",
+            "start_time": "09:00", "end_time": "10:00"
+        })
+        self.assertEqual(response.status_code, 403)
+        response = self.client.post("/school-tools", data={
+            "action": "save_staff_profile", "staff_user_id": "1",
+            "job_title": "Unauthorized", "staff_subjects": "", "assigned_classes": "", "work_phone": ""
+        })
+        self.assertEqual(response.status_code, 403)
 
     def test_announcement_requires_academic_admin(self):
         self.login("module_teacher", "test-module-teacher-password")
