@@ -324,10 +324,14 @@ def school_tools():
         if current_user.role in ACADEMIC_ADMINS:
             announcements = conn.execute("""SELECT a.*, u.username AS author FROM school_announcements a
                 JOIN users u ON u.id = a.created_by ORDER BY a.created_at DESC LIMIT 100""").fetchall()
+        elif current_user.role == "student":
+            announcements = conn.execute("""SELECT a.*, u.username AS author FROM school_announcements a
+                JOIN users u ON u.id = a.created_by WHERE a.published = 1
+                AND a.audience IN ('everyone','students') ORDER BY a.created_at DESC LIMIT 100""").fetchall()
         else:
             announcements = conn.execute("""SELECT a.*, u.username AS author FROM school_announcements a
                 JOIN users u ON u.id = a.created_by WHERE a.published = 1
-                AND a.audience IN ('everyone','students','staff') ORDER BY a.created_at DESC LIMIT 100""").fetchall()
+                AND a.audience IN ('everyone','staff') ORDER BY a.created_at DESC LIMIT 100""").fetchall()
         stats = {
             "timetable": conn.execute("SELECT COUNT(*) FROM timetable_entries").fetchone()[0],
             "homework": conn.execute("SELECT COUNT(*) FROM homework_assignments").fetchone()[0],
