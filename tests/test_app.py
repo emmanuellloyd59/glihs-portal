@@ -569,6 +569,9 @@ class CMHSPortalTests(unittest.TestCase):
         listing = self.client.get("/students")
         self.assertEqual(listing.status_code, 200)
         self.assertNotIn(b"Morgan Fiction", listing.data)
+        academics = self.client.get("/academics")
+        self.assertEqual(academics.status_code, 200)
+        self.assertNotIn(b"Morgan Fiction", academics.data)
 
     def test_school_one_cannot_write_grades_or_attendance_for_school_two_student(self):
         connection = portal.get_db_connection()
