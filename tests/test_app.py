@@ -741,6 +741,91 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         finally:
             connection.close()
 
+    def test_school_one_cannot_read_or_mutate_school_two_report_cards_or_finances(self):
+        connection = portal.get_db_connection()
+        try:
+            school = connection.execute(
+                "SELECT id FROM schools WHERE slug = ?", ("fictional-school-finance-isolation",)
+            ).fetchone()
+            if school:
+                school_two_id = school["id"]
+            else:
+                connection.execute(
+                    "INSERT INTO schools (name, slug) VALUES (?, ?)",
+                    ("Fictional Finance School", "fictional-school-finance-isolation"),
+                )
+                school_two_id = connection.execute(
+                    "SELECT id FROM schools WHERE slug = ?", ("fictional-school-finance-isolation",)
+                ).fetchone()["id"]
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username = 'teacher_demo'"
+            ).fetchone()["id"]
+            super_id = connection.execute(
+                "SELECT id FROM users WHERE username = 'super_demo'"
+            ).fetchone()["id"]
+            student_id = connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES (?, ?, ?, ?)""",
+                ("SCHOOL2-FINANCE-001", "Finance School Two Student", "Grade 8", school_two_id),
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO grades
+                   (student_id, subject, assessment, score, max_score, recorded_by,
+                    academic_year, term, school_id)
+                   VALUES (?, 'Science', 'School Two Quiz', 18, 20, ?, '2026-2027', 'Term 1', ?)""",
+                (student_id, teacher_id, school_two_id),
+            )
+            connection.execute(
+                """INSERT INTO report_cards
+                   (student_id, academic_year, term, published, published_by, published_at, school_id)
+                   VALUES (?, '2026-2027', 'Term 1', 1, ?, CURRENT_TIMESTAMP, ?)""",
+                (student_id, super_id, school_two_id),
+            )
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id, academic_year, total_fee, amount_paid, notes, updated_by, school_id)
+                   VALUES (?, '2026-2027', 1000, 300, 'School Two fictional fees', ?, ?)""",
+                (student_id, teacher_id, school_two_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("super_demo", "test-super-password")
+        finance_page = self.client.get("/student-finances?academic_year=2026-2027")
+        self.assertEqual(finance_page.status_code, 200)
+        self.assertNotIn(b"Finance School Two Student", finance_page.data)
+        report_page = self.client.get(
+            f"/report-cards?student_id={student_id}&academic_year=2026-2027&term=Term%201"
+        )
+        self.assertEqual(report_page.status_code, 200)
+        self.assertNotIn(b"Finance School Two Student", report_page.data)
+        self.assertNotIn(b"School Two Quiz", report_page.data)
+
+        self.client.post("/report-cards", data={
+            "action": "unpublish", "student_id": str(student_id),
+            "academic_year": "2026-2027", "term": "Term 1",
+        }, follow_redirects=True)
+        self.client.post("/student-finances", data={
+            "student_id": str(student_id), "academic_year": "2026-2027",
+            "total_fee": "500", "amount_paid": "100", "notes": "attempted cross-school edit",
+        }, follow_redirects=True)
+
+        connection = portal.get_db_connection()
+        try:
+            report = connection.execute(
+                "SELECT published FROM report_cards WHERE student_id = ? AND school_id = ?",
+                (student_id, school_two_id),
+            ).fetchone()
+            finance = connection.execute(
+                "SELECT total_fee, amount_paid FROM student_finances WHERE student_id = ? AND school_id = ?",
+                (student_id, school_two_id),
+            ).fetchone()
+            self.assertEqual(report["published"], 1)
+            self.assertEqual((finance["total_fee"], finance["amount_paid"]), (1000.0, 300.0))
+        finally:
+            connection.close()
+
     def test_v03_school_ownership_schema_is_created_and_migration_is_idempotent(self):
         # Re-running startup migration must not duplicate the default school or
         # discard existing fictional records.
