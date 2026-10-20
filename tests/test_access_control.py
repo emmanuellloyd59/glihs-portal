@@ -29,7 +29,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
 
     def setUp(self):
         connection = portal.get_db_connection()
-        for table in ("grades", "attendance", "report_cards", "audit_log", "students", "users"):
+        for table in ("grades", "attendance", "report_cards", "student_finances", "audit_log", "students", "users"):
             connection.execute(f"DELETE FROM {table}")
         accounts = [
             ("teacher_route_test", "teacher"),
@@ -234,6 +234,165 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertIn(b"Own Subject", response.data)
         self.assertNotIn(b"Other Student Example", response.data)
         self.assertNotIn(b"Private Subject", response.data)
+
+
+    def test_school_a_cannot_read_or_write_school_b_records(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO schools (name, slug, status) VALUES ('School B Test', 'school-b-test', 'active') "
+                "ON CONFLICT(slug) DO NOTHING"
+            )
+            school_b_id = connection.execute(
+                "SELECT id FROM schools WHERE slug = 'school-b-test'"
+            ).fetchone()["id"]
+            teacher_b_id = connection.execute(
+                """INSERT INTO users
+                   (username, password_hash, role, status, school_id)
+                   VALUES ('teacher_school_b', ?, 'teacher', 'active', ?)""",
+                (generate_password_hash("test-password-for-route"), school_b_id),
+            ).lastrowid
+            student_b_id = connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('SCHOOL-B-001', 'School B Fictional Student', 'Grade 8', ?)""",
+                (school_b_id,),
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO grades
+                   (student_id, subject, assessment, score, max_score, recorded_by,
+                    academic_year, term, school_id)
+                   VALUES (?, 'Private Mathematics', 'Quiz 1', 8, 10, ?,
+                           '2026-2027', 'Term 1', ?)""",
+                (student_b_id, teacher_b_id, school_b_id),
+            )
+            connection.execute(
+                """INSERT INTO attendance
+                   (student_id, attendance_date, status, recorded_by, school_id)
+                   VALUES (?, '2026-10-20', 'present', ?, ?)""",
+                (student_b_id, teacher_b_id, school_b_id),
+            )
+            connection.execute(
+                """INSERT INTO report_cards
+                   (student_id, academic_year, term, published, school_id)
+                   VALUES (?, '2026-2027', 'Term 1', 1, ?)""",
+                (student_b_id, school_b_id),
+            )
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id, academic_year, total_fee, amount_paid, updated_by, school_id)
+                   VALUES (?, '2026-2027', 1000, 250, ?, ?)""",
+                (student_b_id, teacher_b_id, school_b_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("teacher_route_test")
+        self.assertEqual(self.client.get(f"/students/{student_b_id}").status_code, 404)
+        academic_page = self.client.get("/academics")
+        self.assertEqual(academic_page.status_code, 200)
+        self.assertNotIn(b"School B Fictional Student", academic_page.data)
+        self.assertNotIn(b"Private Mathematics", academic_page.data)
+
+        # A foreign student ID in a grade or attendance POST must not create records.
+        for payload in (
+            {
+                "action": "grade", "student_id": str(student_b_id),
+                "subject": "Unauthorized Subject", "assessment": "Quiz",
+                "score": "8", "max_score": "10",
+                "academic_year": "2026-2027", "term": "Term 1",
+            },
+            {
+                "action": "attendance", "student_id": str(student_b_id),
+                "attendance_date": "2026-10-21", "status": "present",
+            },
+        ):
+            response = self.client.post("/academics", data=payload, follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+
+        self.client.post("/logout")
+        self.login_as("finance_route_test")
+        finance_page = self.client.get("/student-finances")
+        self.assertEqual(finance_page.status_code, 200)
+        self.assertNotIn(b"School B Fictional Student", finance_page.data)
+
+        self.client.post("/logout")
+        self.login_as("teacher_route_test")
+        report_page = self.client.get(
+            "/report-cards?student_id=" + str(student_b_id) +
+            "&academic_year=2026-2027&term=Term%201"
+        )
+        self.assertEqual(report_page.status_code, 200)
+        self.assertNotIn(b"School B Fictional Student", report_page.data)
+
+        connection = portal.get_db_connection()
+        try:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM grades WHERE student_id = ? AND subject = 'Unauthorized Subject'",
+                    (student_b_id,),
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM attendance WHERE student_id = ? AND attendance_date = '2026-10-21'",
+                    (student_b_id,),
+                ).fetchone()[0],
+                0,
+            )
+        finally:
+            connection.close()
+
+    def test_school_a_cannot_publish_school_b_report_card(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO schools (name, slug, status) VALUES ('School B Test', 'school-b-test', 'active') "
+                "ON CONFLICT(slug) DO NOTHING"
+            )
+            school_b_id = connection.execute(
+                "SELECT id FROM schools WHERE slug = 'school-b-test'"
+            ).fetchone()["id"]
+            teacher_b_id = connection.execute(
+                """INSERT INTO users
+                   (username, password_hash, role, status, school_id)
+                   VALUES ('teacher_school_b', ?, 'teacher', 'active', ?)""",
+                (generate_password_hash("test-password-for-route"), school_b_id),
+            ).lastrowid
+            student_b_id = connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('SCHOOL-B-REPORT-001', 'School B Report Student', 'Grade 8', ?)""",
+                (school_b_id,),
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO grades
+                   (student_id, subject, assessment, score, max_score, recorded_by,
+                    academic_year, term, school_id)
+                   VALUES (?, 'Mathematics', 'Quiz 1', 8, 10, ?,
+                           '2026-2027', 'Term 1', ?)""",
+                (student_b_id, teacher_b_id, school_b_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("super_route_test")
+        response = self.client.post("/report-cards", data={
+            "action": "publish", "student_id": str(student_b_id),
+            "academic_year": "2026-2027", "term": "Term 1",
+        }, follow_redirects=True)
+        self.assertIn(b"Select a valid student, academic year, and term", response.data)
+
+        connection = portal.get_db_connection()
+        try:
+            published = connection.execute(
+                "SELECT published FROM report_cards WHERE student_id = ? AND school_id = ?",
+                (student_b_id, school_b_id),
+            ).fetchone()
+            self.assertIsNone(published)
+        finally:
+            connection.close()
 
 
 if __name__ == "__main__":
