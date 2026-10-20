@@ -1034,7 +1034,7 @@ def academics():
                       g.assessment, g.score, g.max_score, g.academic_year, g.term,
                       u.username AS recorded_by, g.created_at
                FROM grades g JOIN students s ON s.id = g.student_id
-               JOIN users u ON u.id = g.recorded_by
+               JOIN users u ON u.id = g.recorded_by AND u.school_id = g.school_id
                WHERE g.school_id = ? AND s.school_id = ?
                ORDER BY g.id DESC LIMIT 100""",
             (require_school_context(), require_school_context()),
@@ -1043,7 +1043,7 @@ def academics():
             """SELECT a.id, s.full_name, s.admission_number, s.class_level,
                       a.attendance_date, a.status, a.note, u.username AS recorded_by
                FROM attendance a JOIN students s ON s.id = a.student_id
-               JOIN users u ON u.id = a.recorded_by
+               JOIN users u ON u.id = a.recorded_by AND u.school_id = a.school_id
                WHERE a.school_id = ? AND s.school_id = ?
                ORDER BY a.attendance_date DESC, a.id DESC LIMIT 100""",
             (require_school_context(), require_school_context()),
@@ -1087,6 +1087,7 @@ def my_report_cards():
                    FROM report_cards rc
                    JOIN grades g ON g.student_id = rc.student_id
                        AND g.academic_year = rc.academic_year AND g.term = rc.term
+                       AND g.school_id = rc.school_id
                    WHERE rc.student_id = ? AND rc.school_id = ? AND g.school_id = ? AND rc.published = 1
                    ORDER BY rc.academic_year DESC, rc.term, g.subject COLLATE NOCASE,
                             g.assessment COLLATE NOCASE""",
