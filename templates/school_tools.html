@@ -4,7 +4,7 @@
 <section class="rounded-4 text-white p-4 p-md-5 mb-4" style="background:linear-gradient(120deg,#102a43,#1769aa);">
   <p class="eyebrow mb-2" style="color:#8ce7df;">VERSION 0.3 MODULES</p>
   <h1 class="display-6 fw-bold">School Operations</h1>
-  <p class="mb-0">Timetables, homework, announcements, staff overview, and school activity counts.</p>
+  <p class="mb-0">Timetables, homework submissions, announcements, staff profiles, and school activity counts.</p>
 </section>
 <div class="alert alert-warning"><strong>Demo safety:</strong> use fictional data only. These tools are currently single-school; multi-school isolation and production data recovery are not yet implemented.</div>
 <div class="row g-3 mb-4">
@@ -48,7 +48,18 @@
 <div class="col-6"><label class="form-label" for="resource_url">Resource link (optional)</label><input type="url" class="form-control" id="resource_url" name="resource_url" maxlength="500" placeholder="https://…"></div>
 <div class="col-12"><button class="btn btn-primary" type="submit">Publish homework</button></div></form>
 {% endif %}
-{% for item in homework %}<article class="border rounded-3 p-3 mb-2"><div class="d-flex justify-content-between gap-2"><h3 class="h6 fw-bold mb-1">{{ item.title }}</h3><span class="badge text-bg-light">Due {{ item.due_date }}</span></div><div class="small text-secondary mb-2">{{ item.class_name }} · {{ item.subject }}</div><p class="mb-2">{{ item.instructions }}</p>{% if item.resource_url %}<a href="{{ item.resource_url }}" target="_blank" rel="noopener noreferrer">Open learning resource ↗</a>{% endif %}</article>{% else %}<p class="text-secondary">No homework assignments have been added.</p>{% endfor %}
+{% if is_student and not student_linked %}<div class="alert alert-warning">Your student login has not been linked to a verified student record. Ask the school administrator for help before submitting homework.</div>{% endif %}
+{% for item in homework %}<article class="border rounded-3 p-3 mb-2"><div class="d-flex justify-content-between gap-2"><h3 class="h6 fw-bold mb-1">{{ item.title }}</h3><span class="badge text-bg-light">Due {{ item.due_date }}</span></div><div class="small text-secondary mb-2">{{ item.class_name }} · {{ item.subject }}</div><p class="mb-2">{{ item.instructions }}</p>{% if item.resource_url %}<a href="{{ item.resource_url }}" target="_blank" rel="noopener noreferrer">Open learning resource ↗</a>{% endif %}
+{% if is_student and student_linked %}
+<form method="post" class="mt-3"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="submit_homework"><input type="hidden" name="assignment_id" value="{{ item.id }}"><label class="form-label" for="submission_{{ item.id }}">Your answer</label><textarea class="form-control mb-2" id="submission_{{ item.id }}" name="submission_text" maxlength="5000" rows="3" required>{{ item.submission_text or '' }}</textarea><button class="btn btn-sm btn-primary" type="submit">Submit / update work</button></form>
+{% if item.submitted_at %}<p class="small text-success mt-2 mb-1">Submitted {{ item.submitted_at }}</p>{% endif %}{% if item.feedback %}<div class="alert alert-info mt-2 mb-0"><strong>Teacher feedback:</strong> {{ item.feedback }}</div>{% endif %}
+{% endif %}</article>{% else %}<p class="text-secondary">No homework assignments have been added for this view.</p>{% endfor %}
+{% if not is_student and submissions %}<hr><h3 class="h5 fw-bold mt-3">Student submissions</h3>
+{% for submission in submissions %}
+{% if current_user.role in ['super_admin','principal','academic_admin'] or submission.created_by|string == current_user.id|string %}
+<article class="border rounded-3 p-3 mb-2"><div class="fw-bold">{{ submission.title }} — {{ submission.student_name }}</div><div class="small text-secondary mb-2">{{ submission.class_level }} · {{ submission.subject }} · Submitted {{ submission.submitted_at }}</div><p>{{ submission.submission_text }}</p>
+<form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="review_submission"><input type="hidden" name="submission_id" value="{{ submission.id }}"><label class="form-label" for="feedback_{{ submission.id }}">Feedback</label><textarea class="form-control mb-2" id="feedback_{{ submission.id }}" name="feedback" maxlength="2000" rows="2" required>{{ submission.feedback or '' }}</textarea><button class="btn btn-sm btn-outline-primary" type="submit">Save feedback</button></form></article>
+{% endif %}{% endfor %}{% endif %}
 </section>
 <section class="surface-card p-4">
 <h2 class="h4 fw-bold">Announcements</h2>
@@ -62,8 +73,16 @@
 </div>
 </div>
 {% if can_manage_staff %}
-<section class="surface-card p-4 mt-4"><div class="d-flex flex-column flex-md-row justify-content-between gap-3"><div><h2 class="h4 fw-bold">Staff account overview</h2><p class="text-secondary">Account status and approval changes remain in Administrator Management.</p></div><a class="btn btn-outline-primary align-self-start" href="{{ url_for('admin_users') }}">Manage accounts →</a></div>
-<div class="table-responsive"><table class="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th></tr></thead><tbody>{% for staff in staff_rows %}<tr><td>{{ staff.full_name or staff.username }}</td><td>{{ staff.username }}</td><td>{{ staff.role.replace('_',' ').title() }}</td><td>{{ staff.status }}</td></tr>{% else %}<tr><td colspan="4">No staff accounts found.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="surface-card p-4 mt-4"><div class="d-flex flex-column flex-md-row justify-content-between gap-3"><div><h2 class="h4 fw-bold">Staff management</h2><p class="text-secondary">Maintain work profiles and assignments. Account activation and role changes remain in Administrator Management.</p></div><a class="btn btn-outline-primary align-self-start" href="{{ url_for('admin_users') }}">Manage accounts →</a></div>
+<div class="row g-4 mt-1"><div class="col-12 col-lg-5"><h3 class="h6 fw-bold">Add / update staff profile</h3>
+<form method="post" class="row g-3"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="save_staff_profile">
+<div class="col-12"><label class="form-label" for="staff_user_id">Staff account</label><select class="form-select" name="staff_user_id" id="staff_user_id" required><option value="">Choose staff</option>{% for staff in staff_profiles %}<option value="{{ staff.user_id }}">{{ staff.full_name or staff.username }} — {{ staff.role.replace('_',' ').title() }}</option>{% endfor %}</select></div>
+<div class="col-12"><label class="form-label" for="job_title">Job title</label><input class="form-control" name="job_title" id="job_title" maxlength="120" required></div>
+<div class="col-12"><label class="form-label" for="staff_subjects">Subjects</label><input class="form-control" name="staff_subjects" id="staff_subjects" maxlength="500" placeholder="Mathematics, Science"></div>
+<div class="col-12"><label class="form-label" for="assigned_classes">Assigned classes</label><input class="form-control" name="assigned_classes" id="assigned_classes" maxlength="500" placeholder="Grade 7, Grade 8"></div>
+<div class="col-12"><label class="form-label" for="work_phone">Work phone (optional)</label><input class="form-control" name="work_phone" id="work_phone" maxlength="40"></div>
+<div class="col-12"><button class="btn btn-primary" type="submit">Save staff profile</button></div></form></div>
+<div class="col-12 col-lg-7"><div class="table-responsive"><table class="table"><thead><tr><th>Staff</th><th>Title</th><th>Subjects / classes</th><th>Work phone</th></tr></thead><tbody>{% for staff in staff_profiles %}<tr><td>{{ staff.full_name or staff.username }}<div class="small text-secondary">{{ staff.role.replace('_',' ').title() }} · {{ staff.status }}</div></td><td>{{ staff.job_title or 'Not set' }}</td><td>{{ staff.subjects or '—' }}<div class="small text-secondary">{{ staff.assigned_classes or 'No classes assigned' }}</div></td><td>{{ staff.work_phone or '—' }}</td></tr>{% else %}<tr><td colspan="4">No staff accounts found.</td></tr>{% endfor %}</tbody></table></div></div></div></section>
 {% endif %}
 <section class="surface-card p-4 mt-4"><h2 class="h5 fw-bold">Other workspaces</h2><div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-primary" href="{{ url_for('academics') }}">Grades & attendance</a><a class="btn btn-outline-primary" href="{{ url_for('report_cards') }}">Report cards</a>{% if current_user.role in ['finance_admin','super_admin','principal'] %}<a class="btn btn-outline-primary" href="{{ url_for('student_finances') }}">Finance records</a>{% endif %}</div><p class="small text-secondary mt-3 mb-0">Parent self-service and multi-school isolation are not enabled yet; guardian links are not exposed until the account-role migration and access tests are completed.</p></section>
 {% endblock %}
