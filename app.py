@@ -1210,21 +1210,35 @@ def register_student():
         if not admission_number.replace("-", "").replace("_", "").isalnum():
             flash("Admission number may contain only letters, numbers, hyphens, and underscores.", "danger")
             return redirect(url_for("register_student"))
-        if any(ord(ch) < 32 or ord(ch) == 127 for value in (full_name, class_level, guardian_name)
+        if any(ord(ch) < 32 or ord(ch) == 127
+               for value in (full_name, class_level, guardian_name, previous_school, emergency_contact_name)
                for ch in value):
-            flash("Names and class fields contain invalid control characters.", "danger")
+            flash("Names and school fields contain invalid control characters.", "danger")
             return redirect(url_for("register_student"))
-        if guardian_phone and any(ch not in "0123456789+()- ." for ch in guardian_phone):
-            flash("Enter a valid guardian phone number.", "danger")
-            return redirect(url_for("register_student"))
-        if date_of_birth:
-            try:
-                parsed_dob = datetime.strptime(date_of_birth, "%Y-%m-%d").date()
-                if parsed_dob.isoformat() != date_of_birth or parsed_dob > datetime.now().date():
-                    raise ValueError
-            except (ValueError, TypeError):
-                flash("Enter a valid date of birth that is not in the future.", "danger")
+        for phone_field, phone_value in (
+            ("guardian", guardian_phone),
+            ("emergency contact", emergency_contact_phone),
+        ):
+            if phone_value and any(ch not in "0123456789+()- ." for ch in phone_value):
+                flash("Enter a valid " + phone_field + " phone number.", "danger")
                 return redirect(url_for("register_student"))
+        for date_field, date_value in (
+            ("date of birth", date_of_birth),
+            ("enrollment date", enrollment_date),
+        ):
+            if date_value:
+                try:
+                    parsed_date = datetime.strptime(date_value, "%Y-%m-%d").date()
+                    if parsed_date.isoformat() != date_value:
+                        raise ValueError
+                    if date_field == "date of birth" and parsed_date > datetime.now().date():
+                        raise ValueError
+                except (ValueError, TypeError):
+                    message = ("Enter a valid date of birth that is not in the future."
+                               if date_field == "date of birth"
+                               else "Enter a valid enrollment date in YYYY-MM-DD format.")
+                    flash(message, "danger")
+                    return redirect(url_for("register_student"))
 
         connection = get_db_connection()
         try:
