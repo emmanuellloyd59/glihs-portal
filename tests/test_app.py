@@ -674,5 +674,38 @@ class CMHSPortalTests(unittest.TestCase):
         finally:
             connection.close()
 
+
+    def test_unassigned_school_user_cannot_create_student_records(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "UPDATE users SET school_id = NULL WHERE username = ?",
+                ("teacher_demo",),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        response = self.client.post(
+            "/students/register",
+            data={
+                "admission_number": "NO-SCHOOL-001",
+                "full_name": "Fictional Unassigned Student",
+                "class_level": "Grade 7",
+            },
+        )
+        self.assertEqual(response.status_code, 403)
+        connection = portal.get_db_connection()
+        try:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM students WHERE admission_number = ?",
+                ("NO-SCHOOL-001",),
+            ).fetchone()[0]
+            self.assertEqual(count, 0)
+        finally:
+            connection.close()
+
+
 if __name__ == "__main__":
     unittest.main()
