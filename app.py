@@ -1043,13 +1043,13 @@ def report_cards():
                 return redirect(url_for("report_cards"))
             published = 1 if action == "publish" else 0
             connection.execute(
-                """INSERT INTO report_cards (student_id, academic_year, term, published, published_by, published_at)
-                   VALUES (?, ?, ?, ?, ?, CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END)
+                """INSERT INTO report_cards (student_id, academic_year, term, published, published_by, published_at, school_id)
+                   VALUES (?, ?, ?, ?, ?, CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END, ?)
                    ON CONFLICT(student_id, academic_year, term) DO UPDATE SET
                      published = excluded.published, published_by = excluded.published_by,
                      published_at = CASE WHEN excluded.published = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
                      updated_at = CURRENT_TIMESTAMP""",
-                (student_id, academic_year, term, published, current_user.id, published),
+                (student_id, academic_year, term, published, current_user.id, published, current_user.school_id or 1),
             )
             connection.commit()
             write_audit(current_user.id, "report_card_" + action, selected_student["admission_number"],
