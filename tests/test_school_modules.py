@@ -141,6 +141,32 @@ class SchoolModuleTests(unittest.TestCase):
         conn.close()
         self.assertEqual(row["submission_text"], "Fictional answer for testing.")
 
+
+    def test_student_only_sees_timetable_for_linked_class(self):
+        conn = portal.get_db_connection()
+        conn.execute("""INSERT INTO users (username, full_name, password_hash, role, status)
+                        VALUES ('module_student', 'Fictional Student', ?, 'student', 'active')""",
+                     (generate_password_hash("test-module-student-password"),))
+        student_user = conn.execute("SELECT id FROM users WHERE username='module_student'").fetchone()
+        teacher = conn.execute("SELECT id FROM users WHERE username='module_teacher'").fetchone()
+        conn.execute("""INSERT INTO students
+                        (admission_number, full_name, class_level, status, account_user_id)
+                        VALUES ('DEMO-HW-001', 'Fictional Student', 'Grade 8', 'active', ?)""",
+                     (student_user["id"],))
+        for class_name, subject in (("Grade 8", "Fictional Math"), ("Grade 9", "Private Science")):
+            conn.execute("""INSERT INTO timetable_entries
+                (class_name, subject, teacher_name, room, day_of_week, start_time, end_time, created_by)
+                VALUES (?, ?, 'Fictional Teacher', 'Room A', 'Monday', '09:00', '10:00', ?)""",
+                (class_name, subject, teacher["id"]))
+        conn.commit()
+        conn.close()
+
+        self.login("module_student", "test-module-student-password")
+        response = self.client.get("/school-tools")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Fictional Math", response.data)
+        self.assertNotIn(b"Private Science", response.data)
+
     def test_staff_profile_can_be_saved_by_super_admin(self):
         self.login("module_admin", "test-module-admin-password")
         conn = portal.get_db_connection()
