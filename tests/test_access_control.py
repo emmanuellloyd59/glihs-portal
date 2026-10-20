@@ -465,6 +465,54 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         finally:
             connection.close()
 
+
+    def test_suspended_school_blocks_existing_sessions_and_new_logins(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO schools (name, slug, status) VALUES ('Suspension Test School', 'suspension-test-school', 'active') "
+                "ON CONFLICT(slug) DO NOTHING"
+            )
+            school_id = connection.execute(
+                "SELECT id FROM schools WHERE slug = 'suspension-test-school'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO users
+                   (username, password_hash, role, status, school_id)
+                   VALUES ('teacher_suspended_school', ?, 'teacher', 'active', ?)""",
+                (generate_password_hash("test-password-for-route"), school_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("teacher_suspended_school")
+        dashboard = self.client.get("/dashboard")
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertIn(b"Dashboard Overview", dashboard.data)
+
+        connection = portal.get_db_connection()
+        try:
+            connection.execute("UPDATE schools SET status = 'suspended' WHERE id = ?", (school_id,))
+            connection.commit()
+        finally:
+            connection.close()
+
+        # The next request reloads the account from the database, invalidating the
+        # existing Flask-Login session when its school is suspended.
+        response = self.client.get("/dashboard", follow_redirects=True)
+        self.assertIn(b"Portal Login", response.data)
+        self.assertNotIn(b"Dashboard Overview", response.data)
+
+        # A suspended-school account cannot immediately establish a new session.
+        response = self.client.post(
+            "/login",
+            data={"username": "teacher_suspended_school", "password": "test-password-for-route"},
+            follow_redirects=True,
+        )
+        self.assertIn(b"Invalid username or password", response.data)
+        self.assertNotIn(b"Dashboard Overview", response.data)
+
 class StartupMigrationTests(unittest.TestCase):
     def test_legacy_database_migrates_without_losing_records_and_is_idempotent(self):
         """Exercise the real startup migration on a disposable legacy SQLite file."""
