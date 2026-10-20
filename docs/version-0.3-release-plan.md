@@ -65,7 +65,7 @@ Create two schools, School A and School B, with separate administrators, teacher
 - [ ] All application routes and SQL queries audited for tenant scoping
 - [ ] Schema migration tested against a copy of a legacy database
 - [ ] Two-school negative-access test suite passes
-- [x] Full test suite passes on supported Python versions (70 tests on Python 3.11 and 3.14; GitHub Actions run #117)
+- [x] Full test suite passes on supported Python versions (70 tests on Python 3.11 and 3.14; GitHub Actions)
 - [ ] Browser checks pass on desktop and mobile
 - [ ] Report cards verified in print/PDF preview
 - [ ] Backup restore and rollback rehearsal succeeds
