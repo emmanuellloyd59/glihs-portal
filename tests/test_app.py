@@ -657,6 +657,27 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
 
 
 
+    def test_suspended_school_loses_access_to_existing_tenant_sessions(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        connection = portal.get_db_connection()
+        try:
+            connection.execute("UPDATE schools SET status = 'suspended' WHERE id = 1")
+            connection.commit()
+        finally:
+            connection.close()
+
+        try:
+            self.assertEqual(self.client.get("/students").status_code, 403)
+            self.assertEqual(self.client.get("/academics").status_code, 403)
+            self.assertEqual(self.client.get("/student-finances").status_code, 403)
+        finally:
+            connection = portal.get_db_connection()
+            try:
+                connection.execute("UPDATE schools SET status = 'active' WHERE id = 1")
+                connection.commit()
+            finally:
+                connection.close()
+
     def test_school_one_cannot_view_school_two_student_record(self):
         connection = portal.get_db_connection()
         try:
