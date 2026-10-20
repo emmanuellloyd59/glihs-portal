@@ -90,6 +90,46 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         })
         self.assertEqual(response.status_code, 403)
 
+    def test_staff_approval_audit_event_is_attributed_to_target_school(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                """INSERT INTO users
+                   (username, full_name, password_hash, role, status, is_super_admin, school_id)
+                   VALUES (?, ?, ?, 'teacher', 'pending', 0, 1)""",
+                ("pending_school_a_teacher", "Fictional Pending Teacher",
+                 generate_password_hash("placeholder-password")),
+            )
+            pending_id = connection.execute(
+                "SELECT id FROM users WHERE username = ?",
+                ("pending_school_a_teacher",),
+            ).fetchone()["id"]
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("super_route_test")
+        response = self.client.post("/admin/users", data={
+            "action": "approve",
+            "user_id": str(pending_id),
+            "temporary_password": "Temporary-School-A-2026!",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+
+        connection = portal.get_db_connection()
+        try:
+            event = connection.execute(
+                """SELECT school_id FROM audit_log
+                   WHERE action = 'staff_request_approved'
+                     AND target_username = ?
+                   ORDER BY id DESC LIMIT 1""",
+                ("pending_school_a_teacher",),
+            ).fetchone()
+        finally:
+            connection.close()
+        self.assertIsNotNone(event)
+        self.assertEqual(event["school_id"], 1)
+
     def test_student_cannot_register_student_by_direct_post(self):
         self.login_as("student_route_test")
         response = self.client.post("/students/register", data={
