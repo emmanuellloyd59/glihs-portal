@@ -2,9 +2,11 @@
 
 ## Status
 
-**Planning and implementation branch only. Not production-ready.**
+**Implementation in progress. Not production-ready.**
 
-The inspected Version 0.2 code has no `school_id` ownership column on the core tables, and student/academic queries are not consistently scoped to a school. Do not onboard a second school or store real student records until every acceptance test below passes.
+The first schema-foundation change is now in `app.py`: an idempotent `schools` table and additive `school_id` columns/indexes for users, students, grades, attendance, report cards, fees, and audit events; existing non-super-admin users and legacy school records are assigned to a seeded legacy school. User objects now expose server-loaded `school_id`, and audit events inherit the actor's school.
+
+**Critical limitation:** the application routes and SQL queries have not yet all been tenant-scoped, the new columns are currently nullable for migration compatibility, and no passing CI run has been confirmed. This foundation is not proof of isolation. Do not onboard a second school, store real student records, merge, or deploy this branch until the remaining authorization, migration, and regression gates pass.
 
 ## Version 0.3 goals
 
