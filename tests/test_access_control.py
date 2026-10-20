@@ -130,7 +130,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
     def test_unlinked_student_does_not_see_student_records(self):
         connection = portal.get_db_connection()
         connection.execute(
-            "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
             ("PRIVATE-001", "Private Example", "Grade 8"),
         )
         connection.commit()
@@ -144,7 +144,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
     def test_student_record_link_requires_identity_verification_confirmation(self):
         connection = portal.get_db_connection()
         connection.execute(
-            "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
             ("VERIFY-001", "Verification Example", "Grade 9"),
         )
         student_id = connection.execute(
@@ -172,18 +172,18 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
     def test_super_admin_links_student_and_student_sees_only_own_published_report(self):
         connection = portal.get_db_connection()
         connection.execute(
-            "INSERT INTO users (username, password_hash, role, status) VALUES (?, ?, 'student', 'active')",
+            "INSERT INTO users (username, password_hash, role, status, school_id) VALUES (?, ?, 'student', 'active', 1)",
             ("student_two_route_test", generate_password_hash("test-password-for-route")),
         )
         connection.execute(
-            "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
             ("OWN-001", "Own Student Example", "Grade 7"),
         )
         own_id = connection.execute(
             "SELECT id FROM students WHERE admission_number = 'OWN-001'"
         ).fetchone()["id"]
         connection.execute(
-            "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
             ("OTHER-001", "Other Student Example", "Grade 8"),
         )
         other_id = connection.execute(
