@@ -603,7 +603,10 @@ class CMHSPortalTests(unittest.TestCase):
                 },
                 follow_redirects=True,
             )
-            self.assertIn(b"valid phone number", response.data) if changes["guardian_phone"].startswith("abc") else self.assertIn(b"future", response.data)
+            if changes["guardian_phone"].startswith("abc"):
+                self.assertIn(b"valid phone number", response.data)
+            else:
+                self.assertIn(b"future", response.data)
 
         connection = portal.get_db_connection()
         try:
