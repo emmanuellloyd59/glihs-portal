@@ -1,0 +1,145 @@
+/* CMHS Digital Campus — Version 0.3 advanced responsive UI layer.
+   Loaded after campus-v02.css so existing routes receive the same design system. */
+:root {
+  --campus-ink: #202238;
+  --campus-navy: #171b32;
+  --campus-blue: #252b49;
+  --campus-gold: #d5a51e;
+  --campus-gold-soft: #f8edc9;
+  --campus-muted: #687086;
+  --campus-canvas: #f6f7fb;
+  --campus-border: #e4e7ef;
+  --campus-radius: 1.15rem;
+  --campus-shadow: 0 12px 32px rgba(23, 27, 50, .075);
+  --campus-shadow-hover: 0 20px 42px rgba(23, 27, 50, .13);
+}
+html { scroll-behavior: smooth; scroll-padding-top: 6rem; }
+body {
+  color: var(--campus-ink);
+  background:
+    radial-gradient(ellipse at 8% 0%, rgba(213,165,30,.10), transparent 34%),
+    radial-gradient(ellipse at 95% 22%, rgba(37,43,73,.045), transparent 30%),
+    var(--campus-canvas);
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: rgba(213,165,30,.28); color: var(--campus-navy); }
+a { text-underline-offset: .22em; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, summary:focus-visible {
+  outline: 3px solid #c39715 !important; outline-offset: 3px;
+}
+.site-navbar {
+  position: sticky; top: 0; z-index: 1030;
+  background: linear-gradient(112deg,#171b32 0%,#252b49 68%,#343047 100%);
+  border-bottom: 3px solid var(--campus-gold);
+  backdrop-filter: blur(14px);
+}
+.site-navbar .navbar-brand { min-height: 44px; font-weight: 800; letter-spacing: -.025em; }
+.brand-mark {
+  background: var(--campus-gold) !important; color: var(--campus-navy) !important;
+  border-radius: .7rem; box-shadow: 0 5px 14px rgba(0,0,0,.15);
+}
+.site-navbar .nav-link {
+  min-height: 44px; display: inline-flex; align-items: center;
+  padding: .62rem .82rem; border-radius: .7rem;
+  transition: background-color .18s ease, color .18s ease;
+}
+.site-navbar .nav-link:hover, .site-navbar .nav-link:focus-visible {
+  background: rgba(255,255,255,.1); color: #f8edc9 !important;
+}
+.site-navbar .btn-light { background: var(--campus-gold); color: var(--campus-navy); border: 0; }
+.site-navbar .btn-light:hover { background: #efc94d; color: var(--campus-navy); }
+.demo-ribbon { background: #fff8e6; color: #5e480d; border-bottom-color: #e8d18a; }
+.page-shell { max-width: 1240px; }
+main.page-shell { min-width: 0; }
+.eyebrow { letter-spacing: .15em; line-height: 1.45; }
+h1, h2, h3, h4, h5 { letter-spacing: -.025em; }
+.surface-card {
+  background: rgba(255,255,255,.96); border: 1px solid var(--campus-border);
+  border-top: 3px solid rgba(213,165,30,.72); border-radius: var(--campus-radius);
+  box-shadow: var(--campus-shadow);
+  transition: box-shadow .2s ease, border-color .2s ease, transform .2s ease;
+}
+.dashboard-card { height: 100%; }
+@media (hover:hover) and (pointer:fine) {
+  .surface-card:has(a.btn):hover { border-color: #d5c27d; box-shadow: var(--campus-shadow-hover); }
+  .dashboard-card:hover { transform: translateY(-3px); }
+}
+.btn {
+  --bs-btn-border-radius: .78rem; font-weight: 700; min-height: 44px;
+  padding: .65rem 1rem;
+  transition: transform .16s ease, box-shadow .16s ease, background-color .16s ease;
+}
+.btn:active { transform: translateY(1px); }
+.btn-lg { min-height: 50px; }
+.btn-primary {
+  --bs-btn-bg: #252b49; --bs-btn-border-color: #252b49;
+  --bs-btn-hover-bg: #343047; --bs-btn-hover-border-color: #343047;
+  --bs-btn-active-bg: #171b32;
+}
+.btn-outline-primary {
+  --bs-btn-color: #252b49; --bs-btn-border-color: #c6b36f;
+  --bs-btn-hover-bg: #252b49; --bs-btn-hover-border-color: #252b49;
+}
+.btn-teal { background: var(--campus-gold); color: var(--campus-navy); }
+.btn-teal:hover { background: #efc94d; color: var(--campus-navy); }
+.form-label { color: #30364f; font-weight: 650; }
+.form-control, .form-select, .input-group-text {
+  min-height: 46px; border-color: #cfd6e3; border-radius: .78rem;
+}
+.form-control, .form-select { padding: .68rem .88rem; }
+.form-control::placeholder { color: #7e8799; }
+.form-control:focus, .form-select:focus {
+  border-color: #b58a0c; box-shadow: 0 0 0 .22rem rgba(213,165,30,.19);
+}
+textarea.form-control { min-height: 110px; }
+.table-responsive { border-radius: .85rem; }
+.table { --bs-table-color: var(--campus-ink); --bs-table-border-color: var(--campus-border); vertical-align: middle; }
+.table thead th {
+  background: #f5efdc; color: #303147; font-size: .82rem;
+  letter-spacing: .035em; font-weight: 750; white-space: nowrap;
+}
+.table > :not(caption) > * > * { padding: .8rem .85rem; }
+.table-striped > tbody > tr:nth-of-type(odd) > * { --bs-table-bg: #faf9f5; }
+.badge { letter-spacing: .015em; font-weight: 750; }
+.alert { border: 1px solid transparent; border-radius: .9rem; }
+.alert-success { border-color: #b9e6ce; }
+.alert-danger { border-color: #f0c5c5; }
+.card, .modal-content, .dropdown-menu { border-color: var(--campus-border); border-radius: var(--campus-radius); }
+hr { border-color: var(--campus-border); opacity: 1; }
+footer { color: var(--campus-muted); }
+footer .fw-bold { letter-spacing: .015em; }
+:target { scroll-margin-top: 6rem; }
+/* Existing dashboard hero has inline styles; this scoped override applies the campus palette. */
+section.rounded-4.text-white.p-4.p-md-5.mb-4 {
+  background: linear-gradient(120deg,#171b32 0%,#252b49 65%,#3b3548) !important;
+  border-bottom: 4px solid var(--campus-gold);
+  box-shadow: 0 18px 40px rgba(23,27,50,.13);
+}
+section.rounded-4.text-white.p-4.p-md-5.mb-4 .eyebrow { color: #f3d56f !important; }
+@media (max-width: 767.98px) {
+  .page-shell { padding-left: 1rem; padding-right: 1rem; }
+  main.page-shell { padding-top: 1.2rem !important; padding-bottom: 1.5rem !important; }
+  .site-navbar .navbar-nav { padding: .65rem 0 .8rem; align-items: stretch !important; }
+  .site-navbar .nav-link { padding: .75rem .8rem; }
+  .site-navbar .navbar-nav .btn { margin: .45rem 0 0 !important; }
+  .surface-card { border-radius: .95rem; }
+  .table-responsive { border: 1px solid var(--campus-border); }
+  .display-6 { font-size: clamp(1.8rem, 7vw, 2.5rem); }
+}
+@media (max-width: 420px) {
+  .navbar-brand { font-size: .93rem; gap: .45rem; }
+  .brand-mark { width: 1.9rem; height: 1.9rem; }
+  .btn { white-space: normal; }
+  .surface-card { padding: 1.1rem !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+@media print {
+  html, body { background: #fff !important; color: #000 !important; }
+  .site-navbar { position: static; }
+  .surface-card { box-shadow: none !important; border-top-color: #bbb !important; }
+}
