@@ -741,5 +741,72 @@ class CMHSPortalTests(unittest.TestCase):
             connection.close()
 
 
+
+    def test_staff_access_request_is_assigned_to_selected_active_school(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO schools (name, slug, status) VALUES (?, ?, 'active')",
+                ("Fictional Request School", "fictional-request-school"),
+            )
+            school_id = connection.execute(
+                "SELECT id FROM schools WHERE slug = ?", ("fictional-request-school",)
+            ).fetchone()["id"]
+            connection.commit()
+        finally:
+            connection.close()
+
+        response = self.client.post("/admin/request-access", data={
+            "full_name": "Fictional Staff Member",
+            "username": "fictional_staff_request",
+            "requested_role": "teacher",
+            "school_slug": "fictional-request-school",
+        })
+        self.assertEqual(response.status_code, 302)
+        connection = portal.get_db_connection()
+        try:
+            row = connection.execute(
+                "SELECT school_id, status, role, is_super_admin FROM users WHERE username = ?",
+                ("fictional_staff_request",),
+            ).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row["school_id"], school_id)
+            self.assertEqual(row["status"], "pending")
+            self.assertEqual(row["role"], "teacher")
+            self.assertEqual(row["is_super_admin"], 0)
+        finally:
+            connection.close()
+
+    def test_staff_access_request_rejects_unknown_or_suspended_school(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO schools (name, slug, status) VALUES (?, ?, 'suspended')",
+                ("Fictional Suspended School", "fictional-suspended-school"),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        for username, slug in (
+            ("unknown_school_request", "does-not-exist"),
+            ("suspended_school_request", "fictional-suspended-school"),
+        ):
+            response = self.client.post("/admin/request-access", data={
+                "full_name": "Fictional Staff Member",
+                "username": username,
+                "requested_role": "teacher",
+                "school_slug": slug,
+            })
+            self.assertEqual(response.status_code, 200)
+            connection = portal.get_db_connection()
+            try:
+                count = connection.execute(
+                    "SELECT COUNT(*) FROM users WHERE username = ?", (username,)
+                ).fetchone()[0]
+                self.assertEqual(count, 0)
+            finally:
+                connection.close()
+
 if __name__ == "__main__":
     unittest.main()
