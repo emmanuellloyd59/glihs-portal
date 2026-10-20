@@ -582,8 +582,16 @@ def get_user_by_id(user_id):
     try:
         row = connection.execute(
             """
-            SELECT id, username, password_hash, role, is_super_admin, school_id
-            FROM users WHERE id = ? AND status = 'active'
+            SELECT u.id, u.username, u.password_hash, u.role, u.is_super_admin, u.school_id
+            FROM users u
+            WHERE u.id = ? AND u.status = 'active'
+              AND (
+                  (u.is_super_admin = 1 AND u.school_id IS NULL)
+                  OR EXISTS (
+                      SELECT 1 FROM schools s
+                      WHERE s.id = u.school_id AND s.status = 'active'
+                  )
+              )
             """,
             (user_id,),
         ).fetchone()
@@ -600,8 +608,16 @@ def get_user_by_username(username):
     try:
         row = connection.execute(
             """
-            SELECT id, username, password_hash, role, is_super_admin, school_id
-            FROM users WHERE username = ? AND status = 'active'
+            SELECT u.id, u.username, u.password_hash, u.role, u.is_super_admin, u.school_id
+            FROM users u
+            WHERE u.username = ? AND u.status = 'active'
+              AND (
+                  (u.is_super_admin = 1 AND u.school_id IS NULL)
+                  OR EXISTS (
+                      SELECT 1 FROM schools s
+                      WHERE s.id = u.school_id AND s.status = 'active'
+                  )
+              )
             """,
             (username,),
         ).fetchone()
