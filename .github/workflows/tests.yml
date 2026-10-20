@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, feature/v03-school-modules, feature/v03-staff-homework]
   workflow_dispatch:
 
 permissions:
