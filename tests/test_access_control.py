@@ -40,8 +40,8 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         ]
         for username, role in accounts:
             connection.execute(
-                """INSERT INTO users (username, password_hash, role, status, is_super_admin)
-                   VALUES (?, ?, ?, 'active', ?)""",
+                """INSERT INTO users (username, password_hash, role, status, is_super_admin, school_id)
+                   VALUES (?, ?, ?, 'active', ?, 1)""",
                 (username, generate_password_hash("test-password-for-route"), role,
                  1 if role == "super_admin" else 0),
             )
