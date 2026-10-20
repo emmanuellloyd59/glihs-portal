@@ -23,6 +23,8 @@ class SchoolModuleTests(unittest.TestCase):
         conn = portal.get_db_connection()
         for table in ("homework_submissions", "staff_profiles", "timetable_entries", "homework_assignments", "school_announcements", "parent_student_links"):
             conn.execute(f"DELETE FROM {table}")
+        conn.execute("DELETE FROM students WHERE admission_number='DEMO-HW-001'")
+        conn.execute("DELETE FROM users WHERE username='module_student'")
         conn.execute("""INSERT INTO users (username, full_name, password_hash, role, status, is_super_admin)
                         VALUES ('module_admin', 'Module Admin', ?, 'super_admin', 'active', 1)
                         ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash,
@@ -39,8 +41,10 @@ class SchoolModuleTests(unittest.TestCase):
 
     def tearDown(self):
         conn = portal.get_db_connection()
-        for table in ("timetable_entries", "homework_assignments", "school_announcements", "parent_student_links"):
+        for table in ("homework_submissions", "staff_profiles", "timetable_entries", "homework_assignments", "school_announcements", "parent_student_links"):
             conn.execute(f"DELETE FROM {table}")
+        conn.execute("DELETE FROM students WHERE admission_number='DEMO-HW-001'")
+        conn.execute("DELETE FROM users WHERE username='module_student'")
         conn.commit()
         conn.close()
         self.client.post("/logout")
