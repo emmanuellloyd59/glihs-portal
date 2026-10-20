@@ -570,6 +570,69 @@ class CMHSPortalTests(unittest.TestCase):
         self.assertEqual(listing.status_code, 200)
         self.assertNotIn(b"Morgan Fiction", listing.data)
 
+    def test_school_one_cannot_write_grades_or_attendance_for_school_two_student(self):
+        connection = portal.get_db_connection()
+        try:
+            school = connection.execute(
+                "SELECT id FROM schools WHERE slug = ?", ("fictional-school-write-test",)
+            ).fetchone()
+            if school:
+                school_two_id = school["id"]
+            else:
+                connection.execute(
+                    "INSERT INTO schools (name, slug) VALUES (?, ?)",
+                    ("Fictional School Write Test", "fictional-school-write-test"),
+                )
+                school_two_id = connection.execute(
+                    "SELECT id FROM schools WHERE slug = ?", ("fictional-school-write-test",)
+                ).fetchone()["id"]
+            cursor = connection.execute(
+                """INSERT INTO students
+                   (admission_number, full_name, class_level, school_id)
+                   VALUES (?, ?, ?, ?)""",
+                ("SCHOOL2-WRITE-001", "Taylor Fiction", "Grade 6", school_two_id),
+            )
+            school_two_student_id = cursor.lastrowid
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("teacher_demo", "test-teacher-password")
+        for action_data in (
+            {
+                "action": "grade", "student_id": str(school_two_student_id),
+                "subject": "Mathematics", "assessment": "Unauthorized test",
+                "academic_year": "2026-2027", "term": "Term 1",
+                "score": "80", "max_score": "100",
+            },
+            {
+                "action": "attendance", "student_id": str(school_two_student_id),
+                "attendance_date": "2026-10-20", "status": "present",
+                "note": "Unauthorized test",
+            },
+        ):
+            response = self.client.post("/academics", data=action_data)
+            self.assertIn(response.status_code, (302, 303))
+
+        connection = portal.get_db_connection()
+        try:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM grades WHERE student_id = ?",
+                    (school_two_student_id,),
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM attendance WHERE student_id = ?",
+                    (school_two_student_id,),
+                ).fetchone()[0],
+                0,
+            )
+        finally:
+            connection.close()
+
     def test_v03_school_ownership_schema_is_created_and_migration_is_idempotent(self):
         # Re-running startup migration must not duplicate the default school or
         # discard existing fictional records.
