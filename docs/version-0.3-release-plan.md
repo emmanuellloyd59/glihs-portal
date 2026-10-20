@@ -4,9 +4,9 @@
 
 **Implementation in progress. Not production-ready.**
 
-The first schema-foundation change is now in `app.py`: an idempotent `schools` table and additive `school_id` columns/indexes for users, students, grades, attendance, report cards, fees, and audit events; existing non-super-admin users and legacy school records are assigned to a seeded legacy school. User objects now expose server-loaded `school_id`, and audit events inherit the actor's school.
+The schema foundation is implemented in `app.py`: an idempotent `schools` table, additive `school_id` columns/indexes, server-loaded school ownership on user objects, and audit events associated with the actor's school. The migration helpers were updated to preserve `school_id` if legacy user/grade tables must be rebuilt. Core student registration, listing, detail/edit, academic records, report cards, and finance queries now include school ownership checks; new student, grade, attendance, report-card, finance, and staff-request records are assigned to a school. A fictional two-school student visibility test has been added, and existing test student fixtures now use the legacy school's ID.
 
-**Critical limitation:** the application routes and SQL queries have not yet all been tenant-scoped, the new columns are currently nullable for migration compatibility, and no passing CI run has been confirmed. This foundation is not proof of isolation. Do not onboard a second school, store real student records, merge, or deploy this branch until the remaining authorization, migration, and regression gates pass.
+**Critical limitation:** this is still not release-ready. Staff/user-management and account-linking paths need a complete tenant-policy review, schema columns remain nullable for compatibility, admission numbers are still globally unique, and no passing CI or local test run has been confirmed. Some route/query paths and all mutations need a full audit, not just spot fixes. Do not onboard a second school, store real student records, merge, or deploy until the full two-school suite, migration/recovery, and regression gates pass.
 
 ## Version 0.3 goals
 
