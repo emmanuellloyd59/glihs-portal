@@ -975,8 +975,8 @@ def my_report_cards():
     try:
         student = connection.execute(
             """SELECT id, admission_number, full_name, class_level
-               FROM students WHERE account_user_id = ? AND status = 'active'""",
-            (current_user.id,),
+               FROM students WHERE account_user_id = ? AND school_id = ? AND status = 'active'""",
+            (current_user.id, current_user.school_id or 1),
         ).fetchone()
         reports = []
         if student:
@@ -986,10 +986,10 @@ def my_report_cards():
                    FROM report_cards rc
                    JOIN grades g ON g.student_id = rc.student_id
                        AND g.academic_year = rc.academic_year AND g.term = rc.term
-                   WHERE rc.student_id = ? AND rc.published = 1
+                   WHERE rc.student_id = ? AND rc.school_id = ? AND g.school_id = ? AND rc.published = 1
                    ORDER BY rc.academic_year DESC, rc.term, g.subject COLLATE NOCASE,
                             g.assessment COLLATE NOCASE""",
-                (student["id"],),
+                (student["id"], current_user.school_id or 1, current_user.school_id or 1),
             ).fetchall()
     finally:
         connection.close()
@@ -1005,7 +1005,8 @@ def report_cards():
     connection = get_db_connection()
     try:
         students = connection.execute(
-            "SELECT id, admission_number, full_name, class_level FROM students WHERE status = 'active' ORDER BY class_level, full_name"
+            "SELECT id, admission_number, full_name, class_level FROM students WHERE school_id = ? AND status = 'active' ORDER BY class_level, full_name",
+            (current_user.school_id or 1,),
         ).fetchall()
         student_id = request.values.get("student_id", "").strip()
         academic_year = request.values.get("academic_year", "").strip()
@@ -1016,8 +1017,8 @@ def report_cards():
 
         if student_id and academic_year and term in {"Term 1", "Term 2", "Term 3"}:
             selected_student = connection.execute(
-                "SELECT id, admission_number, full_name, class_level FROM students WHERE id = ? AND status = 'active'",
-                (student_id,),
+                "SELECT id, admission_number, full_name, class_level FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
+                (student_id, current_user.school_id or 1),
             ).fetchone()
 
         if request.method == "POST":
@@ -1031,8 +1032,8 @@ def report_cards():
                 flash("Select a valid student, academic year, and term.", "danger")
                 return redirect(url_for("report_cards"))
             has_grades = connection.execute(
-                "SELECT 1 FROM grades WHERE student_id = ? AND academic_year = ? AND term = ? LIMIT 1",
-                (student_id, academic_year, term),
+                "SELECT 1 FROM grades WHERE student_id = ? AND school_id = ? AND academic_year = ? AND term = ? LIMIT 1",
+                (student_id, current_user.school_id or 1, academic_year, term),
             ).fetchone()
             if not has_grades:
                 flash("A report card can only be published after grades have been recorded for that term.", "danger")
@@ -1059,9 +1060,9 @@ def report_cards():
         if selected_student:
             raw_grades = connection.execute(
                 """SELECT subject, score, max_score, assessment FROM grades
-                   WHERE student_id = ? AND academic_year = ? AND term = ?
+                   WHERE student_id = ? AND school_id = ? AND academic_year = ? AND term = ?
                    ORDER BY subject COLLATE NOCASE, assessment COLLATE NOCASE""",
-                (student_id, academic_year, term),
+                (student_id, current_user.school_id or 1, academic_year, term),
             ).fetchall()
             by_subject = {}
             for grade in raw_grades:
@@ -1072,8 +1073,8 @@ def report_cards():
             subject_rows = [dict(item, percentage=round(item["earned"] / item["possible"] * 100, 1))
                             for item in by_subject.values() if item["possible"] > 0]
             publication = connection.execute(
-                "SELECT published, published_at FROM report_cards WHERE student_id = ? AND academic_year = ? AND term = ?",
-                (student_id, academic_year, term),
+                "SELECT published, published_at FROM report_cards WHERE student_id = ? AND school_id = ? AND academic_year = ? AND term = ?",
+                (student_id, current_user.school_id or 1, academic_year, term),
             ).fetchone()
     finally:
         connection.close()
