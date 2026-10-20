@@ -479,6 +479,19 @@ def write_audit(actor_user_id, action, target_username=None, details=None):
 # 3. USER MODEL AND DATABASE LOOKUPS
 # --------------------------------------------------
 
+def require_school_context():
+    """Return the authenticated user's assigned school or fail closed.
+
+    A missing tenant assignment must never silently grant access to the
+    legacy/default school's records. Platform-level administrators need an
+    explicit school-selection workflow before using tenant-scoped routes.
+    """
+    school_id = getattr(current_user, "school_id", None)
+    if not current_user.is_authenticated or school_id is None:
+        abort(403)
+    return school_id
+
+
 class User(UserMixin):
     def __init__(self, user_id, username, password_hash, role, is_super_admin=False, school_id=None):
         self.id = str(user_id)
@@ -883,7 +896,7 @@ def academics():
                 published_report = connection.execute(
                     """SELECT 1 FROM report_cards
                        WHERE student_id = ? AND school_id = ? AND academic_year = ? AND term = ? AND published = 1""",
-                    (student_id, current_user.school_id or 1, academic_year, term),
+                    (student_id, require_school_context(), academic_year, term),
                 ).fetchone()
                 if published_report:
                     flash("This term's report card is published. Unpublish it before recording additional grades.", "danger")
@@ -893,7 +906,7 @@ def academics():
                         """INSERT INTO grades
                            (student_id, subject, assessment, score, max_score, recorded_by, academic_year, term, school_id)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (student_id, subject, assessment, score, max_score, current_user.id, academic_year, term, current_user.school_id or 1),
+                        (student_id, subject, assessment, score, max_score, current_user.id, academic_year, term, require_school_context()),
                     )
                     connection.commit()
                     write_audit(current_user.id, "grade_recorded", str(student_id),
@@ -916,7 +929,7 @@ def academics():
                     connection.execute(
                         """INSERT INTO attendance (student_id, attendance_date, status, note, recorded_by, school_id)
                            VALUES (?, ?, ?, ?, ?, ?)""",
-                        (student_id, attendance_date, status, note or None, current_user.id, current_user.school_id or 1),
+                        (student_id, attendance_date, status, note or None, current_user.id, require_school_context()),
                     )
                     connection.commit()
                     write_audit(current_user.id, "attendance_recorded", str(student_id),
@@ -936,7 +949,7 @@ def academics():
                JOIN users u ON u.id = g.recorded_by
                WHERE g.school_id = ? AND s.school_id = ?
                ORDER BY g.id DESC LIMIT 100""",
-            (current_user.school_id or 1, current_user.school_id or 1),
+            (require_school_context(), require_school_context()),
         ).fetchall()
         attendance_rows = connection.execute(
             """SELECT a.id, s.full_name, s.admission_number, s.class_level,
@@ -945,7 +958,7 @@ def academics():
                JOIN users u ON u.id = a.recorded_by
                WHERE a.school_id = ? AND s.school_id = ?
                ORDER BY a.attendance_date DESC, a.id DESC LIMIT 100""",
-            (current_user.school_id or 1, current_user.school_id or 1),
+            (require_school_context(), require_school_context()),
         ).fetchall()
     finally:
         connection.close()
@@ -976,7 +989,7 @@ def my_report_cards():
         student = connection.execute(
             """SELECT id, admission_number, full_name, class_level
                FROM students WHERE account_user_id = ? AND school_id = ? AND status = 'active'""",
-            (current_user.id, current_user.school_id or 1),
+            (current_user.id, require_school_context()),
         ).fetchone()
         reports = []
         if student:
@@ -989,7 +1002,7 @@ def my_report_cards():
                    WHERE rc.student_id = ? AND rc.school_id = ? AND g.school_id = ? AND rc.published = 1
                    ORDER BY rc.academic_year DESC, rc.term, g.subject COLLATE NOCASE,
                             g.assessment COLLATE NOCASE""",
-                (student["id"], current_user.school_id or 1, current_user.school_id or 1),
+                (student["id"], require_school_context(), require_school_context()),
             ).fetchall()
     finally:
         connection.close()
@@ -1006,7 +1019,7 @@ def report_cards():
     try:
         students = connection.execute(
             "SELECT id, admission_number, full_name, class_level FROM students WHERE school_id = ? AND status = 'active' ORDER BY class_level, full_name",
-            (current_user.school_id or 1,),
+            (require_school_context(),),
         ).fetchall()
         student_id = request.values.get("student_id", "").strip()
         academic_year = request.values.get("academic_year", "").strip()
@@ -1018,7 +1031,7 @@ def report_cards():
         if student_id and academic_year and term in {"Term 1", "Term 2", "Term 3"}:
             selected_student = connection.execute(
                 "SELECT id, admission_number, full_name, class_level FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
-                (student_id, current_user.school_id or 1),
+                (student_id, require_school_context()),
             ).fetchone()
 
         if request.method == "POST":
@@ -1033,7 +1046,7 @@ def report_cards():
                 return redirect(url_for("report_cards"))
             has_grades = connection.execute(
                 "SELECT 1 FROM grades WHERE student_id = ? AND school_id = ? AND academic_year = ? AND term = ? LIMIT 1",
-                (student_id, current_user.school_id or 1, academic_year, term),
+                (student_id, require_school_context(), academic_year, term),
             ).fetchone()
             if not has_grades:
                 flash("A report card can only be published after grades have been recorded for that term.", "danger")
@@ -1049,7 +1062,7 @@ def report_cards():
                      published = excluded.published, published_by = excluded.published_by,
                      published_at = CASE WHEN excluded.published = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
                      updated_at = CURRENT_TIMESTAMP""",
-                (student_id, academic_year, term, published, current_user.id, published, current_user.school_id or 1),
+                (student_id, academic_year, term, published, current_user.id, published, require_school_context()),
             )
             connection.commit()
             write_audit(current_user.id, "report_card_" + action, selected_student["admission_number"],
@@ -1062,7 +1075,7 @@ def report_cards():
                 """SELECT subject, score, max_score, assessment FROM grades
                    WHERE student_id = ? AND school_id = ? AND academic_year = ? AND term = ?
                    ORDER BY subject COLLATE NOCASE, assessment COLLATE NOCASE""",
-                (student_id, current_user.school_id or 1, academic_year, term),
+                (student_id, require_school_context(), academic_year, term),
             ).fetchall()
             by_subject = {}
             for grade in raw_grades:
@@ -1074,7 +1087,7 @@ def report_cards():
                             for item in by_subject.values() if item["possible"] > 0]
             publication = connection.execute(
                 "SELECT published, published_at FROM report_cards WHERE student_id = ? AND school_id = ? AND academic_year = ? AND term = ?",
-                (student_id, current_user.school_id or 1, academic_year, term),
+                (student_id, require_school_context(), academic_year, term),
             ).fetchone()
     finally:
         connection.close()
@@ -1151,12 +1164,12 @@ def register_student():
                 (admission_number, full_name, class_level, date_of_birth or None,
                  guardian_name or None, guardian_phone or None, enrollment_date or None,
                  previous_school or None, emergency_contact_name or None,
-                 emergency_contact_phone or None, record_notes or None, current_user.school_id or 1),
+                 emergency_contact_phone or None, record_notes or None, require_school_context()),
             )
             student_id_number = f"CMHS-{datetime.now().year}-{cursor.lastrowid:05d}"
             connection.execute(
                 "UPDATE students SET student_id_number = ? WHERE id = ? AND school_id = ?",
-                (student_id_number, cursor.lastrowid, current_user.school_id or 1),
+                (student_id_number, cursor.lastrowid, require_school_context()),
             )
             connection.commit()
             write_audit(current_user.id, "student_registered", admission_number,
@@ -1180,7 +1193,7 @@ def student_detail(student_id):
     connection = get_db_connection()
     try:
         student = connection.execute(
-            "SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, current_user.school_id or 1)
+            "SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, require_school_context())
         ).fetchone()
         if student is None:
             abort(404)
@@ -1191,20 +1204,20 @@ def student_detail(student_id):
                           COALESCE(amount_paid, 0) AS amount_paid,
                           COALESCE(total_fee, 0) - COALESCE(amount_paid, 0) AS balance
                    FROM student_finances WHERE student_id = ? AND school_id = ? AND academic_year = ?""",
-                (student_id, current_user.school_id or 1, f"{datetime.now().year}-{datetime.now().year + 1}"),
+                (student_id, require_school_context(), f"{datetime.now().year}-{datetime.now().year + 1}"),
             ).fetchone()
         attendance = connection.execute(
             """SELECT status, COUNT(*) AS total FROM attendance
-               WHERE student_id = ? AND school_id = ? GROUP BY status""", (student_id, current_user.school_id or 1)
+               WHERE student_id = ? AND school_id = ? GROUP BY status""", (student_id, require_school_context())
         ).fetchall()
         recent_grades = connection.execute(
             """SELECT subject, assessment, score, max_score, academic_year, term, created_at
                FROM grades WHERE student_id = ? AND school_id = ?
-               ORDER BY created_at DESC, id DESC LIMIT 12""", (student_id, current_user.school_id or 1)
+               ORDER BY created_at DESC, id DESC LIMIT 12""", (student_id, require_school_context())
         ).fetchall()
         recent_attendance = connection.execute(
             """SELECT attendance_date, status, note FROM attendance
-               WHERE student_id = ? AND school_id = ? ORDER BY attendance_date DESC LIMIT 10""", (student_id, current_user.school_id or 1)
+               WHERE student_id = ? AND school_id = ? ORDER BY attendance_date DESC LIMIT 10""", (student_id, require_school_context())
         ).fetchall()
     finally:
         connection.close()
@@ -1220,7 +1233,7 @@ def edit_student(student_id):
         abort(403)
     connection = get_db_connection()
     try:
-        student = connection.execute("SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, current_user.school_id or 1)).fetchone()
+        student = connection.execute("SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, require_school_context())).fetchone()
         if student is None:
             abort(404)
         if request.method == "POST":
@@ -1259,7 +1272,7 @@ def edit_student(student_id):
                  fields["guardian_name"] or None, fields["guardian_phone"] or None,
                  fields["enrollment_date"] or None, fields["previous_school"] or None,
                  fields["emergency_contact_name"] or None, fields["emergency_contact_phone"] or None,
-                 fields["record_notes"] or None, student_id, current_user.school_id or 1),
+                 fields["record_notes"] or None, student_id, require_school_context()),
             )
             connection.commit()
             write_audit(current_user.id, "student_record_updated", student["admission_number"],
@@ -1304,12 +1317,12 @@ def list_students():
                    OR COALESCE(s.student_id_number, '') LIKE ?)
             ORDER BY s.class_level, s.full_name COLLATE NOCASE
             """,
-            (f"{datetime.now().year}-{datetime.now().year + 1}", current_user.school_id or 1, class_filter, class_filter,
+            (f"{datetime.now().year}-{datetime.now().year + 1}", require_school_context(), class_filter, class_filter,
              search_query, f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"),
         ).fetchall()
         classes = connection.execute(
             "SELECT DISTINCT class_level FROM students WHERE school_id = ? ORDER BY class_level COLLATE NOCASE",
-            (current_user.school_id or 1,),
+            (require_school_context(),),
         ).fetchall()
     finally:
         connection.close()
@@ -1337,7 +1350,7 @@ def student_finances():
                           and int(academic_year[5:]) == int(academic_year[:4]) + 1)
             student = connection.execute(
                 "SELECT id, admission_number FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
-                (student_id, current_user.school_id or 1),
+                (student_id, require_school_context()),
             ).fetchone()
             try:
                 total_fee, amount_paid = float(total_text), float(paid_text)
@@ -1372,7 +1385,7 @@ def student_finances():
         students = connection.execute(
             "SELECT id, student_id_number, admission_number, full_name, class_level FROM students "
             "WHERE school_id = ? AND status = 'active' ORDER BY class_level, full_name",
-            (current_user.school_id or 1,),
+            (require_school_context(),),
         ).fetchall()
         records = connection.execute(
             """SELECT s.student_id_number, s.admission_number, s.full_name, s.class_level,
@@ -1380,14 +1393,14 @@ def student_finances():
                       f.updated_at, f.notes
                FROM student_finances f JOIN students s ON s.id = f.student_id AND s.school_id = f.school_id
                WHERE f.school_id = ? AND s.school_id = ? AND f.academic_year = ? ORDER BY s.class_level, s.full_name COLLATE NOCASE""",
-            (current_user.school_id or 1, current_user.school_id or 1, academic_year),
+            (require_school_context(), require_school_context(), academic_year),
         ).fetchall()
         summary = connection.execute(
             """SELECT COALESCE(SUM(total_fee), 0) AS total_fees,
                       COALESCE(SUM(amount_paid), 0) AS total_paid,
                       COALESCE(SUM(total_fee - amount_paid), 0) AS total_balance
                FROM student_finances WHERE school_id = ? AND academic_year = ?""",
-            (current_user.school_id or 1, academic_year),
+            (require_school_context(), academic_year),
         ).fetchone()
     finally:
         connection.close()
