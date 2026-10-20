@@ -282,8 +282,8 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             )
             connection.execute(
                 """INSERT INTO attendance
-                   (student_id, attendance_date, status, recorded_by, school_id)
-                   VALUES (?, '2026-10-22', 'present', ?, 1)""",
+                   (student_id, attendance_date, status, note, recorded_by, school_id)
+                   VALUES (?, '2026-10-22', 'present', 'Mismatched Staff Attendance', ?, 1)""",
                 (student_a_id, teacher_b_id),
             )
             connection.execute(
@@ -319,6 +319,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertNotIn(b"School B Fictional Student", academic_page.data)
         self.assertNotIn(b"Private Mathematics", academic_page.data)
         self.assertNotIn(b"Mismatched Staff Subject", academic_page.data)
+        self.assertNotIn(b"Mismatched Staff Attendance", academic_page.data)
 
         # A foreign student ID in a grade or attendance POST must not create records.
         for payload in (
