@@ -549,5 +549,44 @@ class CMHSPortalTests(unittest.TestCase):
         self.assertIn("private", response.headers.get("Cache-Control", ""))
         self.assertEqual(response.headers.get("Pragma"), "no-cache")
 
+
+    def test_v03_school_ownership_schema_is_created_and_migration_is_idempotent(self):
+        # Re-running startup migration must not duplicate the default school or
+        # discard existing fictional records.
+        connection = portal.get_db_connection()
+        try:
+            school = connection.execute(
+                "SELECT id, slug FROM schools WHERE id = 1"
+            ).fetchone()
+            self.assertIsNotNone(school)
+            self.assertEqual(school["slug"], "legacy-demo-campus")
+            for table in (
+                "users", "students", "student_finances", "grades",
+                "report_cards", "attendance", "audit_log",
+            ):
+                columns = {
+                    row["name"] for row in connection.execute(
+                        "PRAGMA table_info(" + table + ")"
+                    ).fetchall()
+                }
+                self.assertIn("school_id", columns, table)
+        finally:
+            connection.close()
+
+        portal.initialize_database()
+        connection = portal.get_db_connection()
+        try:
+            count = connection.execute(
+                "SELECT COUNT(*) AS n FROM schools WHERE slug = 'legacy-demo-campus'"
+            ).fetchone()["n"]
+            self.assertEqual(count, 1)
+            teacher = connection.execute(
+                "SELECT school_id FROM users WHERE username = 'teacher_demo'"
+            ).fetchone()
+            self.assertIsNotNone(teacher)
+            self.assertEqual(teacher["school_id"], 1)
+        finally:
+            connection.close()
+
 if __name__ == "__main__":
     unittest.main()
