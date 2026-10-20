@@ -672,7 +672,7 @@ def admin_users():
         connection = get_db_connection()
         try:
             target = connection.execute(
-                "SELECT id, username, role, status, is_super_admin FROM users WHERE id = ?",
+                "SELECT id, username, role, status, is_super_admin, school_id FROM users WHERE id = ?",
                 (target_id,),
             ).fetchone()
             if target is None:
@@ -733,8 +733,8 @@ def admin_users():
                     flash("Confirm that the student's identity and admission number have been checked before linking.", "danger")
                 else:
                     student = connection.execute(
-                        "SELECT id, admission_number FROM students WHERE id = ? AND status = 'active'",
-                        (student_id,),
+                        "SELECT id, admission_number FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
+                        (student_id, target["school_id"] or 1),
                     ).fetchone()
                     if not student:
                         flash("Choose a valid active student record.", "danger")
