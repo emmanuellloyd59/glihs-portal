@@ -520,6 +520,43 @@ class CMHSPortalTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
         self.assertEqual(self._student_count(), 0)
 
+    def test_student_registration_rejects_invalid_enrollment_date_and_emergency_phone(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        base_data = {
+            "admission_number": "REG-VALIDATION-001",
+            "full_name": "Avery Fiction",
+            "class_level": "Grade 8",
+            "date_of_birth": "2012-01-10",
+            "guardian_name": "Morgan Fiction",
+            "guardian_phone": "+231 770 000 000",
+            "enrollment_date": "2026-10-20",
+            "previous_school": "Fictional Primary School",
+            "emergency_contact_name": "Jordan Fiction",
+            "emergency_contact_phone": "+231 770 000 001",
+            "record_notes": "",
+        }
+        invalid_cases = (
+            {"enrollment_date": "2026-02-31"},
+            {"emergency_contact_phone": "not-a-phone"},
+        )
+        for index, changes in enumerate(invalid_cases):
+            data = dict(base_data)
+            data["admission_number"] = "REG-VALIDATION-" + str(index + 1)
+            data.update(changes)
+            response = self.client.post(
+                "/students/register", data=data, follow_redirects=True
+            )
+            self.assertEqual(response.status_code, 200)
+
+        connection = portal.get_db_connection()
+        try:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM students WHERE admission_number LIKE 'REG-VALIDATION-%'"
+            ).fetchone()[0]
+            self.assertEqual(count, 0)
+        finally:
+            connection.close()
+
     def test_student_edit_rejects_invalid_phone_and_future_birth_date(self):
         connection = portal.get_db_connection()
         try:
