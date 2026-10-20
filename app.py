@@ -1248,12 +1248,12 @@ def edit_student(student_id):
                 """UPDATE students SET full_name=?, class_level=?, date_of_birth=?,
                    guardian_name=?, guardian_phone=?, enrollment_date=?, previous_school=?,
                    emergency_contact_name=?, emergency_contact_phone=?, record_notes=?
-                   WHERE id=?""",
+                   WHERE id=? AND school_id=?""",
                 (fields["full_name"], fields["class_level"], fields["date_of_birth"] or None,
                  fields["guardian_name"] or None, fields["guardian_phone"] or None,
                  fields["enrollment_date"] or None, fields["previous_school"] or None,
                  fields["emergency_contact_name"] or None, fields["emergency_contact_phone"] or None,
-                 fields["record_notes"] or None, student_id),
+                 fields["record_notes"] or None, student_id, current_user.school_id or 1),
             )
             connection.commit()
             write_audit(current_user.id, "student_record_updated", student["admission_number"],
@@ -1291,18 +1291,19 @@ def list_students():
                    COALESCE(f.amount_paid, 0) AS amount_paid,
                    COALESCE(f.total_fee, 0) - COALESCE(f.amount_paid, 0) AS balance
             FROM students s
-            LEFT JOIN student_finances f ON f.student_id = s.id
+            LEFT JOIN student_finances f ON f.student_id = s.id AND f.school_id = s.school_id
                 AND f.academic_year = ?
-            WHERE (? = '' OR s.class_level = ?)
+            WHERE s.school_id = ? AND (? = '' OR s.class_level = ?)
               AND (? = '' OR s.full_name LIKE ? OR s.admission_number LIKE ?
                    OR COALESCE(s.student_id_number, '') LIKE ?)
             ORDER BY s.class_level, s.full_name COLLATE NOCASE
             """,
-            (f"{datetime.now().year}-{datetime.now().year + 1}", class_filter, class_filter,
+            (f"{datetime.now().year}-{datetime.now().year + 1}", current_user.school_id or 1, class_filter, class_filter,
              search_query, f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"),
         ).fetchall()
         classes = connection.execute(
-            "SELECT DISTINCT class_level FROM students ORDER BY class_level COLLATE NOCASE"
+            "SELECT DISTINCT class_level FROM students WHERE school_id = ? ORDER BY class_level COLLATE NOCASE",
+            (current_user.school_id or 1,),
         ).fetchall()
     finally:
         connection.close()
@@ -1329,8 +1330,8 @@ def student_finances():
                           and academic_year[:4].isdigit() and academic_year[5:].isdigit()
                           and int(academic_year[5:]) == int(academic_year[:4]) + 1)
             student = connection.execute(
-                "SELECT id, admission_number FROM students WHERE id = ? AND status = 'active'",
-                (student_id,),
+                "SELECT id, admission_number FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
+                (student_id, current_user.school_id or 1),
             ).fetchone()
             try:
                 total_fee, amount_paid = float(total_text), float(paid_text)
@@ -1364,22 +1365,23 @@ def student_finances():
             academic_year = f"{datetime.now().year}-{datetime.now().year + 1}"
         students = connection.execute(
             "SELECT id, student_id_number, admission_number, full_name, class_level FROM students "
-            "WHERE status = 'active' ORDER BY class_level, full_name"
+            "WHERE school_id = ? AND status = 'active' ORDER BY class_level, full_name",
+            (current_user.school_id or 1,),
         ).fetchall()
         records = connection.execute(
             """SELECT s.student_id_number, s.admission_number, s.full_name, s.class_level,
                       f.total_fee, f.amount_paid, f.total_fee - f.amount_paid AS balance,
                       f.updated_at, f.notes
-               FROM student_finances f JOIN students s ON s.id = f.student_id
-               WHERE f.academic_year = ? ORDER BY s.class_level, s.full_name COLLATE NOCASE""",
-            (academic_year,),
+               FROM student_finances f JOIN students s ON s.id = f.student_id AND s.school_id = f.school_id
+               WHERE f.school_id = ? AND s.school_id = ? AND f.academic_year = ? ORDER BY s.class_level, s.full_name COLLATE NOCASE""",
+            (current_user.school_id or 1, current_user.school_id or 1, academic_year),
         ).fetchall()
         summary = connection.execute(
             """SELECT COALESCE(SUM(total_fee), 0) AS total_fees,
                       COALESCE(SUM(amount_paid), 0) AS total_paid,
                       COALESCE(SUM(total_fee - amount_paid), 0) AS total_balance
-               FROM student_finances WHERE academic_year = ?""",
-            (academic_year,),
+               FROM student_finances WHERE school_id = ? AND academic_year = ?""",
+            (current_user.school_id or 1, academic_year),
         ).fetchone()
     finally:
         connection.close()
