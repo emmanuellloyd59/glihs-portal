@@ -692,45 +692,59 @@ def logout():
 
 @app.route("/admin/request-access", methods=["GET", "POST"])
 def request_staff_access():
-    """Collect a staff access request; requests never grant login access."""
+    """Collect a school-specific staff request; requests never grant login access."""
+    connection = get_db_connection()
+    try:
+        schools = connection.execute(
+            "SELECT id, name, slug FROM schools WHERE status = 'active' ORDER BY name COLLATE NOCASE"
+        ).fetchall()
+    finally:
+        connection.close()
+
     if request.method == "POST":
         full_name = request.form.get("full_name", "").strip()
         username = request.form.get("username", "").strip()
         requested_role = request.form.get("requested_role", "").strip()
+        school_slug = request.form.get("school_slug", "").strip()
+
+        selected_school = next((school for school in schools if school["slug"] == school_slug), None)
+        if not selected_school:
+            flash("Choose an active school from the list.", "danger")
+            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
 
         if not full_name or not username or requested_role not in STAFF_ROLES:
             flash("Complete all fields and choose a valid staff role.", "danger")
-            return render_template("admin_request.html", roles=STAFF_ROLES)
+            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
 
         if len(full_name) > 120 or len(username) > 64:
             flash("Name or username is too long.", "danger")
-            return render_template("admin_request.html", roles=STAFF_ROLES)
+            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
         if not username.replace("_", "").replace("-", "").isalnum():
             flash("Use only letters, numbers, underscores or hyphens in the username.", "danger")
-            return render_template("admin_request.html", roles=STAFF_ROLES)
+            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
 
-        # Pending requests receive an unknown random password hash and cannot
-        # authenticate until a Super Administrator approves them and sets a password.
+        # The server resolves the submitted slug against active schools. The client
+        # never supplies a school ID, and requests remain pending until approval.
         placeholder_password = generate_password_hash(secrets.token_urlsafe(48))
         connection = get_db_connection()
         try:
             connection.execute(
                 """
                 INSERT INTO users (username, full_name, password_hash, role, status, is_super_admin, school_id)
-                VALUES (?, ?, ?, ?, 'pending', 0, 1)
+                VALUES (?, ?, ?, ?, 'pending', 0, ?)
                 """,
-                (username, full_name, placeholder_password, requested_role),
+                (username, full_name, placeholder_password, requested_role, selected_school["id"]),
             )
             connection.commit()
             flash("Access request submitted. You cannot sign in until it is approved.", "success")
             return redirect(url_for("login"))
         except sqlite3.IntegrityError:
             flash("That username is already in use or has a request pending.", "danger")
-            return render_template("admin_request.html", roles=STAFF_ROLES)
+            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
         finally:
             connection.close()
 
-    return render_template("admin_request.html", roles=STAFF_ROLES)
+    return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
 
 
 @app.route("/admin/users", methods=["GET", "POST"])
