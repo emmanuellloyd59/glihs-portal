@@ -466,7 +466,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.client.post("/logout")
         connection = portal.get_db_connection()
         connection.execute(
-            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, ?, 1)",
             ("finance_demo", generate_password_hash("test-finance-password"), "finance_admin"),
         )
         connection.commit()
@@ -667,10 +667,12 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
             connection.close()
 
         try:
-            self.assertEqual(self.client.get("/students").status_code, 403)
-            self.assertEqual(self.client.get("/academics").status_code, 403)
+            # Suspended-school sessions are invalidated at user reload, so protected
+            # routes redirect to login instead of returning tenant-scoped data.
+            self.assertEqual(self.client.get("/students").status_code, 302)
+            self.assertEqual(self.client.get("/academics").status_code, 302)
             self.login_as("super_demo", "test-super-password")
-            self.assertEqual(self.client.get("/student-finances").status_code, 403)
+            self.assertEqual(self.client.get("/student-finances").status_code, 302)
         finally:
             connection = portal.get_db_connection()
             try:
@@ -978,7 +980,9 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
                 "class_level": "Grade 7",
             },
         )
-        self.assertEqual(response.status_code, 403)
+        # An account with no tenant assignment cannot authenticate, so the
+        # protected POST redirects to login and must not write any student record.
+        self.assertEqual(response.status_code, 302)
         connection = portal.get_db_connection()
         try:
             count = connection.execute(
