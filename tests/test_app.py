@@ -38,7 +38,7 @@ class CMHSPortalTests(unittest.TestCase):
         connection.execute("DELETE FROM students")
         connection.execute("DELETE FROM users")
         connection.execute(
-            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, ?, 1)",
             ("teacher_demo", generate_password_hash("test-teacher-password"), "teacher"),
         )
         connection.execute(
