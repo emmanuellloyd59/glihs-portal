@@ -168,7 +168,7 @@ class ReportCardTests(unittest.TestCase):
         connection = get_db_connection()
         try:
             connection.execute(
-                "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+                "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
                 ("NO-GRADES-001", "No Grades Example", "Grade 8"),
             )
             student_id = connection.execute(
