@@ -1323,5 +1323,11 @@ def student_finances():
                            academic_year=academic_year, summary=summary)
 
 
+# Register the additive Version 0.3 school operations blueprint after core tables exist.
+from school_modules import register_school_modules
+
+register_school_modules(app, get_db_connection, login_required, current_user, write_audit)
+
+
 if __name__ == "__main__":
     app.run(port=5000, debug=False)
