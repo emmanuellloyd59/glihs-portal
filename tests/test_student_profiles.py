@@ -12,8 +12,8 @@ class StudentProfileTests(PortalTestSupport, unittest.TestCase):
                 """INSERT INTO students
                    (admission_number, full_name, class_level, enrollment_date,
                     previous_school, emergency_contact_name, emergency_contact_phone,
-                    record_notes)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    record_notes, school_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)""",
                 (admission, "Alex Fiction", "Grade 7", "2026-09-01",
                  "Example Primary", "Jamie Fiction", "000-111-2222", "Fictional note"),
             )
