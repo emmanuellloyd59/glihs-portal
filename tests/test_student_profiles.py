@@ -21,15 +21,17 @@ class StudentProfileTests(CMHSPortalTests):
         finally:
             connection.close()
 
-    def test_student_profile_shows_enrollment_and_emergency_contact(self):
+    def test_teacher_student_profile_shows_only_necessary_enrollment_details(self):
         student_id = self.create_student()
         self.login_as("teacher_demo", "test-teacher-password")
         response = self.client.get(f"/students/{student_id}")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Example Primary", response.data)
-        self.assertIn(b"Jamie Fiction", response.data)
         self.assertIn(b"2026-09-01", response.data)
         self.assertIn(b"Financial information is restricted", response.data)
+        self.assertNotIn(b"Example Primary", response.data)
+        self.assertNotIn(b"Jamie Fiction", response.data)
+        self.assertNotIn(b"000-111-2222", response.data)
+        self.assertNotIn(b"Fictional note", response.data)
         self.assertNotIn(b"Current Academic-Year Fees", response.data)
 
     def test_teacher_cannot_edit_student_record(self):
