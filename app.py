@@ -1092,8 +1092,25 @@ def student_detail(student_id):
         abort(403)
     connection = get_db_connection()
     try:
+        # Teachers may inspect academic progress, but should not receive private
+        # guardian, birth-date, emergency-contact, or free-text record fields.
+        private_student_fields = (
+            "NULL AS date_of_birth, NULL AS guardian_name, NULL AS guardian_phone, "
+            "NULL AS emergency_contact_name, NULL AS emergency_contact_phone, "
+            "NULL AS record_notes, NULL AS previous_school"
+            if current_user.role == "teacher"
+            else "s.date_of_birth, s.guardian_name, s.guardian_phone, "
+                 "s.emergency_contact_name, s.emergency_contact_phone, "
+                 "s.record_notes, s.previous_school"
+        )
         student = connection.execute(
-            "SELECT * FROM students WHERE id = ?", (student_id,)
+            f"""
+            SELECT s.id, s.student_id_number, s.admission_number, s.full_name,
+                   s.class_level, s.enrollment_date, s.status, s.created_at,
+                   {private_student_fields}
+            FROM students s WHERE s.id = ?
+            """,
+            (student_id,),
         ).fetchone()
         if student is None:
             abort(404)
