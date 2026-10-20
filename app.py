@@ -527,7 +527,7 @@ def write_audit(actor_user_id, action, target_username=None, details=None):
         connection.execute(
             """
             INSERT INTO audit_log (actor_user_id, action, target_username, details, school_id)
-            VALUES (?, ?, ?, ?, COALESCE((SELECT school_id FROM users WHERE id = ?), 1))
+            VALUES (?, ?, ?, ?, (SELECT school_id FROM users WHERE id = ?))
             """,
             (actor_user_id, action, target_username, details, actor_user_id),
         )
@@ -808,7 +808,7 @@ def admin_users():
                 else:
                     student = connection.execute(
                         "SELECT id, admission_number FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
-                        (student_id, target["school_id"] or 1),
+                        (student_id, target["school_id"]),
                     ).fetchone()
                     if not student:
                         flash("Choose a valid active student record.", "danger")
