@@ -123,7 +123,8 @@ def migrate_users_table(connection):
             is_super_admin INTEGER NOT NULL DEFAULT 0 CHECK (is_super_admin IN (0, 1)),
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             approved_by INTEGER,
-            approved_at TEXT
+            approved_at TEXT,
+            school_id INTEGER REFERENCES schools(id)
         )
         """
     )
@@ -138,16 +139,17 @@ def migrate_users_table(connection):
         approved_by_expr = "approved_by" if "approved_by" in old_columns else "NULL"
         approved_at_expr = "approved_at" if "approved_at" in old_columns else "NULL"
         full_name_expr = "full_name" if "full_name" in old_columns else "username"
+        school_expr = "school_id" if "school_id" in old_columns else "NULL"
         connection.execute(
             f"""
             INSERT INTO users_migrating
                 (id, username, full_name, password_hash, role, status, is_super_admin,
-                 created_at, approved_by, approved_at)
+                 created_at, approved_by, approved_at, school_id)
             SELECT id, username, {full_name_expr}, password_hash,
                    CASE WHEN role = 'admin' THEN 'super_admin' ELSE role END,
                    {status_expr},
                    CASE WHEN role = 'admin' THEN 1 ELSE {super_expr} END,
-                   {created_expr}, {approved_by_expr}, {approved_at_expr}
+                   {created_expr}, {approved_by_expr}, {approved_at_expr}, {school_expr}
             FROM users
             """
         )
@@ -188,17 +190,20 @@ def migrate_grade_assessment_uniqueness(connection):
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             academic_year TEXT NOT NULL DEFAULT 'Unassigned',
             term TEXT NOT NULL DEFAULT 'Unassigned',
+            school_id INTEGER REFERENCES schools(id),
             UNIQUE(student_id, subject, assessment, academic_year, term)
         )
         """
     )
+    old_grade_columns = {row["name"] for row in connection.execute("PRAGMA table_info(grades)").fetchall()}
+    school_expr = "school_id" if "school_id" in old_grade_columns else "NULL"
     connection.execute(
-        """
+        f"""
         INSERT INTO grades_migrating
             (id, student_id, subject, assessment, score, max_score,
-             recorded_by, created_at, academic_year, term)
+             recorded_by, created_at, academic_year, term, school_id)
         SELECT id, student_id, subject, assessment, score, max_score,
-               recorded_by, created_at, academic_year, term
+               recorded_by, created_at, academic_year, term, {school_expr}
         FROM grades
         """
     )
