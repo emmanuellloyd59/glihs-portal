@@ -18,7 +18,7 @@ from werkzeug.security import generate_password_hash  # noqa: E402
 import app as portal  # noqa: E402
 
 
-class CMHSPortalTests(unittest.TestCase):
+class PortalTestSupport:
     @classmethod
     def setUpClass(cls):
         portal.app.config.update(
@@ -47,8 +47,8 @@ class CMHSPortalTests(unittest.TestCase):
         )
         connection.execute(
             """INSERT INTO users
-               (username, password_hash, role, status, is_super_admin)
-               VALUES (?, ?, 'super_admin', 'active', 1)""",
+               (username, password_hash, role, status, is_super_admin, school_id)
+               VALUES (?, ?, 'super_admin', 'active', 1, 1)""",
             ("super_demo", generate_password_hash("test-super-password")),
         )
         connection.commit()
@@ -63,6 +63,10 @@ class CMHSPortalTests(unittest.TestCase):
         )
 
 
+
+
+
+class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
     def test_health_check_reports_ok_without_exposing_database_details(self):
         response = self.client.get("/healthz")
         self.assertEqual(response.status_code, 200)
