@@ -826,6 +826,77 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         finally:
             connection.close()
 
+    def test_legacy_student_migration_preserves_records_and_scopes_admission_numbers(self):
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("CREATE TABLE schools (id INTEGER PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE)")
+            connection.execute("INSERT INTO schools (id, name, slug) VALUES (1, 'Legacy School', 'legacy-school')")
+            connection.execute("INSERT INTO schools (id, name, slug) VALUES (2, 'Second School', 'second-school')")
+            connection.execute("CREATE TABLE users (id INTEGER PRIMARY KEY)")
+            connection.execute("INSERT INTO users (id) VALUES (7)")
+            connection.execute(
+                """CREATE TABLE students (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    admission_number TEXT NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL,
+                    class_level TEXT NOT NULL,
+                    date_of_birth TEXT,
+                    guardian_name TEXT,
+                    guardian_phone TEXT,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    account_user_id INTEGER REFERENCES users(id),
+                    enrollment_date TEXT,
+                    previous_school TEXT,
+                    emergency_contact_name TEXT,
+                    emergency_contact_phone TEXT,
+                    record_notes TEXT,
+                    student_id_number TEXT,
+                    school_id INTEGER REFERENCES schools(id)
+                )"""
+            )
+            connection.execute(
+                """INSERT INTO students
+                   (id, admission_number, full_name, class_level, date_of_birth,
+                    guardian_name, guardian_phone, status, account_user_id,
+                    enrollment_date, previous_school, emergency_contact_name,
+                    emergency_contact_phone, record_notes, student_id_number, school_id)
+                   VALUES (42, 'LEGACY-042', 'Fictional Legacy Student', 'Grade 7',
+                    '2012-04-05', 'Guardian Example', '000-123-4567', 'active', 7,
+                    '2026-09-01', 'Example Primary', 'Contact Example', '000-765-4321',
+                    'Preserve this note', 'CMHS-LEGACY-00042', 1)"""
+            )
+            connection.commit()
+            connection.execute("PRAGMA foreign_keys = OFF")
+            portal.migrate_student_admission_number_uniqueness(connection)
+            connection.commit()
+            connection.execute("PRAGMA foreign_keys = ON")
+
+            row = connection.execute(
+                """SELECT id, admission_number, full_name, guardian_name, previous_school,
+                          record_notes, student_id_number, school_id
+                   FROM students WHERE id = 42"""
+            ).fetchone()
+            self.assertEqual(
+                tuple(row),
+                (42, "LEGACY-042", "Fictional Legacy Student", "Guardian Example",
+                 "Example Primary", "Preserve this note", "CMHS-LEGACY-00042", 1),
+            )
+            connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('LEGACY-042', 'Second School Student', 'Grade 7', 2)"""
+            )
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute(
+                    """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                       VALUES ('LEGACY-042', 'Duplicate Legacy Student', 'Grade 7', 1)"""
+                )
+            self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
+        finally:
+            connection.close()
+
     def test_v03_school_ownership_schema_is_created_and_migration_is_idempotent(self):
         # Re-running startup migration must not duplicate the default school or
         # discard existing fictional records.
