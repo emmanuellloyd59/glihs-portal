@@ -142,6 +142,22 @@ class SchoolModuleTests(unittest.TestCase):
         self.assertEqual(row["submission_text"], "Fictional answer for testing.")
 
 
+
+    def test_timetable_conflict_ignores_case_and_extra_spaces_in_teacher_name(self):
+        self.login("module_admin", "test-module-admin-password")
+        first = {"action": "add_timetable", "class_name": "Grade 8", "subject": "Math",
+                 "teacher_name": "Teacher One", "room": "A1", "day_of_week": "Monday",
+                 "start_time": "09:00", "end_time": "10:00"}
+        self.client.post("/school-tools", data=first)
+        second = dict(first, class_name="Grade 9", subject="Science",
+                      teacher_name="  teacher one  ", room="B2")
+        response = self.client.post("/school-tools", data=second, follow_redirects=True)
+        self.assertIn(b"Timetable conflict", response.data)
+        conn = portal.get_db_connection()
+        count = conn.execute("SELECT COUNT(*) FROM timetable_entries").fetchone()[0]
+        conn.close()
+        self.assertEqual(count, 1)
+
     def test_student_only_sees_timetable_for_linked_class(self):
         conn = portal.get_db_connection()
         conn.execute("""INSERT INTO users (username, full_name, password_hash, role, status)
