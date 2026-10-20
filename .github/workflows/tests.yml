@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main, feature/v03-school-modules, feature/v03-staff-homework]
+    branches: [main, feature/v03-school-modules, feature/v03-staff-homework, fix/v03-student-timetable-scope]
   workflow_dispatch:
 
 permissions:
