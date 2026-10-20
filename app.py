@@ -642,8 +642,8 @@ def request_staff_access():
         try:
             connection.execute(
                 """
-                INSERT INTO users (username, full_name, password_hash, role, status, is_super_admin)
-                VALUES (?, ?, ?, ?, 'pending', 0)
+                INSERT INTO users (username, full_name, password_hash, role, status, is_super_admin, school_id)
+                VALUES (?, ?, ?, ?, 'pending', 0, 1)
                 """,
                 (username, full_name, placeholder_password, requested_role),
             )
@@ -1155,8 +1155,8 @@ def register_student():
             )
             student_id_number = f"CMHS-{datetime.now().year}-{cursor.lastrowid:05d}"
             connection.execute(
-                "UPDATE students SET student_id_number = ? WHERE id = ?",
-                (student_id_number, cursor.lastrowid),
+                "UPDATE students SET student_id_number = ? WHERE id = ? AND school_id = ?",
+                (student_id_number, cursor.lastrowid, current_user.school_id or 1),
             )
             connection.commit()
             write_audit(current_user.id, "student_registered", admission_number,
