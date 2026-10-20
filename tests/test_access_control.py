@@ -266,6 +266,26 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
                            '2026-2027', 'Term 1', ?)""",
                 (student_b_id, teacher_b_id, school_b_id),
             )
+            # Seed intentionally inconsistent ownership to verify that joins fail
+            # closed even if a legacy/manual write leaves a cross-school actor link.
+            student_a_id = connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('SCHOOL-A-MISMATCH-001', 'School A Join Test Student', 'Grade 7', 1)"""
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO grades
+                   (student_id, subject, assessment, score, max_score, recorded_by,
+                    academic_year, term, school_id)
+                   VALUES (?, 'Mismatched Staff Subject', 'Quiz 1', 8, 10, ?,
+                           '2026-2027', 'Term 1', 1)""",
+                (student_a_id, teacher_b_id),
+            )
+            connection.execute(
+                """INSERT INTO attendance
+                   (student_id, attendance_date, status, recorded_by, school_id)
+                   VALUES (?, '2026-10-22', 'present', ?, 1)""",
+                (student_a_id, teacher_b_id),
+            )
             connection.execute(
                 """INSERT INTO attendance
                    (student_id, attendance_date, status, recorded_by, school_id)
@@ -290,10 +310,15 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
 
         self.login_as("teacher_route_test")
         self.assertEqual(self.client.get(f"/students/{student_b_id}").status_code, 404)
+        student_search = self.client.get("/students?q=School+B")
+        self.assertEqual(student_search.status_code, 200)
+        self.assertNotIn(b"School B Fictional Student", student_search.data)
+
         academic_page = self.client.get("/academics")
         self.assertEqual(academic_page.status_code, 200)
         self.assertNotIn(b"School B Fictional Student", academic_page.data)
         self.assertNotIn(b"Private Mathematics", academic_page.data)
+        self.assertNotIn(b"Mismatched Staff Subject", academic_page.data)
 
         # A foreign student ID in a grade or attendance POST must not create records.
         for payload in (
