@@ -1330,12 +1330,27 @@ def edit_student(student_id):
             if not fields["full_name"] or not fields["class_level"] or any(len(v)>limits[k] for k,v in fields.items()):
                 flash("Name and class are required. Please check field lengths.", "danger")
                 return redirect(url_for("edit_student", student_id=student_id))
+            if any(ord(ch) < 32 or ord(ch) == 127
+                   for key in ("full_name", "class_level", "guardian_name", "previous_school", "emergency_contact_name")
+                   for ch in fields[key]):
+                flash("Name and school fields contain invalid control characters.", "danger")
+                return redirect(url_for("edit_student", student_id=student_id))
+            for phone_field in ("guardian_phone", "emergency_contact_phone"):
+                if fields[phone_field] and any(ch not in "0123456789+()- ." for ch in fields[phone_field]):
+                    flash("Enter a valid phone number.", "danger")
+                    return redirect(url_for("edit_student", student_id=student_id))
             for date_field in ("date_of_birth", "enrollment_date"):
                 if fields[date_field]:
                     try:
-                        datetime.strptime(fields[date_field], "%Y-%m-%d")
+                        parsed_date = datetime.strptime(fields[date_field], "%Y-%m-%d").date()
+                        if parsed_date.isoformat() != fields[date_field]:
+                            raise ValueError
+                        if date_field == "date_of_birth" and parsed_date > datetime.now().date():
+                            raise ValueError
                     except ValueError:
-                        flash("Dates must use the valid YYYY-MM-DD format.", "danger")
+                        message = ("Date of birth cannot be in the future." if date_field == "date_of_birth"
+                                   else "Dates must use the valid YYYY-MM-DD format.")
+                        flash(message, "danger")
                         return redirect(url_for("edit_student", student_id=student_id))
             old_class = student["class_level"]
             connection.execute(
