@@ -549,5 +549,32 @@ class CMHSPortalTests(unittest.TestCase):
         self.assertIn("private", response.headers.get("Cache-Control", ""))
         self.assertEqual(response.headers.get("Pragma"), "no-cache")
 
+    def test_teacher_student_detail_hides_private_personal_and_guardian_fields(self):
+        connection = portal.get_db_connection()
+        cursor = connection.execute(
+            """INSERT INTO students
+               (admission_number, full_name, class_level, date_of_birth, guardian_name,
+                guardian_phone, previous_school, emergency_contact_name,
+                emergency_contact_phone, record_notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("DETAIL-PRIVACY-001", "Jordan Example", "Grade 7", "2012-05-04",
+             "Private Guardian", "+231 770 000 000", "Private Previous School",
+             "Private Emergency Contact", "+231 880 000 000", "Confidential notes"),
+        )
+        student_id = cursor.lastrowid
+        connection.commit()
+        connection.close()
+
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get(f"/students/{student_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Jordan Example", response.data)
+        for private_value in (
+            b"2012-05-04", b"Private Guardian", b"+231 770 000 000",
+            b"Private Previous School", b"Private Emergency Contact",
+            b"+231 880 000 000", b"Confidential notes",
+        ):
+            self.assertNotIn(private_value, response.data)
+
 if __name__ == "__main__":
     unittest.main()
