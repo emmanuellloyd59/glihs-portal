@@ -394,7 +394,7 @@ def initialize_database():
                     "UPDATE users SET school_id = 1 "
                     "WHERE school_id IS NULL AND is_super_admin = 0"
                 )
-            elif table_name != "audit_log":
+            else:
                 connection.execute(
                     "UPDATE " + table_name + " SET school_id = 1 WHERE school_id IS NULL"
                 )
@@ -475,12 +475,14 @@ def write_audit(actor_user_id, action, target_username=None, details=None):
 # --------------------------------------------------
 
 class User(UserMixin):
-    def __init__(self, user_id, username, password_hash, role, is_super_admin=False):
+    def __init__(self, user_id, username, password_hash, role, is_super_admin=False, school_id=None):
         self.id = str(user_id)
         self.username = username
         self.password_hash = password_hash
         self.role = role
         self.is_super_admin = bool(is_super_admin)
+        # Server-derived tenant context; never trust a school ID from a form/query.
+        self.school_id = school_id
 
 
 def get_user_by_id(user_id):
@@ -488,7 +490,7 @@ def get_user_by_id(user_id):
     try:
         row = connection.execute(
             """
-            SELECT id, username, password_hash, role, is_super_admin
+            SELECT id, username, password_hash, role, is_super_admin, school_id
             FROM users WHERE id = ? AND status = 'active'
             """,
             (user_id,),
@@ -496,7 +498,7 @@ def get_user_by_id(user_id):
         if row is None:
             return None
         return User(row["id"], row["username"], row["password_hash"],
-                    row["role"], row["is_super_admin"])
+                    row["role"], row["is_super_admin"], row["school_id"])
     finally:
         connection.close()
 
@@ -506,7 +508,7 @@ def get_user_by_username(username):
     try:
         row = connection.execute(
             """
-            SELECT id, username, password_hash, role, is_super_admin
+            SELECT id, username, password_hash, role, is_super_admin, school_id
             FROM users WHERE username = ? AND status = 'active'
             """,
             (username,),
