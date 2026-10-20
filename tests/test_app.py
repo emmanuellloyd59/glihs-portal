@@ -280,6 +280,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
                 "full_name": "Morgan Example",
                 "username": "registrar_example",
                 "requested_role": "registrar",
+                "school_slug": "legacy-demo-campus",
             },
             follow_redirects=True,
         )
