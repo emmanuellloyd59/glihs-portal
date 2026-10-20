@@ -43,6 +43,9 @@ app.config["SESSION_COOKIE_SECURE"] = os.environ.get(
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
 app.config["SESSION_REFRESH_EACH_REQUEST"] = True
+# School records can contain sensitive information; do not let browsers or
+# intermediary caches retain rendered pages, and cap request bodies to limit abuse.
+app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024
 
 CSRFProtect(app)
 login_manager = LoginManager()
@@ -54,10 +57,15 @@ login_manager.login_message = "Please log in to continue."
 @app.after_request
 def add_security_headers(response):
     """Apply baseline browser security headers to every application response."""
+    response.headers.setdefault("Cache-Control", "no-store")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    # Authenticated responses can contain sensitive student, guardian, or finance data.
+    if current_user.is_authenticated:
+        response.headers["Cache-Control"] = "no-store, private"
+        response.headers["Pragma"] = "no-cache"
     return response
 
 
@@ -147,6 +155,57 @@ def migrate_users_table(connection):
     connection.execute("ALTER TABLE users_migrating RENAME TO users")
 
 
+def migrate_grade_assessment_uniqueness(connection):
+    """Allow the same assessment label in different terms while preserving grade rows."""
+    unique_indexes = connection.execute("PRAGMA index_list(grades)").fetchall()
+    legacy_constraint_found = False
+    for index in unique_indexes:
+        if not index["unique"]:
+            continue
+        quoted_index_name = index["name"].replace("'", "''")
+        index_columns = connection.execute(
+            "PRAGMA index_info('" + quoted_index_name + "')"
+        ).fetchall()
+        column_names = tuple(row["name"] for row in index_columns)
+        if column_names == ("student_id", "subject", "assessment"):
+            legacy_constraint_found = True
+            break
+
+    if not legacy_constraint_found:
+        return
+
+    connection.execute("DROP TABLE IF EXISTS grades_migrating")
+    connection.execute(
+        """
+        CREATE TABLE grades_migrating (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL REFERENCES students(id),
+            subject TEXT NOT NULL,
+            assessment TEXT NOT NULL,
+            score REAL NOT NULL CHECK (score >= 0 AND score <= 100),
+            max_score REAL NOT NULL CHECK (max_score > 0 AND score <= max_score),
+            recorded_by INTEGER NOT NULL REFERENCES users(id),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            academic_year TEXT NOT NULL DEFAULT 'Unassigned',
+            term TEXT NOT NULL DEFAULT 'Unassigned',
+            UNIQUE(student_id, subject, assessment, academic_year, term)
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO grades_migrating
+            (id, student_id, subject, assessment, score, max_score,
+             recorded_by, created_at, academic_year, term)
+        SELECT id, student_id, subject, assessment, score, max_score,
+               recorded_by, created_at, academic_year, term
+        FROM grades
+        """
+    )
+    connection.execute("DROP TABLE grades")
+    connection.execute("ALTER TABLE grades_migrating RENAME TO grades")
+
+
 def initialize_database():
     """Create or upgrade tables without intentionally resetting existing records."""
     connection = get_db_connection()
@@ -162,8 +221,7 @@ def initialize_database():
                 full_name TEXT NOT NULL DEFAULT '',
                 password_hash TEXT NOT NULL,
                 role TEXT NOT NULL CHECK (
-                    role IN ('super_admin', 'principal', 'registrar',
-                             'academic_admin', 'finance_admin', 'teacher', 'student')
+                    role IN ('super_admin', 'principal', 'registrar',                             'academic_admin', 'finance_admin', 'teacher', 'student')
                 ),
                 status TEXT NOT NULL DEFAULT 'active'
                     CHECK (status IN ('pending', 'active', 'suspended')),
@@ -190,6 +248,47 @@ def initialize_database():
             )
             """
         )
+        student_columns = {row["name"] for row in connection.execute("PRAGMA table_info(students)").fetchall()}
+        if "account_user_id" not in student_columns:
+            connection.execute("ALTER TABLE students ADD COLUMN account_user_id INTEGER REFERENCES users(id)")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_account_user_id "
+            "ON students(account_user_id) WHERE account_user_id IS NOT NULL"
+        )
+        student_columns = {row["name"] for row in connection.execute("PRAGMA table_info(students)").fetchall()}
+        for column_name, column_type in (
+            ("enrollment_date", "TEXT"),
+            ("previous_school", "TEXT"),
+            ("emergency_contact_name", "TEXT"),
+            ("emergency_contact_phone", "TEXT"),
+            ("record_notes", "TEXT"),
+        ):
+            if column_name not in student_columns:
+                connection.execute(f"ALTER TABLE students ADD COLUMN {column_name} {column_type}")
+        if "student_id_number" not in student_columns:
+            connection.execute("ALTER TABLE students ADD COLUMN student_id_number TEXT")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_student_id_number "
+            "ON students(student_id_number) WHERE student_id_number IS NOT NULL"
+        )
+        connection.execute(
+            """UPDATE students
+               SET student_id_number = 'CMHS-' || strftime('%Y', 'now') || '-' || printf('%05d', id)
+               WHERE student_id_number IS NULL"""
+        )
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS student_finances (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL REFERENCES students(id),
+                academic_year TEXT NOT NULL,
+                total_fee REAL NOT NULL CHECK (total_fee >= 0),
+                amount_paid REAL NOT NULL DEFAULT 0 CHECK (amount_paid >= 0 AND amount_paid <= total_fee),
+                notes TEXT,
+                updated_by INTEGER NOT NULL REFERENCES users(id),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(student_id, academic_year)
+            )
+        """)
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS grades (
@@ -201,7 +300,30 @@ def initialize_database():
                 max_score REAL NOT NULL CHECK (max_score > 0 AND score <= max_score),
                 recorded_by INTEGER NOT NULL REFERENCES users(id),
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(student_id, subject, assessment)
+                academic_year TEXT NOT NULL DEFAULT 'Unassigned',
+                term TEXT NOT NULL DEFAULT 'Unassigned',
+                UNIQUE(student_id, subject, assessment, academic_year, term)
+            )
+            """
+        )
+        grade_columns = {row["name"] for row in connection.execute("PRAGMA table_info(grades)").fetchall()}
+        if "academic_year" not in grade_columns:
+            connection.execute("ALTER TABLE grades ADD COLUMN academic_year TEXT NOT NULL DEFAULT 'Unassigned'")
+        if "term" not in grade_columns:
+            connection.execute("ALTER TABLE grades ADD COLUMN term TEXT NOT NULL DEFAULT 'Unassigned'")
+        migrate_grade_assessment_uniqueness(connection)
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS report_cards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL REFERENCES students(id),
+                academic_year TEXT NOT NULL,
+                term TEXT NOT NULL CHECK (term IN ('Term 1', 'Term 2', 'Term 3')),
+                published INTEGER NOT NULL DEFAULT 0 CHECK (published IN (0, 1)),
+                published_by INTEGER REFERENCES users(id),
+                published_at TEXT,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(student_id, academic_year, term)
             )
             """
         )
@@ -524,20 +646,61 @@ def admin_users():
                 )
                 connection.commit()
                 flash("Account status updated.", "success")
+            elif action == "link_student":
+                student_id = request.form.get("student_id", "").strip()
+                if target["role"] != "student" or target["status"] != "active":
+                    flash("Only an active student account can be linked to a student record.", "danger")
+                elif request.form.get("verify_identity") != "yes":
+                    flash("Confirm that the student's identity and admission number have been checked before linking.", "danger")
+                else:
+                    student = connection.execute(
+                        "SELECT id, admission_number FROM students WHERE id = ? AND status = 'active'",
+                        (student_id,),
+                    ).fetchone()
+                    if not student:
+                        flash("Choose a valid active student record.", "danger")
+                    else:
+                        existing = connection.execute(
+                            "SELECT account_user_id FROM students WHERE id = ?", (student_id,)
+                        ).fetchone()
+                        if existing["account_user_id"] not in (None, target_id_int):
+                            flash("That student record is already linked to another account.", "danger")
+                        else:
+                            connection.execute("UPDATE students SET account_user_id = NULL WHERE account_user_id = ?", (target_id_int,))
+                            connection.execute("UPDATE students SET account_user_id = ? WHERE id = ?", (target_id_int, student["id"]))
+                            connection.execute(
+                                "INSERT INTO audit_log (actor_user_id, action, target_username, details) VALUES (?, 'student_account_linked', ?, ?)",
+                                (current_user.id, target_username, "Student record: " + student["admission_number"]),
+                            )
+                            connection.commit()
+                            flash("Student account linked to the verified student record.", "success")
+            elif action == "unlink_student":
+                linked = connection.execute(
+                    "SELECT admission_number FROM students WHERE account_user_id = ?", (target_id_int,)
+                ).fetchone()
+                if target["role"] != "student":
+                    flash("Only student accounts can be unlinked from student records.", "danger")
+                elif linked:
+                    connection.execute("UPDATE students SET account_user_id = NULL WHERE account_user_id = ?", (target_id_int,))
+                    connection.execute(
+                        "INSERT INTO audit_log (actor_user_id, action, target_username, details) VALUES (?, 'student_account_unlinked', ?, ?)",
+                        (current_user.id, target_username, "Student record: " + linked["admission_number"]),
+                    )
+                    connection.commit()
+                    flash("Student account unlinked.", "success")
+                else:
+                    flash("This account has no linked student record.", "info")
             elif action == "change_role":
                 new_role = request.form.get("new_role", "").strip()
+                linked = connection.execute("SELECT 1 FROM students WHERE account_user_id = ?", (target_id_int,)).fetchone()
                 if target["is_super_admin"] or new_role not in STAFF_ROLES:
                     flash("Super Administrator roles cannot be changed here.", "danger")
+                elif linked:
+                    flash("Unlink this student record before changing the account's role.", "danger")
                 else:
+                    connection.execute("UPDATE users SET role = ? WHERE id = ?", (new_role, target_id_int))
                     connection.execute(
-                        "UPDATE users SET role = ? WHERE id = ?",
-                        (new_role, target_id_int),
-                    )
-                    connection.execute(
-                        """
-                        INSERT INTO audit_log (actor_user_id, action, target_username, details)
-                        VALUES (?, 'staff_role_changed', ?, ?)
-                        """,
+                        "INSERT INTO audit_log (actor_user_id, action, target_username, details) VALUES (?, 'staff_role_changed', ?, ?)",
                         (current_user.id, target_username, "New role: " + new_role),
                     )
                     connection.commit()
@@ -552,11 +715,17 @@ def admin_users():
     try:
         users = connection.execute(
             """
-            SELECT id, username, full_name, role, status, is_super_admin, created_at, approved_at
-            FROM users ORDER BY
-                CASE status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END,
-                username COLLATE NOCASE
+            SELECT u.id, u.username, u.full_name, u.role, u.status, u.is_super_admin,
+                   u.created_at, u.approved_at, s.id AS linked_student_id,
+                   s.full_name AS linked_student_name, s.admission_number AS linked_admission_number
+            FROM users u LEFT JOIN students s ON s.account_user_id = u.id
+            ORDER BY CASE u.status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END,
+                     u.username COLLATE NOCASE
             """
+        ).fetchall()
+        available_students = connection.execute(
+            """SELECT id, full_name, admission_number, class_level, account_user_id
+               FROM students WHERE status = 'active' ORDER BY class_level, full_name"""
         ).fetchall()
         audit_entries = connection.execute(
             """
@@ -571,7 +740,7 @@ def admin_users():
 
     return render_template(
         "admin_users.html", users=users, roles=STAFF_ROLES,
-        audit_entries=audit_entries,
+        available_students=available_students, audit_entries=audit_entries,
     )
 
 
@@ -610,10 +779,18 @@ def academics():
             if action == "grade":
                 subject = request.form.get("subject", "").strip()
                 assessment = request.form.get("assessment", "").strip()
+                academic_year = request.form.get("academic_year", "").strip()
+                term = request.form.get("term", "").strip()
                 score_text = request.form.get("score", "").strip()
                 max_text = request.form.get("max_score", "").strip()
                 if not subject or len(subject) > 80 or not assessment or len(assessment) > 100:
                     flash("Enter a subject and assessment name within the stated limits.", "danger")
+                    return redirect(url_for("academics"))
+                if (len(academic_year) != 9 or academic_year[4] != "-"
+                        or not academic_year[:4].isdigit() or not academic_year[5:].isdigit()
+                        or int(academic_year[5:]) != int(academic_year[:4]) + 1
+                        or term not in {"Term 1", "Term 2", "Term 3"}):
+                    flash("Choose a valid academic year (for example 2026-2027) and term.", "danger")
                     return redirect(url_for("academics"))
                 try:
                     score, max_score = float(score_text), float(max_text)
@@ -622,18 +799,27 @@ def academics():
                 except (ValueError, TypeError):
                     flash("Scores must be valid numbers: score 0–100, maximum 1–100, and score cannot exceed maximum.", "danger")
                     return redirect(url_for("academics"))
+                published_report = connection.execute(
+                    """SELECT 1 FROM report_cards
+                       WHERE student_id = ? AND academic_year = ? AND term = ? AND published = 1""",
+                    (student_id, academic_year, term),
+                ).fetchone()
+                if published_report:
+                    flash("This term's report card is published. Unpublish it before recording additional grades.", "danger")
+                    return redirect(url_for("academics"))
                 try:
                     connection.execute(
-                        """INSERT INTO grades (student_id, subject, assessment, score, max_score, recorded_by)
-                           VALUES (?, ?, ?, ?, ?, ?)""",
-                        (student_id, subject, assessment, score, max_score, current_user.id),
+                        """INSERT INTO grades
+                           (student_id, subject, assessment, score, max_score, recorded_by, academic_year, term)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (student_id, subject, assessment, score, max_score, current_user.id, academic_year, term),
                     )
                     connection.commit()
                     write_audit(current_user.id, "grade_recorded", str(student_id),
                                 f"{subject} / {assessment}: {score}/{max_score}")
                     flash("Grade saved successfully.", "success")
                 except sqlite3.IntegrityError:
-                    flash("A grade for this student, subject, and assessment already exists. Use a different assessment name.", "danger")
+                    flash("This student already has that assessment in the selected subject, academic year, and term.", "danger")
             elif action == "attendance":
                 attendance_date = request.form.get("attendance_date", "").strip()
                 status = request.form.get("status", "").strip()
@@ -663,7 +849,8 @@ def academics():
 
         grades = connection.execute(
             """SELECT g.id, s.full_name, s.admission_number, s.class_level, g.subject,
-                      g.assessment, g.score, g.max_score, u.username AS recorded_by, g.created_at
+                      g.assessment, g.score, g.max_score, g.academic_year, g.term,
+                      u.username AS recorded_by, g.created_at
                FROM grades g JOIN students s ON s.id = g.student_id
                JOIN users u ON u.id = g.recorded_by ORDER BY g.id DESC LIMIT 100"""
         ).fetchall()
@@ -685,7 +872,135 @@ def academics():
 
 
 # --------------------------------------------------
-# 6. STUDENT RECORDS
+# 6. REPORT CARDS
+# --------------------------------------------------
+
+REPORT_CARD_VIEW_ROLES = {"super_admin", "principal", "academic_admin", "teacher", "registrar"}
+REPORT_CARD_PUBLISH_ROLES = {"super_admin", "principal", "academic_admin"}
+
+
+@app.route("/my-report-cards")
+@login_required
+def my_report_cards():
+    """Students can see only published reports for their own linked record."""
+    if current_user.role != "student":
+        abort(403)
+    connection = get_db_connection()
+    try:
+        student = connection.execute(
+            """SELECT id, admission_number, full_name, class_level
+               FROM students WHERE account_user_id = ? AND status = 'active'""",
+            (current_user.id,),
+        ).fetchone()
+        reports = []
+        if student:
+            reports = connection.execute(
+                """SELECT rc.academic_year, rc.term, rc.published_at,
+                          g.subject, g.score, g.max_score, g.assessment
+                   FROM report_cards rc
+                   JOIN grades g ON g.student_id = rc.student_id
+                       AND g.academic_year = rc.academic_year AND g.term = rc.term
+                   WHERE rc.student_id = ? AND rc.published = 1
+                   ORDER BY rc.academic_year DESC, rc.term, g.subject COLLATE NOCASE,
+                            g.assessment COLLATE NOCASE""",
+                (student["id"],),
+            ).fetchall()
+    finally:
+        connection.close()
+    return render_template("my_report_cards.html", student=student, reports=reports)
+
+
+@app.route("/report-cards", methods=["GET", "POST"])
+@login_required
+def report_cards():
+    """Build subject summaries and control publication for a selected student and term."""
+    if current_user.role not in REPORT_CARD_VIEW_ROLES:        abort(403)
+
+    connection = get_db_connection()
+    try:
+        students = connection.execute(
+            "SELECT id, admission_number, full_name, class_level FROM students WHERE status = 'active' ORDER BY class_level, full_name"
+        ).fetchall()
+        student_id = request.values.get("student_id", "").strip()
+        academic_year = request.values.get("academic_year", "").strip()
+        term = request.values.get("term", "").strip()
+        selected_student = None
+        subject_rows = []
+        publication = None
+
+        if student_id and academic_year and term in {"Term 1", "Term 2", "Term 3"}:
+            selected_student = connection.execute(
+                "SELECT id, admission_number, full_name, class_level FROM students WHERE id = ? AND status = 'active'",
+                (student_id,),
+            ).fetchone()
+
+        if request.method == "POST":
+            if current_user.role not in REPORT_CARD_PUBLISH_ROLES:
+                abort(403)
+            action = request.form.get("action", "").strip()
+            year_valid = (len(academic_year) == 9 and academic_year[4] == "-"
+                          and academic_year[:4].isdigit() and academic_year[5:].isdigit()
+                          and int(academic_year[5:]) == int(academic_year[:4]) + 1)
+            if not selected_student or not year_valid or term not in {"Term 1", "Term 2", "Term 3"}:
+                flash("Select a valid student, academic year, and term.", "danger")
+                return redirect(url_for("report_cards"))
+            has_grades = connection.execute(
+                "SELECT 1 FROM grades WHERE student_id = ? AND academic_year = ? AND term = ? LIMIT 1",
+                (student_id, academic_year, term),
+            ).fetchone()
+            if not has_grades:
+                flash("A report card can only be published after grades have been recorded for that term.", "danger")
+                return redirect(url_for("report_cards", student_id=student_id, academic_year=academic_year, term=term))
+            if action not in {"publish", "unpublish"}:
+                flash("Unknown report-card action.", "danger")
+                return redirect(url_for("report_cards"))
+            published = 1 if action == "publish" else 0
+            connection.execute(
+                """INSERT INTO report_cards (student_id, academic_year, term, published, published_by, published_at)
+                   VALUES (?, ?, ?, ?, ?, CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END)
+                   ON CONFLICT(student_id, academic_year, term) DO UPDATE SET
+                     published = excluded.published, published_by = excluded.published_by,
+                     published_at = CASE WHEN excluded.published = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
+                     updated_at = CURRENT_TIMESTAMP""",
+                (student_id, academic_year, term, published, current_user.id, published),
+            )
+            connection.commit()
+            write_audit(current_user.id, "report_card_" + action, selected_student["admission_number"],
+                        academic_year + " / " + term)
+            flash("Report card publication updated.", "success")
+            return redirect(url_for("report_cards", student_id=student_id, academic_year=academic_year, term=term))
+
+        if selected_student:
+            raw_grades = connection.execute(
+                """SELECT subject, score, max_score, assessment FROM grades
+                   WHERE student_id = ? AND academic_year = ? AND term = ?
+                   ORDER BY subject COLLATE NOCASE, assessment COLLATE NOCASE""",
+                (student_id, academic_year, term),
+            ).fetchall()
+            by_subject = {}
+            for grade in raw_grades:
+                item = by_subject.setdefault(grade["subject"], {"subject": grade["subject"], "earned": 0.0, "possible": 0.0, "assessments": 0})
+                item["earned"] += float(grade["score"])
+                item["possible"] += float(grade["max_score"])
+                item["assessments"] += 1
+            subject_rows = [dict(item, percentage=round(item["earned"] / item["possible"] * 100, 1))
+                            for item in by_subject.values() if item["possible"] > 0]
+            publication = connection.execute(
+                "SELECT published, published_at FROM report_cards WHERE student_id = ? AND academic_year = ? AND term = ?",
+                (student_id, academic_year, term),
+            ).fetchone()
+    finally:
+        connection.close()
+
+    return render_template(
+        "report_cards.html", students=students, selected_student=selected_student,
+        academic_year=academic_year, term=term, subject_rows=subject_rows,
+        publication=publication, can_publish=current_user.role in REPORT_CARD_PUBLISH_ROLES,
+    )
+
+
+# --------------------------------------------------
+# 7. STUDENT RECORDS
 # --------------------------------------------------
 
 @app.route("/students/register", methods=["GET", "POST"])
@@ -702,22 +1017,59 @@ def register_student():
         date_of_birth = request.form.get("date_of_birth", "").strip()
         guardian_name = request.form.get("guardian_name", "").strip()
         guardian_phone = request.form.get("guardian_phone", "").strip()
+        enrollment_date = request.form.get("enrollment_date", "").strip()
+        previous_school = request.form.get("previous_school", "").strip()
+        emergency_contact_name = request.form.get("emergency_contact_name", "").strip()
+        emergency_contact_phone = request.form.get("emergency_contact_phone", "").strip()
+        record_notes = request.form.get("record_notes", "").strip()
 
-        if not admission_number or not full_name or not class_level:
-            flash("Admission number, full name, and class are required.", "danger")
+        if (not admission_number or not full_name or not class_level
+                or len(admission_number) > 50 or len(full_name) > 150 or len(class_level) > 50
+                or len(guardian_name) > 150 or len(guardian_phone) > 30
+                or len(previous_school) > 150 or len(emergency_contact_name) > 150
+                or len(emergency_contact_phone) > 30 or len(record_notes) > 500):
+            flash("Check required fields and ensure all values are within the allowed length.", "danger")
             return redirect(url_for("register_student"))
+
+        # Validate untrusted form input on the server; browser validation is not sufficient.
+        if not admission_number.replace("-", "").replace("_", "").isalnum():
+            flash("Admission number may contain only letters, numbers, hyphens, and underscores.", "danger")
+            return redirect(url_for("register_student"))
+        if any(ord(ch) < 32 or ord(ch) == 127 for value in (full_name, class_level, guardian_name)
+               for ch in value):
+            flash("Names and class fields contain invalid control characters.", "danger")
+            return redirect(url_for("register_student"))
+        if guardian_phone and any(ch not in "0123456789+()- ." for ch in guardian_phone):
+            flash("Enter a valid guardian phone number.", "danger")
+            return redirect(url_for("register_student"))
+        if date_of_birth:
+            try:
+                parsed_dob = datetime.strptime(date_of_birth, "%Y-%m-%d").date()
+                if parsed_dob.isoformat() != date_of_birth or parsed_dob > datetime.now().date():
+                    raise ValueError
+            except (ValueError, TypeError):
+                flash("Enter a valid date of birth that is not in the future.", "danger")
+                return redirect(url_for("register_student"))
 
         connection = get_db_connection()
         try:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO students (
-                    admission_number, full_name, class_level,
-                    date_of_birth, guardian_name, guardian_phone
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    admission_number, full_name, class_level, date_of_birth,
+                    guardian_name, guardian_phone, enrollment_date, previous_school,
+                    emergency_contact_name, emergency_contact_phone, record_notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (admission_number, full_name, class_level,
-                 date_of_birth or None, guardian_name or None, guardian_phone or None),
+                (admission_number, full_name, class_level, date_of_birth or None,
+                 guardian_name or None, guardian_phone or None, enrollment_date or None,
+                 previous_school or None, emergency_contact_name or None,
+                 emergency_contact_phone or None, record_notes or None),
+            )
+            student_id_number = f"CMHS-{datetime.now().year}-{cursor.lastrowid:05d}"
+            connection.execute(
+                "UPDATE students SET student_id_number = ? WHERE id = ?",
+                (student_id_number, cursor.lastrowid),
             )
             connection.commit()
             write_audit(current_user.id, "student_registered", admission_number,
@@ -733,6 +1085,122 @@ def register_student():
     return render_template("student_register.html")
 
 
+@app.route("/students/<int:student_id>", methods=["GET"])
+@login_required
+def student_detail(student_id):
+    if current_user.role not in STUDENT_RECORD_ROLES:
+        abort(403)
+    connection = get_db_connection()
+    try:
+        # Teachers may inspect academic progress, but should not receive private
+        # guardian, birth-date, emergency-contact, or free-text record fields.
+        private_student_fields = (
+            "NULL AS date_of_birth, NULL AS guardian_name, NULL AS guardian_phone, "
+            "NULL AS emergency_contact_name, NULL AS emergency_contact_phone, "
+            "NULL AS record_notes, NULL AS previous_school"
+            if current_user.role == "teacher"
+            else "s.date_of_birth, s.guardian_name, s.guardian_phone, "
+                 "s.emergency_contact_name, s.emergency_contact_phone, "
+                 "s.record_notes, s.previous_school"
+        )
+        student = connection.execute(
+            f"""
+            SELECT s.id, s.student_id_number, s.admission_number, s.full_name,
+                   s.class_level, s.enrollment_date, s.status, s.created_at,
+                   {private_student_fields}
+            FROM students s WHERE s.id = ?
+            """,
+            (student_id,),
+        ).fetchone()
+        if student is None:
+            abort(404)
+        finance_summary = None
+        if current_user.role in {"super_admin", "principal", "registrar", "finance_admin"}:
+            finance_summary = connection.execute(
+                """SELECT COALESCE(total_fee, 0) AS total_fee,
+                          COALESCE(amount_paid, 0) AS amount_paid,
+                          COALESCE(total_fee, 0) - COALESCE(amount_paid, 0) AS balance
+                   FROM student_finances WHERE student_id = ? AND academic_year = ?""",
+                (student_id, f"{datetime.now().year}-{datetime.now().year + 1}"),
+            ).fetchone()
+        attendance = connection.execute(
+            """SELECT status, COUNT(*) AS total FROM attendance
+               WHERE student_id = ? GROUP BY status""", (student_id,)
+        ).fetchall()
+        recent_grades = connection.execute(
+            """SELECT subject, assessment, score, max_score, academic_year, term, created_at
+               FROM grades WHERE student_id = ?
+               ORDER BY created_at DESC, id DESC LIMIT 12""", (student_id,)
+        ).fetchall()
+        recent_attendance = connection.execute(
+            """SELECT attendance_date, status, note FROM attendance
+               WHERE student_id = ? ORDER BY attendance_date DESC LIMIT 10""", (student_id,)
+        ).fetchall()
+    finally:
+        connection.close()
+    return render_template("student_detail.html", student=student, finance_summary=finance_summary,
+                           attendance=attendance, recent_grades=recent_grades,
+                           recent_attendance=recent_attendance)
+
+
+@app.route("/students/<int:student_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_student(student_id):
+    if current_user.role not in {"super_admin", "principal", "registrar"}:
+        abort(403)
+    connection = get_db_connection()
+    try:
+        student = connection.execute("SELECT * FROM students WHERE id = ?", (student_id,)).fetchone()
+        if student is None:
+            abort(404)
+        if request.method == "POST":
+            fields = {
+                "full_name": request.form.get("full_name", "").strip(),
+                "class_level": request.form.get("class_level", "").strip(),
+                "date_of_birth": request.form.get("date_of_birth", "").strip(),
+                "guardian_name": request.form.get("guardian_name", "").strip(),
+                "guardian_phone": request.form.get("guardian_phone", "").strip(),
+                "enrollment_date": request.form.get("enrollment_date", "").strip(),
+                "previous_school": request.form.get("previous_school", "").strip(),
+                "emergency_contact_name": request.form.get("emergency_contact_name", "").strip(),
+                "emergency_contact_phone": request.form.get("emergency_contact_phone", "").strip(),
+                "record_notes": request.form.get("record_notes", "").strip(),
+            }
+            limits = {"full_name":150,"class_level":50,"guardian_name":150,"guardian_phone":30,
+                      "previous_school":150,"emergency_contact_name":150,
+                      "emergency_contact_phone":30,"record_notes":500,"date_of_birth":10,"enrollment_date":10}
+            if not fields["full_name"] or not fields["class_level"] or any(len(v)>limits[k] for k,v in fields.items()):
+                flash("Name and class are required. Please check field lengths.", "danger")
+                return redirect(url_for("edit_student", student_id=student_id))
+            for date_field in ("date_of_birth", "enrollment_date"):
+                if fields[date_field]:
+                    try:
+                        datetime.strptime(fields[date_field], "%Y-%m-%d")
+                    except ValueError:
+                        flash("Dates must use the valid YYYY-MM-DD format.", "danger")
+                        return redirect(url_for("edit_student", student_id=student_id))
+            old_class = student["class_level"]
+            connection.execute(
+                """UPDATE students SET full_name=?, class_level=?, date_of_birth=?,
+                   guardian_name=?, guardian_phone=?, enrollment_date=?, previous_school=?,
+                   emergency_contact_name=?, emergency_contact_phone=?, record_notes=?
+                   WHERE id=?""",
+                (fields["full_name"], fields["class_level"], fields["date_of_birth"] or None,
+                 fields["guardian_name"] or None, fields["guardian_phone"] or None,
+                 fields["enrollment_date"] or None, fields["previous_school"] or None,
+                 fields["emergency_contact_name"] or None, fields["emergency_contact_phone"] or None,
+                 fields["record_notes"] or None, student_id),
+            )
+            connection.commit()
+            write_audit(current_user.id, "student_record_updated", student["admission_number"],
+                        f"class changed from {old_class} to {fields['class_level']}")
+            flash("Student record updated successfully.", "success")
+            return redirect(url_for("student_detail", student_id=student_id))
+    finally:
+        connection.close()
+    return render_template("student_edit.html", student=student)
+
+
 @app.route("/students")
 @login_required
 def list_students():
@@ -740,18 +1208,119 @@ def list_students():
         flash("You are not authorized to view student records.", "danger")
         return redirect(url_for("dashboard"))
 
+    class_filter = request.args.get("class_level", "").strip()
+    search_query = request.args.get("q", "").strip()[:100]
     connection = get_db_connection()
     try:
+        # Teachers need class/identity details for instruction, not private guardian
+        # contact information or student birth dates. Expressions are fixed constants.
+        private_student_fields = (
+            "NULL AS date_of_birth, NULL AS guardian_name, NULL AS guardian_phone"
+            if current_user.role == "teacher"
+            else "s.date_of_birth, s.guardian_name, s.guardian_phone"
+        )
         students = connection.execute(
-            """
-            SELECT id, admission_number, full_name, class_level,
-                   date_of_birth, guardian_name, guardian_phone, status
-            FROM students ORDER BY id DESC
-            """
+            f"""
+            SELECT s.id, s.student_id_number, s.admission_number, s.full_name, s.class_level,
+                   {private_student_fields}, s.status,
+                   COALESCE(f.total_fee, 0) AS total_fee,
+                   COALESCE(f.amount_paid, 0) AS amount_paid,
+                   COALESCE(f.total_fee, 0) - COALESCE(f.amount_paid, 0) AS balance
+            FROM students s
+            LEFT JOIN student_finances f ON f.student_id = s.id
+                AND f.academic_year = ?
+            WHERE (? = '' OR s.class_level = ?)
+              AND (? = '' OR s.full_name LIKE ? OR s.admission_number LIKE ?
+                   OR COALESCE(s.student_id_number, '') LIKE ?)
+            ORDER BY s.class_level, s.full_name COLLATE NOCASE
+            """,
+            (f"{datetime.now().year}-{datetime.now().year + 1}", class_filter, class_filter,
+             search_query, f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"),
+        ).fetchall()
+        classes = connection.execute(
+            "SELECT DISTINCT class_level FROM students ORDER BY class_level COLLATE NOCASE"
         ).fetchall()
     finally:
         connection.close()
-    return render_template("students.html", students=students)
+    return render_template("students.html", students=students, classes=classes,
+                           class_filter=class_filter, search_query=search_query,
+                           can_view_finances=current_user.role in {"super_admin", "principal", "registrar", "finance_admin"})
+
+
+@app.route("/student-finances", methods=["GET", "POST"])
+@login_required
+def student_finances():
+    if current_user.role not in {"super_admin", "principal", "registrar", "finance_admin"}:
+        abort(403)
+
+    connection = get_db_connection()
+    try:
+        if request.method == "POST":
+            student_id = request.form.get("student_id", "").strip()
+            academic_year = request.form.get("academic_year", "").strip()
+            total_text = request.form.get("total_fee", "").strip()
+            paid_text = request.form.get("amount_paid", "").strip()
+            notes = request.form.get("notes", "").strip()
+            valid_year = (len(academic_year) == 9 and academic_year[4] == "-"
+                          and academic_year[:4].isdigit() and academic_year[5:].isdigit()
+                          and int(academic_year[5:]) == int(academic_year[:4]) + 1)
+            student = connection.execute(
+                "SELECT id, admission_number FROM students WHERE id = ? AND status = 'active'",
+                (student_id,),
+            ).fetchone()
+            try:
+                total_fee, amount_paid = float(total_text), float(paid_text)
+                if not (0 <= amount_paid <= total_fee and total_fee <= 100000000
+                        and len(notes) <= 250 and valid_year and student):
+                    raise ValueError
+            except (ValueError, TypeError):
+                flash("Check the student, academic year, fee and payment amounts. Payments cannot exceed the total fees.", "danger")
+                return redirect(url_for("student_finances"))
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id, academic_year, total_fee, amount_paid, notes, updated_by)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(student_id, academic_year) DO UPDATE SET
+                     total_fee = excluded.total_fee, amount_paid = excluded.amount_paid,
+                     notes = excluded.notes, updated_by = excluded.updated_by,
+                     updated_at = CURRENT_TIMESTAMP""",
+                (student_id, academic_year, total_fee, amount_paid, notes or None, current_user.id),
+            )
+            connection.commit()
+            write_audit(current_user.id, "student_finance_updated", student["admission_number"],
+                        f"{academic_year}; fees={total_fee:.2f}; paid={amount_paid:.2f}")
+            flash("Student financial record saved.", "success")
+            return redirect(url_for("student_finances", academic_year=academic_year))
+
+        academic_year = request.args.get("academic_year", f"{datetime.now().year}-{datetime.now().year + 1}")
+        valid_year = (len(academic_year) == 9 and academic_year[4] == "-"
+                      and academic_year[:4].isdigit() and academic_year[5:].isdigit()
+                      and int(academic_year[5:]) == int(academic_year[:4]) + 1)
+        if not valid_year:
+            academic_year = f"{datetime.now().year}-{datetime.now().year + 1}"
+        students = connection.execute(
+            "SELECT id, student_id_number, admission_number, full_name, class_level FROM students "
+            "WHERE status = 'active' ORDER BY class_level, full_name"
+        ).fetchall()
+        records = connection.execute(
+            """SELECT s.student_id_number, s.admission_number, s.full_name, s.class_level,
+                      f.total_fee, f.amount_paid, f.total_fee - f.amount_paid AS balance,
+                      f.updated_at, f.notes
+               FROM student_finances f JOIN students s ON s.id = f.student_id
+               WHERE f.academic_year = ? ORDER BY s.class_level, s.full_name COLLATE NOCASE""",
+            (academic_year,),
+        ).fetchall()
+        summary = connection.execute(
+            """SELECT COALESCE(SUM(total_fee), 0) AS total_fees,
+                      COALESCE(SUM(amount_paid), 0) AS total_paid,
+                      COALESCE(SUM(total_fee - amount_paid), 0) AS total_balance
+               FROM student_finances WHERE academic_year = ?""",
+            (academic_year,),
+        ).fetchone()
+    finally:
+        connection.close()
+    return render_template("student_finances.html", students=students, records=records,
+                           academic_year=academic_year, summary=summary)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}My Report Cards | CMHS Digital Campus{% endblock %}
+{% block content %}
+<section class="rounded-4 text-white p-4 p-md-5 mb-4" style="background:linear-gradient(120deg,#102a43,#164e78 65%,#1769aa);">
+  <p class="eyebrow mb-2" style="color:#8ce7df;">STUDENT WORKSPACE</p>
+  <h1 class="display-6 fw-bold mb-2">My Report Cards</h1>
+  <p class="mb-0" style="color:#e1edf7;">Only published results for the student record verified by the school are shown here.</p>
+</section>
+{% if not student %}
+<div class="alert alert-warning"><strong>Student record not linked yet.</strong> Ask the school's Super Administrator to verify your identity and link your account to your correct student record. No other student's records are shown.</div>
+{% else %}
+<section class="surface-card p-4 mb-4">
+  <p class="eyebrow text-primary mb-1">Verified student record</p>
+  <h2 class="h4 fw-bold mb-1">{{ student.full_name }}</h2>
+  <p class="text-secondary mb-0">{{ student.admission_number }} · {{ student.class_level }}</p>
+  {% if reports %}<button class="btn btn-outline-primary mt-3 no-print" type="button" onclick="window.print()">Print / Save as PDF</button>{% endif %}
+</section>
+{% if reports %}
+{% set report_groups = {} %}
+{% for report in reports %}
+  {% set key = report.academic_year ~ '|' ~ report.term %}
+  {% if key not in report_groups %}{% set _ = report_groups.update({key: []}) %}{% endif %}
+  {% set _ = report_groups[key].append(report) %}
+{% endfor %}
+{% for key, rows in report_groups.items() %}
+<section class="surface-card p-4 mb-4">
+  <h2 class="h4 fw-bold mb-3">{{ rows[0].academic_year }} · {{ rows[0].term }}</h2>
+  <div class="table-responsive"><table class="table table-hover align-middle mb-0">
+    <thead><tr><th>Subject</th><th>Assessment</th><th>Score</th><th>Percentage</th></tr></thead>
+    <tbody>{% for row in rows %}<tr><td class="fw-semibold">{{ row.subject }}</td><td>{{ row.assessment }}</td><td>{{ row.score|round(2) }} / {{ row.max_score|round(2) }}</td><td>{{ (row.score / row.max_score * 100)|round(1) }}%</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endfor %}
+{% else %}
+<div class="surface-card p-4"><h2 class="h5 fw-bold">No published report cards yet</h2><p class="text-secondary mb-0">When the school publishes a report card for your linked student record, it will appear here. Drafts and unpublished grades are not displayed.</p></div>
+{% endif %}
+{% endif %}
+<div class="mt-4"><a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">← Return to Dashboard</a></div>
+{% endblock %}

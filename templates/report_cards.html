@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Report Cards | CMHS Digital Campus{% endblock %}
+{% block head %}
+<style>
+  @media print {
+    body { background: #fff !important; }
+    main.page-shell > * { display: none !important; }
+    main.page-shell > #report-card-print { display: block !important; }
+    #report-card-print { width: 100%; margin: 0 !important; padding: 0 !important; border: 0 !important; }
+    #report-card-print .table-responsive { overflow: visible !important; }
+    #report-card-print table { width: 100% !important; table-layout: auto; }
+    #report-card-print th, #report-card-print td { padding: .35rem .25rem !important; overflow-wrap: anywhere; }
+    #report-card-print .d-flex { display: block !important; }
+    #report-card-print .badge { border: 1px solid #777; color: #000 !important; background: #fff !important; }
+    #report-card-print h2 { font-size: 18pt; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<section class="rounded-4 text-white p-4 p-md-5 mb-4" style="background:linear-gradient(120deg,#102a43,#164e78 65%,#1769aa);">
+  <p class="eyebrow mb-2" style="color:#8ce7df;">VERSION 0.2 · ACADEMICS</p><h1 class="display-6 fw-bold mb-2">Report Card Builder</h1>
+  <p class="mb-0" style="color:#e1edf7;">Review a student's term assessments, see subject averages, and manage report-card publication.</p>
+</section>
+<div class="alert alert-info">Grades entered before Version 0.2 are marked “Unassigned” and are not included in a term report. Student self-service report cards require a verified link between student accounts and student records, which is not yet configured.</div>
+<section class="surface-card p-4 mb-4"><h2 class="h4 fw-bold mb-3">Choose report</h2>
+<form method="get" action="{{ url_for('report_cards') }}" class="row g-3">
+<div class="col-12 col-md-6"><label class="form-label fw-semibold" for="student_id">Student</label><select class="form-select" id="student_id" name="student_id" required><option value="">Choose a student</option>{% for s in students %}<option value="{{ s.id }}" {% if selected_student and selected_student.id|string == s.id|string %}selected{% endif %}>{{ s.full_name }} — {{ s.admission_number }} ({{ s.class_level }})</option>{% endfor %}</select></div>
+<div class="col-6 col-md-3"><label class="form-label fw-semibold" for="academic_year">Academic year</label><input class="form-control" id="academic_year" name="academic_year" pattern="[0-9]{4}-[0-9]{4}" placeholder="2026-2027" value="{{ academic_year }}" required></div>
+<div class="col-6 col-md-3"><label class="form-label fw-semibold" for="term">Term</label><select class="form-select" id="term" name="term" required><option value="">Choose term</option>{% for t in ['Term 1','Term 2','Term 3'] %}<option value="{{ t }}" {% if term == t %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
+<div class="col-12"><button class="btn btn-primary" type="submit">Build report preview</button></div></form></section>
+{% if selected_student %}
+<section id="report-card-print" class="surface-card p-4 mb-4"><div class="d-flex flex-column flex-md-row justify-content-between gap-3"><div><p class="eyebrow text-primary mb-1">Student report</p><h2 class="h4 fw-bold mb-1">{{ selected_student.full_name }}</h2><p class="text-secondary mb-0">{{ selected_student.admission_number }} · {{ selected_student.class_level }} · {{ academic_year }} · {{ term }}</p></div><div class="d-flex flex-wrap align-items-center gap-2"><button class="btn btn-outline-primary no-print" type="button" onclick="window.print()">Print / Save as PDF</button>{% if publication and publication.published %}<span class="badge text-bg-success">Published</span>{% else %}<span class="badge text-bg-secondary">Draft / not published</span>{% endif %}</div></div>
+{% if subject_rows %}<div class="table-responsive mt-4"><table class="table table-hover align-middle"><thead><tr><th>Subject</th><th>Assessments</th><th>Total earned</th><th>Total possible</th><th>Average</th></tr></thead><tbody>{% for row in subject_rows %}<tr><td class="fw-semibold">{{ row.subject }}</td><td>{{ row.assessments }}</td><td>{{ row.earned|round(2) }}</td><td>{{ row.possible|round(2) }}</td><td><strong>{{ row.percentage }}%</strong></td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="text-secondary mt-4 mb-0">No grades found for this student, academic year, and term. Record grades in Grades & Attendance first.</p>{% endif %}
+{% if can_publish %}<form method="post" action="{{ url_for('report_cards') }}" class="d-flex flex-wrap gap-2 mt-4"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="student_id" value="{{ selected_student.id }}"><input type="hidden" name="academic_year" value="{{ academic_year }}"><input type="hidden" name="term" value="{{ term }}">{% if publication and publication.published %}<button class="btn btn-outline-danger" name="action" value="unpublish" type="submit">Unpublish report card</button>{% else %}<button class="btn btn-primary" name="action" value="publish" type="submit" {% if not subject_rows %}disabled{% endif %}>Publish report card</button>{% endif %}</form>{% else %}<p class="small text-secondary mt-3 mb-0">View-only access. Only a principal, academic administrator, or Super Administrator can publish or unpublish.</p>{% endif %}</section>
+{% endif %}
+<div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-primary" href="{{ url_for('academics') }}">Back to Grades & Attendance</a><a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Dashboard</a></div>
+{% endblock %}

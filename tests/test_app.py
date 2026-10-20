@@ -32,6 +32,8 @@ class CMHSPortalTests(unittest.TestCase):
         connection = portal.get_db_connection()
         connection.execute("DELETE FROM grades")
         connection.execute("DELETE FROM attendance")
+        connection.execute("DELETE FROM report_cards")
+        connection.execute("DELETE FROM student_finances")
         connection.execute("DELETE FROM audit_log")
         connection.execute("DELETE FROM students")
         connection.execute("DELETE FROM users")
@@ -93,6 +95,34 @@ class CMHSPortalTests(unittest.TestCase):
         self.assertEqual(response.headers.get("X-Frame-Options"), "DENY")
         self.assertEqual(response.headers.get("Referrer-Policy"), "strict-origin-when-cross-origin")
         self.assertIn("camera=()", response.headers.get("Permissions-Policy", ""))
+        self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+
+    def test_csrf_protection_rejects_post_without_token(self):
+        previous = portal.app.config["WTF_CSRF_ENABLED"]
+        portal.app.config["WTF_CSRF_ENABLED"] = True
+        try:
+            response = self.client.post("/login", data={"username": "teacher_demo", "password": "test-teacher-password"})
+            self.assertEqual(response.status_code, 400)
+        finally:
+            portal.app.config["WTF_CSRF_ENABLED"] = previous
+
+    def test_logout_cannot_be_triggered_by_get_request(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get("/logout")
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(self.client.get("/dashboard").status_code, 200)
+
+    def test_suspending_an_active_user_invalidates_the_existing_session(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        connection = portal.get_db_connection()
+        try:
+            connection.execute("UPDATE users SET status = 'suspended' WHERE username = 'teacher_demo'")
+            connection.commit()
+        finally:
+            connection.close()
+        response = self.client.get("/dashboard", follow_redirects=True)
+        self.assertIn(b"Portal Login", response.data)
+        self.assertNotIn(b"Dashboard Overview", response.data)
 
     def test_failed_login_is_audited_without_revealing_account_existence(self):
         response = self.client.post(
@@ -410,6 +440,7 @@ class CMHSPortalTests(unittest.TestCase):
         grade_response = self.client.post("/academics", data={
             "action": "grade", "student_id": str(student_id), "subject": "Mathematics",
             "assessment": "Quiz 1", "score": "18", "max_score": "20",
+            "academic_year": "2026-2027", "term": "Term 1",
         }, follow_redirects=True)
         self.assertEqual(grade_response.status_code, 200)
         self.assertIn(b"Grade saved successfully", grade_response.data)
@@ -452,6 +483,7 @@ class CMHSPortalTests(unittest.TestCase):
         invalid = self.client.post("/academics", data={
             "action": "grade", "student_id": str(student_id), "subject": "Science",
             "assessment": "Test", "score": "120", "max_score": "100",
+            "academic_year": "2026-2027", "term": "Term 1",
         }, follow_redirects=True)
         self.assertIn(b"Scores must be valid numbers", invalid.data)
         data = {
@@ -461,6 +493,88 @@ class CMHSPortalTests(unittest.TestCase):
         self.client.post("/academics", data=data)
         duplicate = self.client.post("/academics", data=data, follow_redirects=True)
         self.assertIn(b"Attendance has already been recorded", duplicate.data)
+
+    def _student_count(self):
+        connection = portal.get_db_connection()
+        try:
+            return connection.execute("SELECT COUNT(*) FROM students").fetchone()[0]
+        finally:
+            connection.close()
+
+    def test_registration_rejects_invalid_guardian_phone_without_saving(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.post("/students/register", data={
+            "admission_number": "SEC-001", "full_name": "Jordan Example",
+            "class_level": "Grade 7", "guardian_phone": "call-me-now",
+        }, follow_redirects=True)
+        self.assertIn(b"valid guardian phone number", response.data)
+        self.assertEqual(self._student_count(), 0)
+
+    def test_registration_rejects_future_birth_date_and_invalid_admission_number(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        for admission, dob in (("SEC-002", "2999-01-01"), ("bad admission!", "2012-05-04")):
+            response = self.client.post("/students/register", data={
+                "admission_number": admission, "full_name": "Jordan Example",
+                "class_level": "Grade 7", "date_of_birth": dob,
+            }, follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._student_count(), 0)
+
+    def test_teacher_student_list_hides_private_fields(self):
+        connection = portal.get_db_connection()
+        connection.execute(
+            """INSERT INTO students
+               (admission_number, full_name, class_level, date_of_birth, guardian_name, guardian_phone)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ("PRIVACY-001", "Jordan Example", "Grade 7", "2012-05-04",
+             "Private Guardian", "+231 770 000 000"),
+        )
+        connection.commit()
+        connection.close()
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get("/students")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Jordan Example", response.data)
+        self.assertNotIn(b"Private Guardian", response.data)
+        self.assertNotIn(b"+231 770 000 000", response.data)
+        self.assertNotIn(b"2012-05-04", response.data)
+        self.assertNotIn(b"Parent / Guardian", response.data)
+        self.assertIn("no-store", response.headers.get("Cache-Control", ""))
+
+    def test_authenticated_pages_are_not_cached(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("no-store", response.headers.get("Cache-Control", ""))
+        self.assertIn("private", response.headers.get("Cache-Control", ""))
+        self.assertEqual(response.headers.get("Pragma"), "no-cache")
+
+    def test_teacher_student_detail_hides_private_personal_and_guardian_fields(self):
+        connection = portal.get_db_connection()
+        cursor = connection.execute(
+            """INSERT INTO students
+               (admission_number, full_name, class_level, date_of_birth, guardian_name,
+                guardian_phone, previous_school, emergency_contact_name,
+                emergency_contact_phone, record_notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("DETAIL-PRIVACY-001", "Jordan Example", "Grade 7", "2012-05-04",
+             "Private Guardian", "+231 770 000 000", "Private Previous School",
+             "Private Emergency Contact", "+231 880 000 000", "Confidential notes"),
+        )
+        student_id = cursor.lastrowid
+        connection.commit()
+        connection.close()
+
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get(f"/students/{student_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Jordan Example", response.data)
+        for private_value in (
+            b"2012-05-04", b"Private Guardian", b"+231 770 000 000",
+            b"Private Previous School", b"Private Emergency Contact",
+            b"+231 880 000 000", b"Confidential notes",
+        ):
+            self.assertNotIn(private_value, response.data)
 
 if __name__ == "__main__":
     unittest.main()
