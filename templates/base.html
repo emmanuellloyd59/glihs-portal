@@ -7,7 +7,6 @@
     <meta name="theme-color" content="#102a43">
     <title>{% block title %}CMHS Digital Campus{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="{{ url_for('static', filename='css/campus-v02.css') }}" rel="stylesheet">
     <style>
         :root { --cmhs-navy:#102a43; --cmhs-blue:#1769aa; --cmhs-teal:#16a6a1; --cmhs-bg:#f3f6fb; --cmhs-ink:#172b4d; }
         * { box-sizing:border-box; }
@@ -43,6 +42,7 @@
             a { color: #000 !important; text-decoration: none !important; }
         }
     </style>
+    <link href="{{ url_for('static', filename='css/campus-v02.css') }}" rel="stylesheet">
     {% block head %}{% endblock %}
 </head>
 <body>
