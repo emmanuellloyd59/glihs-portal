@@ -395,5 +395,139 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             connection.close()
 
 
+
+class StartupMigrationTests(unittest.TestCase):
+    def test_legacy_database_migrates_without_losing_records_and_is_idempotent(self):
+        """Exercise the real startup migration on a disposable legacy SQLite file."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            legacy_path = Path(temporary_directory) / "legacy.sqlite3"
+            original_database = portal.DATABASE
+            try:
+                connection = sqlite3.connect(legacy_path)
+                connection.execute("PRAGMA foreign_keys = ON")
+                connection.executescript(
+                    """
+                    CREATE TABLE users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT NOT NULL UNIQUE,
+                        password_hash TEXT NOT NULL,
+                        role TEXT NOT NULL CHECK (role IN ('student', 'teacher', 'admin'))
+                    );
+                    CREATE TABLE students (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        admission_number TEXT NOT NULL UNIQUE,
+                        full_name TEXT NOT NULL,
+                        class_level TEXT NOT NULL,
+                        date_of_birth TEXT,
+                        guardian_name TEXT,
+                        guardian_phone TEXT,
+                        status TEXT NOT NULL DEFAULT 'active',
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE grades (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        student_id INTEGER NOT NULL REFERENCES students(id),
+                        subject TEXT NOT NULL,
+                        assessment TEXT NOT NULL,
+                        score REAL NOT NULL CHECK (score >= 0 AND score <= 100),
+                        max_score REAL NOT NULL CHECK (max_score > 0 AND score <= max_score),
+                        recorded_by INTEGER NOT NULL REFERENCES users(id),
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(student_id, subject, assessment)
+                    );
+                    INSERT INTO users (id, username, password_hash, role)
+                        VALUES (10, 'legacy_teacher', 'legacy-hash', 'teacher');
+                    INSERT INTO users (id, username, password_hash, role)
+                        VALUES (11, 'legacy_student', 'legacy-hash', 'student');
+                    INSERT INTO users (id, username, password_hash, role)
+                        VALUES (12, 'legacy_admin', 'legacy-hash', 'admin');
+                    INSERT INTO students
+                        (id, admission_number, full_name, class_level, date_of_birth,
+                         guardian_name, guardian_phone)
+                        VALUES (20, 'LEGACY-001', 'Fictional Legacy Student', 'Grade 7',
+                                '2012-05-04', 'Fictional Guardian', '+231 770 000 000');
+                    INSERT INTO grades
+                        (id, student_id, subject, assessment, score, max_score, recorded_by)
+                        VALUES (30, 20, 'Mathematics', 'Quiz 1', 8, 10, 10);
+                    """
+                )
+                connection.commit()
+                connection.close()
+
+                portal.DATABASE = legacy_path
+                portal.initialize_database()
+
+                connection = portal.get_db_connection()
+                try:
+                    student = connection.execute(
+                        """SELECT id, admission_number, full_name, class_level,
+                                  date_of_birth, guardian_name, guardian_phone, school_id
+                           FROM students WHERE id = 20"""
+                    ).fetchone()
+                    self.assertIsNotNone(student)
+                    self.assertEqual(
+                        tuple(student),
+                        (20, "LEGACY-001", "Fictional Legacy Student", "Grade 7",
+                         "2012-05-04", "Fictional Guardian", "+231 770 000 000", 1),
+                    )
+                    grade = connection.execute(
+                        """SELECT id, student_id, subject, assessment, score, max_score,
+                                  recorded_by, academic_year, term, school_id
+                           FROM grades WHERE id = 30"""
+                    ).fetchone()
+                    self.assertEqual(
+                        tuple(grade),
+                        (30, 20, "Mathematics", "Quiz 1", 8.0, 10.0, 10,
+                         "Unassigned", "Unassigned", 1),
+                    )
+                    users = connection.execute(
+                        "SELECT id, role, is_super_admin, school_id FROM users ORDER BY id"
+                    ).fetchall()
+                    self.assertEqual(tuple(users[0]), (10, "teacher", 0, 1))
+                    self.assertEqual(tuple(users[1]), (11, "student", 0, 1))
+                    self.assertEqual(tuple(users[2]), (12, "super_admin", 1, None))
+                    self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
+
+                    connection.execute(
+                        "INSERT INTO schools (name, slug, status) VALUES (?, ?, 'active')",
+                        ("Fictional Second School", "fictional-second-school"),
+                    )
+                    second_school_id = connection.execute(
+                        "SELECT id FROM schools WHERE slug = 'fictional-second-school'"
+                    ).fetchone()["id"]
+                    connection.execute(
+                        """INSERT INTO students
+                           (admission_number, full_name, class_level, school_id)
+                           VALUES ('LEGACY-001', 'Second Fictional Student', 'Grade 7', ?)""",
+                        (second_school_id,),
+                    )
+                    connection.commit()
+                finally:
+                    connection.close()
+
+                # A repeat startup must not duplicate or reassign existing rows.
+                portal.initialize_database()
+                connection = portal.get_db_connection()
+                try:
+                    self.assertEqual(
+                        connection.execute("SELECT COUNT(*) FROM students").fetchone()[0], 2
+                    )
+                    self.assertEqual(
+                        connection.execute("SELECT COUNT(*) FROM grades WHERE id = 30").fetchone()[0], 1
+                    )
+                    self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            """INSERT INTO students
+                               (admission_number, full_name, class_level, school_id)
+                               VALUES ('LEGACY-001', 'Duplicate Same-School Student', 'Grade 7', 1)"""
+                        )
+                    connection.rollback()
+                finally:
+                    connection.close()
+            finally:
+                portal.DATABASE = original_database
+
+
 if __name__ == "__main__":
     unittest.main()
