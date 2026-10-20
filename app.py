@@ -211,6 +211,63 @@ def migrate_grade_assessment_uniqueness(connection):
     connection.execute("ALTER TABLE grades_migrating RENAME TO grades")
 
 
+
+def migrate_student_admission_number_uniqueness(connection):
+    """Replace global admission-number uniqueness with per-school uniqueness.
+
+    Existing student IDs and every known student field are preserved. This
+    migration runs with foreign-key enforcement temporarily disabled by
+    initialize_database(), then restores the partial indexes used by the app.
+    """
+    table = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'students'"
+    ).fetchone()
+    if not table or not table["sql"] or "admission_number TEXT NOT NULL UNIQUE" not in table["sql"]:
+        return
+
+    connection.execute("""
+        CREATE TABLE students_migrating (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admission_number TEXT NOT NULL,
+            full_name TEXT NOT NULL,
+            class_level TEXT NOT NULL,
+            date_of_birth TEXT,
+            guardian_name TEXT,
+            guardian_phone TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            account_user_id INTEGER REFERENCES users(id),
+            enrollment_date TEXT,
+            previous_school TEXT,
+            emergency_contact_name TEXT,
+            emergency_contact_phone TEXT,
+            record_notes TEXT,
+            student_id_number TEXT,
+            school_id INTEGER REFERENCES schools(id),
+            UNIQUE (school_id, admission_number)
+        )
+    """)
+    columns = (
+        "id, admission_number, full_name, class_level, date_of_birth, "
+        "guardian_name, guardian_phone, status, created_at, account_user_id, "
+        "enrollment_date, previous_school, emergency_contact_name, "
+        "emergency_contact_phone, record_notes, student_id_number, school_id"
+    )
+    connection.execute(
+        f"INSERT INTO students_migrating ({columns}) SELECT {columns} FROM students"
+    )
+    connection.execute("DROP TABLE students")
+    connection.execute("ALTER TABLE students_migrating RENAME TO students")
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_account_user_id "
+        "ON students(account_user_id) WHERE account_user_id IS NOT NULL"
+    )
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_student_id_number "
+        "ON students(student_id_number) WHERE student_id_number IS NOT NULL"
+    )
+
+
 def initialize_database():
     """Create or upgrade tables without intentionally resetting existing records."""
     connection = get_db_connection()
@@ -403,6 +460,10 @@ def initialize_database():
                 connection.execute(
                     "UPDATE " + table_name + " SET school_id = 1 WHERE school_id IS NULL"
                 )
+
+        # Remove the legacy global admission-number constraint only after all
+        # records have a school owner, so the new constraint can be tenant-scoped.
+        migrate_student_admission_number_uniqueness(connection)
 
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_users_school_role ON users(school_id, role)"
