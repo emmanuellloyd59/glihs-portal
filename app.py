@@ -1180,7 +1180,7 @@ def student_detail(student_id):
     connection = get_db_connection()
     try:
         student = connection.execute(
-            "SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, current_user.school_id)
+            "SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, current_user.school_id or 1)
         ).fetchone()
         if student is None:
             abort(404)
@@ -1190,21 +1190,21 @@ def student_detail(student_id):
                 """SELECT COALESCE(total_fee, 0) AS total_fee,
                           COALESCE(amount_paid, 0) AS amount_paid,
                           COALESCE(total_fee, 0) - COALESCE(amount_paid, 0) AS balance
-                   FROM student_finances WHERE student_id = ? AND academic_year = ?""",
-                (student_id, f"{datetime.now().year}-{datetime.now().year + 1}"),
+                   FROM student_finances WHERE student_id = ? AND school_id = ? AND academic_year = ?""",
+                (student_id, current_user.school_id or 1, f"{datetime.now().year}-{datetime.now().year + 1}"),
             ).fetchone()
         attendance = connection.execute(
             """SELECT status, COUNT(*) AS total FROM attendance
-               WHERE student_id = ? GROUP BY status""", (student_id,)
+               WHERE student_id = ? AND school_id = ? GROUP BY status""", (student_id, current_user.school_id or 1)
         ).fetchall()
         recent_grades = connection.execute(
             """SELECT subject, assessment, score, max_score, academic_year, term, created_at
-               FROM grades WHERE student_id = ?
-               ORDER BY created_at DESC, id DESC LIMIT 12""", (student_id,)
+               FROM grades WHERE student_id = ? AND school_id = ?
+               ORDER BY created_at DESC, id DESC LIMIT 12""", (student_id, current_user.school_id or 1)
         ).fetchall()
         recent_attendance = connection.execute(
             """SELECT attendance_date, status, note FROM attendance
-               WHERE student_id = ? ORDER BY attendance_date DESC LIMIT 10""", (student_id,)
+               WHERE student_id = ? AND school_id = ? ORDER BY attendance_date DESC LIMIT 10""", (student_id, current_user.school_id or 1)
         ).fetchall()
     finally:
         connection.close()
@@ -1220,7 +1220,7 @@ def edit_student(student_id):
         abort(403)
     connection = get_db_connection()
     try:
-        student = connection.execute("SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, current_user.school_id)).fetchone()
+        student = connection.execute("SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, current_user.school_id or 1)).fetchone()
         if student is None:
             abort(404)
         if request.method == "POST":
