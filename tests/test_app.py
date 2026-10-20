@@ -550,6 +550,26 @@ class CMHSPortalTests(unittest.TestCase):
         self.assertEqual(response.headers.get("Pragma"), "no-cache")
 
 
+
+
+    def test_school_one_cannot_view_school_two_student_record(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute("INSERT INTO schools (name, slug) VALUES (?, ?)", ("Fictional School Two", "fictional-school-two"))
+            school_two_id = connection.execute("SELECT id FROM schools WHERE slug = ?", ("fictional-school-two",)).fetchone()["id"]
+            cursor = connection.execute("INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, ?)", ("SCHOOL2-001", "Morgan Fiction", "Grade 6", school_two_id))
+            school_two_student_id = cursor.lastrowid
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("teacher_demo", "test-teacher-password")
+        detail = self.client.get("/students/" + str(school_two_student_id))
+        self.assertEqual(detail.status_code, 404)
+        listing = self.client.get("/students")
+        self.assertEqual(listing.status_code, 200)
+        self.assertNotIn(b"Morgan Fiction", listing.data)
+
     def test_v03_school_ownership_schema_is_created_and_migration_is_idempotent(self):
         # Re-running startup migration must not duplicate the default school or
         # discard existing fictional records.
