@@ -124,19 +124,13 @@ class SchoolModuleTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Fictional Grade 8 Task", response.data)
         self.assertNotIn(b"Other Class Task", response.data)
+        conn = portal.get_db_connection()
+        assignment_id = conn.execute("SELECT id FROM homework_assignments WHERE title='Fictional Grade 8 Task'").fetchone()["id"]
+        conn.close()
         response = self.client.post("/school-tools", data={
-            "action": "submit_homework", "assignment_id": "1",
+            "action": "submit_homework", "assignment_id": str(assignment_id),
             "submission_text": "Fictional answer for testing."
         }, follow_redirects=True)
-        # Find the actual assignment ID by its title; don't assume auto-increment IDs.
-        if b"Homework submitted successfully" not in response.data:
-            conn = portal.get_db_connection()
-            assignment_id = conn.execute("SELECT id FROM homework_assignments WHERE title='Fictional Grade 8 Task'").fetchone()["id"]
-            conn.close()
-            response = self.client.post("/school-tools", data={
-                "action": "submit_homework", "assignment_id": str(assignment_id),
-                "submission_text": "Fictional answer for testing."
-            }, follow_redirects=True)
         self.assertIn(b"Homework submitted successfully", response.data)
         conn = portal.get_db_connection()
         row = conn.execute("SELECT submission_text FROM homework_submissions").fetchone()
@@ -159,7 +153,7 @@ class SchoolModuleTests(unittest.TestCase):
                            (staff_id,)).fetchone()
         conn.close()
         self.assertEqual((row["job_title"], row["subjects"], row["assigned_classes"]),
-                         ("Mathematics Teacher", "Mathematics", "Grade 8")
+                         ("Mathematics Teacher", "Mathematics", "Grade 8"))
 
     def test_student_cannot_manage_timetable_or_staff_profiles(self):
         conn = portal.get_db_connection()
