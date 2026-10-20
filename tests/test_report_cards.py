@@ -40,8 +40,8 @@ class ReportCardTests(unittest.TestCase):
             ).fetchone()["id"]
             connection.execute(
                 """INSERT OR IGNORE INTO grades
-                   (student_id, subject, assessment, score, max_score, recorded_by, academic_year, term)
-                   VALUES (?, 'Mathematics', 'Test Quiz', 8, 10, ?, '2026-2027', 'Term 1')""",
+                   (student_id, subject, assessment, score, max_score, recorded_by, academic_year, term, school_id)
+                   VALUES (?, 'Mathematics', 'Test Quiz', 8, 10, ?, '2026-2027', 'Term 1', 1)""",
                 (student_id, teacher_id),
             )
             connection.commit()
