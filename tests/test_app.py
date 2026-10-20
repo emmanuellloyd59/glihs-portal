@@ -42,7 +42,7 @@ class CMHSPortalTests(unittest.TestCase):
             ("teacher_demo", generate_password_hash("test-teacher-password"), "teacher"),
         )
         connection.execute(
-            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, ?, 1)",
             ("student_demo", generate_password_hash("test-student-password"), "student"),
         )
         connection.execute(
