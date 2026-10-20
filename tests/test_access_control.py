@@ -397,6 +397,48 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
 
 
 
+
+    def test_platform_admin_cannot_link_student_to_account_from_another_school(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO schools (name, slug, status) VALUES ('School B Test', 'school-b-test', 'active') "
+                "ON CONFLICT(slug) DO NOTHING"
+            )
+            school_b_id = connection.execute(
+                "SELECT id FROM schools WHERE slug = 'school-b-test'"
+            ).fetchone()["id"]
+            student_b_id = connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('SCHOOL-B-LINK-001', 'School B Link Student', 'Grade 8', ?)""",
+                (school_b_id,),
+            ).lastrowid
+            student_account_a_id = connection.execute(
+                "SELECT id FROM users WHERE username = 'student_route_test'"
+            ).fetchone()["id"]
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("super_route_test")
+        response = self.client.post("/admin/users", data={
+            "action": "link_student",
+            "user_id": str(student_account_a_id),
+            "student_id": str(student_b_id),
+            "verify_identity": "yes",
+        }, follow_redirects=True)
+        self.assertIn(b"Choose a valid active student record", response.data)
+
+        connection = portal.get_db_connection()
+        try:
+            link = connection.execute(
+                "SELECT account_user_id FROM students WHERE id = ? AND school_id = ?",
+                (student_b_id, school_b_id),
+            ).fetchone()
+            self.assertIsNone(link["account_user_id"])
+        finally:
+            connection.close()
+
 class StartupMigrationTests(unittest.TestCase):
     def test_legacy_database_migrates_without_losing_records_and_is_idempotent(self):
         """Exercise the real startup migration on a disposable legacy SQLite file."""
