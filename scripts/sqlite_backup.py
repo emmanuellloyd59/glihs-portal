@@ -73,9 +73,16 @@ def copy_database(source: str | Path, destination: str | Path, *, overwrite: boo
         except OSError:
             # Some filesystems do not support POSIX permission modes.
             pass
-        if destination_path.exists() and not overwrite:
-            raise FileExistsError(f"Destination already exists: {destination_path}")
-        os.replace(temporary_path, destination_path)
+        if overwrite:
+            os.replace(temporary_path, destination_path)
+        else:
+            # A same-directory hard link publishes atomically without clobbering
+            # a destination created by another process after the earlier check.
+            try:
+                os.link(temporary_path, destination_path)
+            except FileExistsError:
+                raise FileExistsError(f"Destination already exists: {destination_path}")
+            temporary_path.unlink()
         return destination_path
     finally:
         if temporary_path.exists():
