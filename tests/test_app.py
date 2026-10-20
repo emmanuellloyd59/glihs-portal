@@ -281,6 +281,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
                 "username": "registrar_example",
                 "requested_role": "registrar",
                 "school_slug": "legacy-demo-campus",
+                "school_slug": "legacy-demo-campus",
             },
             follow_redirects=True,
         )
@@ -308,6 +309,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
                 "full_name": "Morgan Example",
                 "username": "registrar_example",
                 "requested_role": "registrar",
+                "school_slug": "legacy-demo-campus",
             },
         )
         self.login_as("super_demo", "test-super-password")
