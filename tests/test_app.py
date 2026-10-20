@@ -428,7 +428,7 @@ class CMHSPortalTests(unittest.TestCase):
         self.login_as("teacher_demo", "test-teacher-password")
         connection = portal.get_db_connection()
         connection.execute(
-            "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
             ("ACADEMIC-001", "Jamie Example", "Grade 7"),
         )
         student_id = connection.execute(
@@ -472,7 +472,7 @@ class CMHSPortalTests(unittest.TestCase):
         self.login_as("teacher_demo", "test-teacher-password")
         connection = portal.get_db_connection()
         connection.execute(
-            "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
             ("ACADEMIC-002", "Alex Example", "Grade 8"),
         )
         student_id = connection.execute(
@@ -524,8 +524,8 @@ class CMHSPortalTests(unittest.TestCase):
         connection = portal.get_db_connection()
         connection.execute(
             """INSERT INTO students
-               (admission_number, full_name, class_level, date_of_birth, guardian_name, guardian_phone)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (admission_number, full_name, class_level, date_of_birth, guardian_name, guardian_phone, school_id)
+               VALUES (?, ?, ?, ?, ?, ?, 1)""",
             ("PRIVACY-001", "Jordan Example", "Grade 7", "2012-05-04",
              "Private Guardian", "+231 770 000 000"),
         )
