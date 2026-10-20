@@ -1,9 +1,10 @@
 """Regression tests for expanded student profiles and edit permissions."""
-from test_app import CMHSPortalTests
+import unittest
+from test_app import PortalTestSupport
 import app as portal
 
 
-class StudentProfileTests(CMHSPortalTests):
+class StudentProfileTests(PortalTestSupport, unittest.TestCase):
     def create_student(self, admission="PROFILE-DEMO-01"):
         connection = portal.get_db_connection()
         try:
