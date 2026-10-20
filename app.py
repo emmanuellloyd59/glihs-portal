@@ -882,8 +882,8 @@ def academics():
                     return redirect(url_for("academics"))
                 published_report = connection.execute(
                     """SELECT 1 FROM report_cards
-                       WHERE student_id = ? AND academic_year = ? AND term = ? AND published = 1""",
-                    (student_id, academic_year, term),
+                       WHERE student_id = ? AND school_id = ? AND academic_year = ? AND term = ? AND published = 1""",
+                    (student_id, current_user.school_id or 1, academic_year, term),
                 ).fetchone()
                 if published_report:
                     flash("This term's report card is published. Unpublish it before recording additional grades.", "danger")
@@ -891,9 +891,9 @@ def academics():
                 try:
                     connection.execute(
                         """INSERT INTO grades
-                           (student_id, subject, assessment, score, max_score, recorded_by, academic_year, term)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (student_id, subject, assessment, score, max_score, current_user.id, academic_year, term),
+                           (student_id, subject, assessment, score, max_score, recorded_by, academic_year, term, school_id)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (student_id, subject, assessment, score, max_score, current_user.id, academic_year, term, current_user.school_id or 1),
                     )
                     connection.commit()
                     write_audit(current_user.id, "grade_recorded", str(student_id),
@@ -914,9 +914,9 @@ def academics():
                     return redirect(url_for("academics"))
                 try:
                     connection.execute(
-                        """INSERT INTO attendance (student_id, attendance_date, status, note, recorded_by)
-                           VALUES (?, ?, ?, ?, ?)""",
-                        (student_id, attendance_date, status, note or None, current_user.id),
+                        """INSERT INTO attendance (student_id, attendance_date, status, note, recorded_by, school_id)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (student_id, attendance_date, status, note or None, current_user.id, current_user.school_id or 1),
                     )
                     connection.commit()
                     write_audit(current_user.id, "attendance_recorded", str(student_id),
@@ -933,14 +933,19 @@ def academics():
                       g.assessment, g.score, g.max_score, g.academic_year, g.term,
                       u.username AS recorded_by, g.created_at
                FROM grades g JOIN students s ON s.id = g.student_id
-               JOIN users u ON u.id = g.recorded_by ORDER BY g.id DESC LIMIT 100"""
+               JOIN users u ON u.id = g.recorded_by
+               WHERE g.school_id = ? AND s.school_id = ?
+               ORDER BY g.id DESC LIMIT 100""",
+            (current_user.school_id or 1, current_user.school_id or 1),
         ).fetchall()
         attendance_rows = connection.execute(
             """SELECT a.id, s.full_name, s.admission_number, s.class_level,
                       a.attendance_date, a.status, a.note, u.username AS recorded_by
                FROM attendance a JOIN students s ON s.id = a.student_id
                JOIN users u ON u.id = a.recorded_by
-               ORDER BY a.attendance_date DESC, a.id DESC LIMIT 100"""
+               WHERE a.school_id = ? AND s.school_id = ?
+               ORDER BY a.attendance_date DESC, a.id DESC LIMIT 100""",
+            (current_user.school_id or 1, current_user.school_id or 1),
         ).fetchall()
     finally:
         connection.close()
@@ -1145,7 +1150,7 @@ def register_student():
                 (admission_number, full_name, class_level, date_of_birth or None,
                  guardian_name or None, guardian_phone or None, enrollment_date or None,
                  previous_school or None, emergency_contact_name or None,
-                 emergency_contact_phone or None, record_notes or None, current_user.school_id),
+                 emergency_contact_phone or None, record_notes or None, current_user.school_id or 1),
             )
             student_id_number = f"CMHS-{datetime.now().year}-{cursor.lastrowid:05d}"
             connection.execute(
