@@ -17,7 +17,7 @@ from pathlib import Path
 def _database_integrity(path: Path) -> None:
     if not path.is_file():
         raise FileNotFoundError(f"Database file does not exist: {path}")
-    connection = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True, timeout=10)
+    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=10)
     try:
         result = connection.execute("PRAGMA integrity_check").fetchone()
         if not result or result[0] != "ok":
@@ -50,7 +50,7 @@ def copy_database(source: str | Path, destination: str | Path, *, overwrite: boo
     temporary_path = Path(temporary_name)
     try:
         source_connection = sqlite3.connect(
-            f"file:{source_path}?mode=ro", uri=True, timeout=10
+            f"{source_path.as_uri()}?mode=ro", uri=True, timeout=10
         )
         target_connection = sqlite3.connect(temporary_path, timeout=10)
         try:
