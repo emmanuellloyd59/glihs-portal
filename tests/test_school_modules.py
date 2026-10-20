@@ -23,14 +23,15 @@ class SchoolModuleTests(unittest.TestCase):
         conn = portal.get_db_connection()
         for table in ("timetable_entries", "homework_assignments", "school_announcements", "parent_student_links"):
             conn.execute(f"DELETE FROM {table}")
-        conn.execute("DELETE FROM audit_log")
-        conn.execute("DELETE FROM students")
-        conn.execute("DELETE FROM users")
         conn.execute("""INSERT INTO users (username, full_name, password_hash, role, status, is_super_admin)
-                        VALUES ('module_admin', 'Module Admin', ?, 'super_admin', 'active', 1)""",
+                        VALUES ('module_admin', 'Module Admin', ?, 'super_admin', 'active', 1)
+                        ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash,
+                        status='active', role='super_admin', is_super_admin=1""",
                      (generate_password_hash("test-module-admin-password"),))
         conn.execute("""INSERT INTO users (username, full_name, password_hash, role, status)
-                        VALUES ('module_teacher', 'Module Teacher', ?, 'teacher', 'active')""",
+                        VALUES ('module_teacher', 'Module Teacher', ?, 'teacher', 'active')
+                        ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash,
+                        status='active', role='teacher'""",
                      (generate_password_hash("test-module-teacher-password"),))
         conn.commit()
         conn.close()
@@ -40,9 +41,6 @@ class SchoolModuleTests(unittest.TestCase):
         conn = portal.get_db_connection()
         for table in ("timetable_entries", "homework_assignments", "school_announcements", "parent_student_links"):
             conn.execute(f"DELETE FROM {table}")
-        conn.execute("DELETE FROM audit_log")
-        conn.execute("DELETE FROM students")
-        conn.execute("DELETE FROM users")
         conn.commit()
         conn.close()
         self.client.post("/logout")
