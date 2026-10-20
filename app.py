@@ -354,6 +354,78 @@ def initialize_database():
             """
         )
 
+        # Version 0.3 foundation: establish an explicit school owner for each
+        # school's records. This migration is additive and idempotent so existing
+        # demo data is retained. Route/query enforcement remains a separate required
+        # release gate; this schema change alone does NOT make multi-school use safe.
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS schools (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                slug TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL DEFAULT 'active'
+                    CHECK (status IN ('active', 'suspended')),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        connection.execute(
+            "INSERT INTO schools (id, name, slug) VALUES (1, 'Legacy Demo Campus', 'legacy-demo-campus') "
+            "ON CONFLICT(id) DO NOTHING"
+        )
+        owned_tables = (
+            "users", "students", "student_finances", "grades",
+            "report_cards", "attendance", "audit_log",
+        )
+        for table_name in owned_tables:
+            table_columns = {
+                row["name"] for row in connection.execute(
+                    "PRAGMA table_info(" + table_name + ")"
+                ).fetchall()
+            }
+            if "school_id" not in table_columns:
+                connection.execute(
+                    "ALTER TABLE " + table_name +
+                    " ADD COLUMN school_id INTEGER REFERENCES schools(id)"
+                )
+            # Preserve legacy rows under one explicit school. Platform super-admins
+            # remain platform-level and intentionally have no school assignment.
+            if table_name == "users":
+                connection.execute(
+                    "UPDATE users SET school_id = 1 "
+                    "WHERE school_id IS NULL AND is_super_admin = 0"
+                )
+            elif table_name != "audit_log":
+                connection.execute(
+                    "UPDATE " + table_name + " SET school_id = 1 WHERE school_id IS NULL"
+                )
+
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_users_school_role ON users(school_id, role)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_students_school_class ON students(school_id, class_level)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_grades_school_student_term "
+            "ON grades(school_id, student_id, academic_year, term)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_attendance_school_student_date "
+            "ON attendance(school_id, student_id, attendance_date)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_finances_school_student_year "
+            "ON student_finances(school_id, student_id, academic_year)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_report_cards_school_student_term "
+            "ON report_cards(school_id, student_id, academic_year, term)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_audit_school_created "
+            "ON audit_log(school_id, created_at)"
+        )
+
         # Optional one-time deployment bootstrap. Never modify an existing account
         # on restart: doing so could reset a password or elevate a non-admin user.
         # Use a fresh, unique username for initial setup, then remove both variables.
