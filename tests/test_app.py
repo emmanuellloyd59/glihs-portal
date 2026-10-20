@@ -669,6 +669,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         try:
             self.assertEqual(self.client.get("/students").status_code, 403)
             self.assertEqual(self.client.get("/academics").status_code, 403)
+            self.login_as("super_demo", "test-super-password")
             self.assertEqual(self.client.get("/student-finances").status_code, 403)
         finally:
             connection = portal.get_db_connection()
