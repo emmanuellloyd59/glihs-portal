@@ -28,6 +28,10 @@ The Version 0.3 feature branch adds a school-operations workspace for timetable 
 
 This is a staged feature expansion, not a claim that every requested module is complete. Parent self-service, complete staff profiles and assignments, file submissions and teacher feedback, finance receipts/refunds/reconciliation, outbound notifications, comprehensive analytics/exports, and enforced multi-school tenant isolation still require implementation and verification. Review docs/version-03-school-modules.md for the exact scope and release gates. Do not deploy this branch or use real school data until CI, data persistence/recovery, security, and tenant-isolation gates are passed.
 
+## Version 0.3 follow-up
+
+The follow-up branch extends the school-operations workspace with administrator-managed staff profiles, class-scoped homework visibility for linked student accounts, text submissions, and teacher feedback. These changes are under review and are not deployed. See pull requests #13 and #14 and docs/version-03-school-modules.md for exact scope.
+
 ## Important demonstration limits
 
 This is a development/demo build, not a production school management system. Do not enter real student records, dates of birth, guardian details, payment information, or real contact information. Use fictional test data only.
