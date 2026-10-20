@@ -141,6 +141,70 @@ class SchoolModuleTests(unittest.TestCase):
         conn.close()
         self.assertEqual(row["submission_text"], "Fictional answer for testing.")
 
+
+
+    def test_timetable_conflict_ignores_case_and_extra_spaces_in_teacher_name(self):
+        self.login("module_admin", "test-module-admin-password")
+        first = {"action": "add_timetable", "class_name": "Grade 8", "subject": "Math",
+                 "teacher_name": "Teacher One", "room": "A1", "day_of_week": "Monday",
+                 "start_time": "09:00", "end_time": "10:00"}
+        self.client.post("/school-tools", data=first)
+        second = dict(first, class_name="Grade 9", subject="Science",
+                      teacher_name="  teacher one  ", room="B2")
+        response = self.client.post("/school-tools", data=second, follow_redirects=True)
+        self.assertIn(b"Timetable conflict", response.data)
+        conn = portal.get_db_connection()
+        count = conn.execute("SELECT COUNT(*) FROM timetable_entries").fetchone()[0]
+        conn.close()
+        self.assertEqual(count, 1)
+
+    def test_student_only_sees_timetable_for_linked_class(self):
+        conn = portal.get_db_connection()
+        conn.execute("""INSERT INTO users (username, full_name, password_hash, role, status)
+                        VALUES ('module_student', 'Fictional Student', ?, 'student', 'active')""",
+                     (generate_password_hash("test-module-student-password"),))
+        student_user = conn.execute("SELECT id FROM users WHERE username='module_student'").fetchone()
+        teacher = conn.execute("SELECT id FROM users WHERE username='module_teacher'").fetchone()
+        conn.execute("""INSERT INTO students
+                        (admission_number, full_name, class_level, status, account_user_id)
+                        VALUES ('DEMO-HW-001', 'Fictional Student', 'Grade 8', 'active', ?)""",
+                     (student_user["id"],))
+        for class_name, subject in (("Grade 8", "Fictional Math"), ("Grade 9", "Private Science")):
+            conn.execute("""INSERT INTO timetable_entries
+                (class_name, subject, teacher_name, room, day_of_week, start_time, end_time, created_by)
+                VALUES (?, ?, 'Fictional Teacher', 'Room A', 'Monday', '09:00', '10:00', ?)""",
+                (class_name, subject, teacher["id"]))
+        conn.commit()
+        conn.close()
+
+        self.login("module_student", "test-module-student-password")
+        response = self.client.get("/school-tools")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Fictional Math", response.data)
+        self.assertNotIn(b"Private Science", response.data)
+
+
+    def test_student_cannot_see_staff_only_announcements(self):
+        conn = portal.get_db_connection()
+        conn.execute("""INSERT INTO users (username, full_name, password_hash, role, status)
+                        VALUES ('module_student', 'Fictional Student', ?, 'student', 'active')""",
+                     (generate_password_hash("test-module-student-password"),))
+        teacher = conn.execute("SELECT id FROM users WHERE username='module_teacher'").fetchone()
+        conn.execute("""INSERT INTO school_announcements (title, body, audience, published, created_by)
+                        VALUES ('Student Announcement', 'Visible to students', 'students', 1, ?)""",
+                     (teacher["id"],))
+        conn.execute("""INSERT INTO school_announcements (title, body, audience, published, created_by)
+                        VALUES ('Staff Confidential Notice', 'Staff only', 'staff', 1, ?)""",
+                     (teacher["id"],))
+        conn.commit()
+        conn.close()
+
+        self.login("module_student", "test-module-student-password")
+        response = self.client.get("/school-tools")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Student Announcement", response.data)
+        self.assertNotIn(b"Staff Confidential Notice", response.data)
+
     def test_staff_profile_can_be_saved_by_super_admin(self):
         self.login("module_admin", "test-module-admin-password")
         conn = portal.get_db_connection()

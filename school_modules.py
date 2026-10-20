@@ -147,9 +147,13 @@ def school_tools():
                     clash = conn.execute("""
                         SELECT 1 FROM timetable_entries
                         WHERE day_of_week = ? AND start_time < ? AND end_time > ?
-                          AND (class_name = ? OR teacher_name = ? OR (room <> '' AND room = ?))
+                          AND (
+                              lower(trim(class_name)) = lower(trim(?))
+                              OR lower(trim(teacher_name)) = lower(trim(?))
+                              OR (trim(?) <> '' AND lower(trim(room)) = lower(trim(?)))
+                          )
                         LIMIT 1
-                    """, (day, end, start, class_name, teacher, room)).fetchone()
+                    """, (day, end, start, class_name, teacher, room, room)).fetchone()
                     if clash:
                         raise ValueError("Timetable conflict: that class, teacher, or room is already booked during this period.")
                     conn.execute("""INSERT INTO timetable_entries
@@ -287,13 +291,17 @@ def school_tools():
 
     conn = DB()
     try:
-        timetable = conn.execute("""SELECT * FROM timetable_entries
-            ORDER BY CASE day_of_week WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2
-            WHEN 'Wednesday' THEN 3 WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 ELSE 6 END,
-            start_time, class_name""").fetchall()
         if current_user.role == "student":
             student = conn.execute("SELECT id, class_level FROM students WHERE account_user_id = ? AND status = 'active'",
                                    (int(current_user.id),)).fetchone()
+            # Students must only see the timetable for their own active class.
+            # A missing/unlinked student record intentionally returns no entries.
+            timetable = conn.execute("""SELECT * FROM timetable_entries
+                WHERE ? IS NOT NULL AND lower(trim(class_name)) = lower(trim(?))
+                ORDER BY CASE day_of_week WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2
+                WHEN 'Wednesday' THEN 3 WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 ELSE 6 END,
+                start_time, class_name""",
+                (student["id"] if student else None, student["class_level"] if student else "")).fetchall()
             homework = conn.execute("""SELECT h.*, u.username AS author,
                 s.submission_text, s.submitted_at, s.feedback, s.reviewed_at
                 FROM homework_assignments h JOIN users u ON u.id = h.created_by
@@ -303,6 +311,10 @@ def school_tools():
                 (student["id"] if student else None, student["id"] if student else None,
                  student["class_level"] if student else "")).fetchall()
         else:
+            timetable = conn.execute("""SELECT * FROM timetable_entries
+                ORDER BY CASE day_of_week WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2
+                WHEN 'Wednesday' THEN 3 WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 ELSE 6 END,
+                start_time, class_name""").fetchall()
             homework = conn.execute("""SELECT h.*, u.username AS author FROM homework_assignments h
                 JOIN users u ON u.id = h.created_by ORDER BY h.due_date, h.id DESC LIMIT 100""").fetchall()
         if current_user.role in ALL_ADMINS:
@@ -316,10 +328,14 @@ def school_tools():
         if current_user.role in ACADEMIC_ADMINS:
             announcements = conn.execute("""SELECT a.*, u.username AS author FROM school_announcements a
                 JOIN users u ON u.id = a.created_by ORDER BY a.created_at DESC LIMIT 100""").fetchall()
+        elif current_user.role == "student":
+            announcements = conn.execute("""SELECT a.*, u.username AS author FROM school_announcements a
+                JOIN users u ON u.id = a.created_by WHERE a.published = 1
+                AND a.audience IN ('everyone','students') ORDER BY a.created_at DESC LIMIT 100""").fetchall()
         else:
             announcements = conn.execute("""SELECT a.*, u.username AS author FROM school_announcements a
                 JOIN users u ON u.id = a.created_by WHERE a.published = 1
-                AND a.audience IN ('everyone','students','staff') ORDER BY a.created_at DESC LIMIT 100""").fetchall()
+                AND a.audience IN ('everyone','staff') ORDER BY a.created_at DESC LIMIT 100""").fetchall()
         stats = {
             "timetable": conn.execute("SELECT COUNT(*) FROM timetable_entries").fetchone()[0],
             "homework": conn.execute("SELECT COUNT(*) FROM homework_assignments").fetchone()[0],
