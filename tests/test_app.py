@@ -534,7 +534,17 @@ class CMHSPortalTests(unittest.TestCase):
         finally:
             connection.close()
 
-        self.login_as("super_demo", "test-super-password")
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                """INSERT INTO users (username, password_hash, role, school_id)
+                   VALUES (?, ?, 'principal', 1)""",
+                ("principal_edit_demo", generate_password_hash("principal-demo-secret-2026")),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        self.login_as("principal_edit_demo", "principal-demo-secret-2026")
         invalid_cases = (
             {"guardian_phone": "abc<script>", "date_of_birth": "2010-01-01"},
             {"guardian_phone": "000-000-0000", "date_of_birth": "2099-01-01"},
