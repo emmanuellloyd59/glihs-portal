@@ -60,6 +60,41 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             follow_redirects=True,
         )
 
+    def test_inconsistent_super_admin_flag_cannot_grant_platform_access(self):
+        connection = portal.get_db_connection()
+        try:
+            # A non-super-admin role must not gain global access from a forged flag.
+            connection.execute(
+                """INSERT INTO users
+                   (username, password_hash, role, status, is_super_admin, school_id)
+                   VALUES (?, ?, 'teacher', 'active', 1, NULL)""",
+                ("teacher_with_platform_flag", generate_password_hash("test-password-for-route")),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.assertIsNone(portal.get_user_by_username("teacher_with_platform_flag"))
+        response = self.login_as("teacher_with_platform_flag")
+        self.assertIn(b"Invalid username or password", response.data)
+
+    def test_super_admin_role_without_platform_flag_cannot_authenticate(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                """INSERT INTO users
+                   (username, password_hash, role, status, is_super_admin, school_id)
+                   VALUES (?, ?, 'super_admin', 'active', 0, 1)""",
+                ("role_only_super_admin", generate_password_hash("test-password-for-route")),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.assertIsNone(portal.get_user_by_username("role_only_super_admin"))
+        response = self.login_as("role_only_super_admin")
+        self.assertIn(b"Invalid username or password", response.data)
+
     def test_school_assigned_super_admin_cannot_authenticate(self):
         connection = portal.get_db_connection()
         try:
