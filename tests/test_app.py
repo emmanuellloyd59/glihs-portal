@@ -1345,3 +1345,109 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StudentParentAccountLifecycleTests(PortalTestSupport, unittest.TestCase):
+    def _create_student(self, admission_number="STU-TEST-1", name="Test Child"):
+        connection = portal.get_db_connection()
+        try:
+            cursor = connection.execute(
+                """INSERT INTO students
+                   (admission_number, full_name, class_level, status, school_id)
+                   VALUES (?, ?, 'Grade 4', 'active', 1)""",
+                (admission_number, name),
+            )
+            connection.commit()
+            return cursor.lastrowid
+        finally:
+            connection.close()
+
+    def test_super_admin_can_create_parent_account_linked_to_verified_child(self):
+        student_id = self._create_student()
+        self.login_as("super_demo", "test-super-password")
+        response = self.client.post("/admin/users", data={
+            "action": "create_account",
+            "new_username": "parent_test",
+            "new_full_name": "Test Parent",
+            "new_role": "parent",
+            "new_password": "temporary-password-123",
+            "school_id": "1",
+            "linked_student_id": str(student_id),
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        try:
+            parent = connection.execute(
+                "SELECT id, role, status, school_id FROM users WHERE username = 'parent_test'"
+            ).fetchone()
+            link = connection.execute(
+                "SELECT student_id, school_id FROM parent_student_links WHERE parent_user_id = ?",
+                (parent["id"],),
+            ).fetchone()
+            self.assertEqual(parent["role"], "parent")
+            self.assertEqual(parent["status"], "active")
+            self.assertEqual(parent["school_id"], 1)
+            self.assertEqual(link["student_id"], student_id)
+            self.assertEqual(link["school_id"], 1)
+        finally:
+            connection.close()
+
+    def test_parent_portal_shows_only_children_linked_to_that_parent(self):
+        child_id = self._create_student("STU-OWN", "Own Child")
+        other_child_id = self._create_student("STU-OTHER", "Other Child")
+        connection = portal.get_db_connection()
+        try:
+            cursor = connection.execute(
+                """INSERT INTO users
+                   (username, full_name, password_hash, role, status, school_id)
+                   VALUES ('parent_portal_test', 'Portal Parent', ?, 'parent', 'active', 1)""",
+                (generate_password_hash("parent-portal-password"),),
+            )
+            connection.execute(
+                """INSERT INTO parent_student_links
+                   (parent_user_id, student_id, school_id)
+                   VALUES (?, ?, 1)""",
+                (cursor.lastrowid, child_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        self.login_as("parent_portal_test", "parent-portal-password")
+        response = self.client.get("/parent/children")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Own Child", response.data)
+        self.assertNotIn(b"Other Child", response.data)
+
+    def test_deleting_student_login_disables_access_but_preserves_student_record(self):
+        student_id = self._create_student("STU-KEEP", "Record Must Remain")
+        connection = portal.get_db_connection()
+        try:
+            cursor = connection.execute(
+                """INSERT INTO users
+                   (username, full_name, password_hash, role, status, school_id)
+                   VALUES ('student_to_remove', 'Test Student', ?, 'student', 'active', 1)""",
+                (generate_password_hash("student-account-password"),),
+            )
+            user_id = cursor.lastrowid
+            connection.execute(
+                "UPDATE students SET account_user_id = ? WHERE id = ?",
+                (user_id, student_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        self.login_as("super_demo", "test-super-password")
+        response = self.client.post("/admin/users", data={
+            "action": "delete_account", "user_id": str(user_id),
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        try:
+            user = connection.execute("SELECT username, status FROM users WHERE id = ?", (user_id,)).fetchone()
+            student = connection.execute("SELECT id, full_name, account_user_id FROM students WHERE id = ?", (student_id,)).fetchone()
+            self.assertEqual(user["status"], "suspended")
+            self.assertTrue(user["username"].startswith("deactivated-"))
+            self.assertEqual(student["full_name"], "Record Must Remain")
+            self.assertIsNone(student["account_user_id"])
+        finally:
+            connection.close()
