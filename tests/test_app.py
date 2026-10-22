@@ -1526,7 +1526,7 @@ class StaffAndAttendanceReportTests(PortalTestSupport, unittest.TestCase):
         connection.close()
         self.login_as("principal_demo", "test-principal-password")
         response = self.client.get(
-            "/attendance-report?start_date=2026-10-01&end_date=2026-10-31&class_level=Grade%207"
+            "/attendance-report?start_date=2026-10-01&end_date=2026-10-22&class_level=Grade%207"
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Fictional Grade Seven Student", response.data)
@@ -1548,6 +1548,7 @@ class StaffAndAttendanceReportTests(PortalTestSupport, unittest.TestCase):
         school_id = connection.execute(
             "SELECT id FROM schools WHERE slug='fictional-other-school'"
         ).fetchone()["id"]
+        connection.commit()
         other_student_id = self._add_student("OTHER-001", "Other School Student", "Grade 7", school_id)
         connection.execute(
             """INSERT INTO users (username, full_name, password_hash, role, status, school_id)
@@ -1566,7 +1567,7 @@ class StaffAndAttendanceReportTests(PortalTestSupport, unittest.TestCase):
         connection.close()
         self.login_as("principal_demo", "test-principal-password")
         response = self.client.get(
-            "/attendance-report?start_date=2026-10-01&end_date=2026-10-31"
+            "/attendance-report?start_date=2026-10-01&end_date=2026-10-22"
         )
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(b"Other School Student", response.data)
