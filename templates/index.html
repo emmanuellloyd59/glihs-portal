@@ -1,18 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Home | CMHS Digital Campus{% endblock %}
+{% block title %}Home | GLIHS Portal{% endblock %}
 {% block content %}
 <section class="rounded-4 overflow-hidden mb-4" style="background:linear-gradient(120deg,#102a43 0%,#164e78 60%,#1769aa 100%);color:#fff;">
     <div class="row g-0 align-items-center">
         <div class="col-12 col-lg-7 p-4 p-md-5">
-            <span class="badge rounded-pill text-bg-light mb-3 px-3 py-2">SCHOOL PORTAL · VERSION 0.1</span>
+            <span class="badge rounded-pill text-bg-light mb-3 px-3 py-2">SCHOOL PORTAL · VERSION 3</span>
             <p class="eyebrow mb-2" style="color:#8ce7df;">Learn · Connect · Grow</p>
-            <h1 class="display-5 fw-bold mb-3">Welcome to<br>CMHS Digital Campus</h1>
+            <h1 class="display-5 fw-bold mb-3">Welcome to<br>GLIHS Portal</h1>
             <p class="lead mb-4" style="color:#e1edf7;">One digital space for school information, student support, and the tools that bring our learning community together.</p>
             <div class="d-flex flex-wrap gap-2">
                 <a href="{{ url_for('login') }}" class="btn btn-teal btn-lg px-4">Enter the Portal <span aria-hidden="true">→</span></a>
                 <a href="#portal-features" class="btn btn-outline-light btn-lg px-4">Explore Features</a>
             </div>
-            <p class="small mt-3 mb-0" style="color:#d0e2f1;">A demonstration environment — please use fictional information only.</p>
+            <p class="small mt-3 mb-0" style="color:#d0e2f1;">A connected workspace for school information, learning, and administration.</p>
         </div>
         <div class="col-12 col-lg-5 p-4 p-md-5">
             <div class="p-4 rounded-4" style="background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.2);">
@@ -22,7 +22,7 @@
                 </div>
                 <div class="d-flex justify-content-between border-bottom py-3" style="border-color:rgba(255,255,255,.2)!important;"><span>Secure account sign-in</span><strong>Included</strong></div>
                 <div class="d-flex justify-content-between border-bottom py-3" style="border-color:rgba(255,255,255,.2)!important;"><span>Role-based dashboard</span><strong>Included</strong></div>
-                <div class="d-flex justify-content-between py-3"><span>Student records workspace</span><strong>Early demo</strong></div>
+                <div class="d-flex justify-content-between py-3"><span>Student records workspace</span><strong>Available</strong></div>
             </div>
         </div>
     </div>
@@ -43,7 +43,7 @@
 </section>
 
 <section class="surface-card mt-4 p-4 p-md-5 d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
-    <div><p class="eyebrow text-primary mb-2">Ready to preview?</p><h2 class="h4 fw-bold mb-1">Step inside the demonstration portal</h2><p class="text-secondary mb-0">Sign in with a configured demonstration account to explore the dashboard.</p></div>
+    <div><p class="eyebrow text-primary mb-2">Ready to preview?</p><h2 class="h4 fw-bold mb-1">Access your school portal</h2><p class="text-secondary mb-0">Sign in with your approved account to access your dashboard.</p></div>
     <a href="{{ url_for('login') }}" class="btn btn-primary btn-lg px-4 flex-shrink-0">Portal Login</a>
 </section>
 {% endblock %}

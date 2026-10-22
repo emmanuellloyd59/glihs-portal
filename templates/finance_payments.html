@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Record Payments | CMHS Digital Campus{% endblock %}
+{% block title %}Record Payments | GLIHS Portal{% endblock %}
 {% block content %}
 <section class="rounded-4 text-white p-4 p-md-5 mb-4"><p class="eyebrow mb-2">FINANCE OFFICE</p><h1 class="display-6 fw-bold">Payments & Receipts</h1><p class="mb-0">Record individual payments with a unique receipt number and review recent transactions.</p></section>
 {% if receipt %}<section class="surface-card p-4 mb-4"><p class="eyebrow text-primary">Payment receipt</p><h2 class="h4 fw-bold">{{ receipt['receipt_number'] }}</h2><div class="row g-3"><div class="col-6"><span class="text-secondary small">Student</span><div class="fw-bold">{{ receipt['full_name'] }}</div><div>{{ receipt['admission_number'] }}</div></div><div class="col-6"><span class="text-secondary small">Amount received</span><div class="fw-bold fs-4">{{ "%.2f"|format(receipt['amount']) }}</div></div><div class="col-6"><span class="text-secondary small">Method</span><div>{{ receipt['method']|replace('_',' ')|title }}</div></div><div class="col-6"><span class="text-secondary small">Academic year</span><div>{{ receipt['academic_year'] }}</div></div><div class="col-12"><button class="btn btn-outline-primary no-print" onclick="window.print()" type="button">Print receipt</button></div></div></section>{% endif %}
