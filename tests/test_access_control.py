@@ -439,6 +439,43 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertIsNone(captured["students"][0]["amount_paid"])
         self.assertIsNone(captured["students"][0]["balance"])
 
+    def test_finance_admin_student_list_receives_finance_values(self):
+        connection = portal.get_db_connection()
+        try:
+            student_id = connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('FINANCE-ADMIN-001', 'Fictional Finance Admin Student', 'Grade 7', 1)"""
+            ).lastrowid
+            finance_user_id = connection.execute(
+                "SELECT id FROM users WHERE username = 'finance_route_test'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id, academic_year, total_fee, amount_paid, updated_by, school_id)
+                   VALUES (?, '2026-2027', 1200, 300, ?, 1)""",
+                (student_id, finance_user_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("finance_route_test")
+        captured = {}
+
+        def capture_template(template_name, **context):
+            captured.update(context)
+            return portal.app.response_class("captured template context")
+
+        with patch.object(portal, "render_template", side_effect=capture_template):
+            response = self.client.get("/students")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(captured["can_view_finances"])
+        self.assertEqual(len(captured["students"]), 1)
+        self.assertEqual(captured["students"][0]["total_fee"], 1200)
+        self.assertEqual(captured["students"][0]["amount_paid"], 300)
+        self.assertEqual(captured["students"][0]["balance"], 900)
+
     def test_school_a_cannot_read_or_write_school_b_records(self):
         connection = portal.get_db_connection()
         try:
