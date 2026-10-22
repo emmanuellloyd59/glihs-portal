@@ -1,0 +1,251 @@
+admission_number,full_name,class_level,status
+DEMO-K12-001,Amina Johnson,K2,active
+DEMO-K12-002,Samuel Johnson,K3,active
+DEMO-K12-003,Grace Johnson,K4,active
+DEMO-K12-004,Daniel Johnson,Grade 1,active
+DEMO-K12-005,Martha Johnson,Grade 2,active
+DEMO-K12-006,Peter Johnson,Grade 3,active
+DEMO-K12-007,Ruth Johnson,Grade 4,active
+DEMO-K12-008,Joseph Johnson,Grade 5,active
+DEMO-K12-009,Esther Johnson,Grade 6,active
+DEMO-K12-010,Michael Johnson,Grade 7,active
+DEMO-K12-011,Comfort Johnson,Grade 8,active
+DEMO-K12-012,David Johnson,Grade 9,active
+DEMO-K12-013,Patience Johnson,Grade 10,active
+DEMO-K12-014,Nathan Johnson,Grade 11,active
+DEMO-K12-015,Joy Johnson,Grade 12,active
+DEMO-K12-016,Emmanuel Johnson,K2,active
+DEMO-K12-017,Rebecca Johnson,K3,active
+DEMO-K12-018,Isaac Johnson,K4,active
+DEMO-K12-019,Blessing Johnson,Grade 1,active
+DEMO-K12-020,Anthony Johnson,Grade 2,active
+DEMO-K12-021,Hawa Johnson,Grade 3,active
+DEMO-K12-022,James Johnson,Grade 4,active
+DEMO-K12-023,Mercy Johnson,Grade 5,active
+DEMO-K12-024,Solomon Johnson,Grade 6,active
+DEMO-K12-025,Victoria Johnson,Grade 7,active
+DEMO-K12-026,Amina Kollie,Grade 8,active
+DEMO-K12-027,Samuel Kollie,Grade 9,active
+DEMO-K12-028,Grace Kollie,Grade 10,active
+DEMO-K12-029,Daniel Kollie,Grade 11,active
+DEMO-K12-030,Martha Kollie,Grade 12,active
+DEMO-K12-031,Peter Kollie,K2,active
+DEMO-K12-032,Ruth Kollie,K3,active
+DEMO-K12-033,Joseph Kollie,K4,active
+DEMO-K12-034,Esther Kollie,Grade 1,active
+DEMO-K12-035,Michael Kollie,Grade 2,active
+DEMO-K12-036,Comfort Kollie,Grade 3,active
+DEMO-K12-037,David Kollie,Grade 4,active
+DEMO-K12-038,Patience Kollie,Grade 5,active
+DEMO-K12-039,Nathan Kollie,Grade 6,active
+DEMO-K12-040,Joy Kollie,Grade 7,active
+DEMO-K12-041,Emmanuel Kollie,Grade 8,active
+DEMO-K12-042,Rebecca Kollie,Grade 9,active
+DEMO-K12-043,Isaac Kollie,Grade 10,active
+DEMO-K12-044,Blessing Kollie,Grade 11,active
+DEMO-K12-045,Anthony Kollie,Grade 12,active
+DEMO-K12-046,Hawa Kollie,K2,active
+DEMO-K12-047,James Kollie,K3,active
+DEMO-K12-048,Mercy Kollie,K4,active
+DEMO-K12-049,Solomon Kollie,Grade 1,active
+DEMO-K12-050,Victoria Kollie,Grade 2,active
+DEMO-K12-051,Amina Dennis,Grade 3,active
+DEMO-K12-052,Samuel Dennis,Grade 4,active
+DEMO-K12-053,Grace Dennis,Grade 5,active
+DEMO-K12-054,Daniel Dennis,Grade 6,active
+DEMO-K12-055,Martha Dennis,Grade 7,active
+DEMO-K12-056,Peter Dennis,Grade 8,active
+DEMO-K12-057,Ruth Dennis,Grade 9,active
+DEMO-K12-058,Joseph Dennis,Grade 10,active
+DEMO-K12-059,Esther Dennis,Grade 11,active
+DEMO-K12-060,Michael Dennis,Grade 12,active
+DEMO-K12-061,Comfort Dennis,K2,active
+DEMO-K12-062,David Dennis,K3,active
+DEMO-K12-063,Patience Dennis,K4,active
+DEMO-K12-064,Nathan Dennis,Grade 1,active
+DEMO-K12-065,Joy Dennis,Grade 2,active
+DEMO-K12-066,Emmanuel Dennis,Grade 3,active
+DEMO-K12-067,Rebecca Dennis,Grade 4,active
+DEMO-K12-068,Isaac Dennis,Grade 5,active
+DEMO-K12-069,Blessing Dennis,Grade 6,active
+DEMO-K12-070,Anthony Dennis,Grade 7,active
+DEMO-K12-071,Hawa Dennis,Grade 8,active
+DEMO-K12-072,James Dennis,Grade 9,active
+DEMO-K12-073,Mercy Dennis,Grade 10,active
+DEMO-K12-074,Solomon Dennis,Grade 11,active
+DEMO-K12-075,Victoria Dennis,Grade 12,active
+DEMO-K12-076,Amina Kamara,K2,active
+DEMO-K12-077,Samuel Kamara,K3,active
+DEMO-K12-078,Grace Kamara,K4,active
+DEMO-K12-079,Daniel Kamara,Grade 1,active
+DEMO-K12-080,Martha Kamara,Grade 2,active
+DEMO-K12-081,Peter Kamara,Grade 3,active
+DEMO-K12-082,Ruth Kamara,Grade 4,active
+DEMO-K12-083,Joseph Kamara,Grade 5,active
+DEMO-K12-084,Esther Kamara,Grade 6,active
+DEMO-K12-085,Michael Kamara,Grade 7,active
+DEMO-K12-086,Comfort Kamara,Grade 8,active
+DEMO-K12-087,David Kamara,Grade 9,active
+DEMO-K12-088,Patience Kamara,Grade 10,active
+DEMO-K12-089,Nathan Kamara,Grade 11,active
+DEMO-K12-090,Joy Kamara,Grade 12,active
+DEMO-K12-091,Emmanuel Kamara,K2,active
+DEMO-K12-092,Rebecca Kamara,K3,active
+DEMO-K12-093,Isaac Kamara,K4,active
+DEMO-K12-094,Blessing Kamara,Grade 1,active
+DEMO-K12-095,Anthony Kamara,Grade 2,active
+DEMO-K12-096,Hawa Kamara,Grade 3,active
+DEMO-K12-097,James Kamara,Grade 4,active
+DEMO-K12-098,Mercy Kamara,Grade 5,active
+DEMO-K12-099,Solomon Kamara,Grade 6,active
+DEMO-K12-100,Victoria Kamara,Grade 7,active
+DEMO-K12-101,Amina Doe,Grade 8,active
+DEMO-K12-102,Samuel Doe,Grade 9,active
+DEMO-K12-103,Grace Doe,Grade 10,active
+DEMO-K12-104,Daniel Doe,Grade 11,active
+DEMO-K12-105,Martha Doe,Grade 12,active
+DEMO-K12-106,Peter Doe,K2,active
+DEMO-K12-107,Ruth Doe,K3,active
+DEMO-K12-108,Joseph Doe,K4,active
+DEMO-K12-109,Esther Doe,Grade 1,active
+DEMO-K12-110,Michael Doe,Grade 2,active
+DEMO-K12-111,Comfort Doe,Grade 3,active
+DEMO-K12-112,David Doe,Grade 4,active
+DEMO-K12-113,Patience Doe,Grade 5,active
+DEMO-K12-114,Nathan Doe,Grade 6,active
+DEMO-K12-115,Joy Doe,Grade 7,active
+DEMO-K12-116,Emmanuel Doe,Grade 8,active
+DEMO-K12-117,Rebecca Doe,Grade 9,active
+DEMO-K12-118,Isaac Doe,Grade 10,active
+DEMO-K12-119,Blessing Doe,Grade 11,active
+DEMO-K12-120,Anthony Doe,Grade 12,active
+DEMO-K12-121,Hawa Doe,K2,active
+DEMO-K12-122,James Doe,K3,active
+DEMO-K12-123,Mercy Doe,K4,active
+DEMO-K12-124,Solomon Doe,Grade 1,active
+DEMO-K12-125,Victoria Doe,Grade 2,active
+DEMO-K12-126,Amina Williams,Grade 3,active
+DEMO-K12-127,Samuel Williams,Grade 4,active
+DEMO-K12-128,Grace Williams,Grade 5,active
+DEMO-K12-129,Daniel Williams,Grade 6,active
+DEMO-K12-130,Martha Williams,Grade 7,active
+DEMO-K12-131,Peter Williams,Grade 8,active
+DEMO-K12-132,Ruth Williams,Grade 9,active
+DEMO-K12-133,Joseph Williams,Grade 10,active
+DEMO-K12-134,Esther Williams,Grade 11,active
+DEMO-K12-135,Michael Williams,Grade 12,active
+DEMO-K12-136,Comfort Williams,K2,active
+DEMO-K12-137,David Williams,K3,active
+DEMO-K12-138,Patience Williams,K4,active
+DEMO-K12-139,Nathan Williams,Grade 1,active
+DEMO-K12-140,Joy Williams,Grade 2,active
+DEMO-K12-141,Emmanuel Williams,Grade 3,active
+DEMO-K12-142,Rebecca Williams,Grade 4,active
+DEMO-K12-143,Isaac Williams,Grade 5,active
+DEMO-K12-144,Blessing Williams,Grade 6,active
+DEMO-K12-145,Anthony Williams,Grade 7,active
+DEMO-K12-146,Hawa Williams,Grade 8,active
+DEMO-K12-147,James Williams,Grade 9,active
+DEMO-K12-148,Mercy Williams,Grade 10,active
+DEMO-K12-149,Solomon Williams,Grade 11,active
+DEMO-K12-150,Victoria Williams,Grade 12,active
+DEMO-K12-151,Amina Morris,K2,active
+DEMO-K12-152,Samuel Morris,K3,active
+DEMO-K12-153,Grace Morris,K4,active
+DEMO-K12-154,Daniel Morris,Grade 1,active
+DEMO-K12-155,Martha Morris,Grade 2,active
+DEMO-K12-156,Peter Morris,Grade 3,active
+DEMO-K12-157,Ruth Morris,Grade 4,active
+DEMO-K12-158,Joseph Morris,Grade 5,active
+DEMO-K12-159,Esther Morris,Grade 6,active
+DEMO-K12-160,Michael Morris,Grade 7,active
+DEMO-K12-161,Comfort Morris,Grade 8,active
+DEMO-K12-162,David Morris,Grade 9,active
+DEMO-K12-163,Patience Morris,Grade 10,active
+DEMO-K12-164,Nathan Morris,Grade 11,active
+DEMO-K12-165,Joy Morris,Grade 12,active
+DEMO-K12-166,Emmanuel Morris,K2,active
+DEMO-K12-167,Rebecca Morris,K3,active
+DEMO-K12-168,Isaac Morris,K4,active
+DEMO-K12-169,Blessing Morris,Grade 1,active
+DEMO-K12-170,Anthony Morris,Grade 2,active
+DEMO-K12-171,Hawa Morris,Grade 3,active
+DEMO-K12-172,James Morris,Grade 4,active
+DEMO-K12-173,Mercy Morris,Grade 5,active
+DEMO-K12-174,Solomon Morris,Grade 6,active
+DEMO-K12-175,Victoria Morris,Grade 7,active
+DEMO-K12-176,Amina Tamba,Grade 8,active
+DEMO-K12-177,Samuel Tamba,Grade 9,active
+DEMO-K12-178,Grace Tamba,Grade 10,active
+DEMO-K12-179,Daniel Tamba,Grade 11,active
+DEMO-K12-180,Martha Tamba,Grade 12,active
+DEMO-K12-181,Peter Tamba,K2,active
+DEMO-K12-182,Ruth Tamba,K3,active
+DEMO-K12-183,Joseph Tamba,K4,active
+DEMO-K12-184,Esther Tamba,Grade 1,active
+DEMO-K12-185,Michael Tamba,Grade 2,active
+DEMO-K12-186,Comfort Tamba,Grade 3,active
+DEMO-K12-187,David Tamba,Grade 4,active
+DEMO-K12-188,Patience Tamba,Grade 5,active
+DEMO-K12-189,Nathan Tamba,Grade 6,active
+DEMO-K12-190,Joy Tamba,Grade 7,active
+DEMO-K12-191,Emmanuel Tamba,Grade 8,active
+DEMO-K12-192,Rebecca Tamba,Grade 9,active
+DEMO-K12-193,Isaac Tamba,Grade 10,active
+DEMO-K12-194,Blessing Tamba,Grade 11,active
+DEMO-K12-195,Anthony Tamba,Grade 12,active
+DEMO-K12-196,Hawa Tamba,K2,active
+DEMO-K12-197,James Tamba,K3,active
+DEMO-K12-198,Mercy Tamba,K4,active
+DEMO-K12-199,Solomon Tamba,Grade 1,active
+DEMO-K12-200,Victoria Tamba,Grade 2,active
+DEMO-K12-201,Amina Cooper,Grade 3,active
+DEMO-K12-202,Samuel Cooper,Grade 4,active
+DEMO-K12-203,Grace Cooper,Grade 5,active
+DEMO-K12-204,Daniel Cooper,Grade 6,active
+DEMO-K12-205,Martha Cooper,Grade 7,active
+DEMO-K12-206,Peter Cooper,Grade 8,active
+DEMO-K12-207,Ruth Cooper,Grade 9,active
+DEMO-K12-208,Joseph Cooper,Grade 10,active
+DEMO-K12-209,Esther Cooper,Grade 11,active
+DEMO-K12-210,Michael Cooper,Grade 12,active
+DEMO-K12-211,Comfort Cooper,K2,active
+DEMO-K12-212,David Cooper,K3,active
+DEMO-K12-213,Patience Cooper,K4,active
+DEMO-K12-214,Nathan Cooper,Grade 1,active
+DEMO-K12-215,Joy Cooper,Grade 2,active
+DEMO-K12-216,Emmanuel Cooper,Grade 3,active
+DEMO-K12-217,Rebecca Cooper,Grade 4,active
+DEMO-K12-218,Isaac Cooper,Grade 5,active
+DEMO-K12-219,Blessing Cooper,Grade 6,active
+DEMO-K12-220,Anthony Cooper,Grade 7,active
+DEMO-K12-221,Hawa Cooper,Grade 8,active
+DEMO-K12-222,James Cooper,Grade 9,active
+DEMO-K12-223,Mercy Cooper,Grade 10,active
+DEMO-K12-224,Solomon Cooper,Grade 11,active
+DEMO-K12-225,Victoria Cooper,Grade 12,active
+DEMO-K12-226,Amina Sherman,K2,active
+DEMO-K12-227,Samuel Sherman,K3,active
+DEMO-K12-228,Grace Sherman,K4,active
+DEMO-K12-229,Daniel Sherman,Grade 1,active
+DEMO-K12-230,Martha Sherman,Grade 2,active
+DEMO-K12-231,Peter Sherman,Grade 3,active
+DEMO-K12-232,Ruth Sherman,Grade 4,active
+DEMO-K12-233,Joseph Sherman,Grade 5,active
+DEMO-K12-234,Esther Sherman,Grade 6,active
+DEMO-K12-235,Michael Sherman,Grade 7,active
+DEMO-K12-236,Comfort Sherman,Grade 8,active
+DEMO-K12-237,David Sherman,Grade 9,active
+DEMO-K12-238,Patience Sherman,Grade 10,active
+DEMO-K12-239,Nathan Sherman,Grade 11,active
+DEMO-K12-240,Joy Sherman,Grade 12,active
+DEMO-K12-241,Emmanuel Sherman,K2,active
+DEMO-K12-242,Rebecca Sherman,K3,active
+DEMO-K12-243,Isaac Sherman,K4,active
+DEMO-K12-244,Blessing Sherman,Grade 1,active
+DEMO-K12-245,Anthony Sherman,Grade 2,active
+DEMO-K12-246,Hawa Sherman,Grade 3,active
+DEMO-K12-247,James Sherman,Grade 4,active
+DEMO-K12-248,Mercy Sherman,Grade 5,active
+DEMO-K12-249,Solomon Sherman,Grade 6,active
+DEMO-K12-250,Victoria Sherman,Grade 7,active
