@@ -191,7 +191,7 @@ def register_staff_attendance_routes(ns):
             end_date = datetime.strptime(end_text, "%Y-%m-%d").date()
             if start_date.isoformat() != start_text or end_date.isoformat() != end_text:
                 raise ValueError
-            if end_date < start_date or (end_date - start_date).days > 366:
+            if end_date < start_date or end_date > today or (end_date - start_date).days > 366:
                 raise ValueError
         except (TypeError, ValueError):
             flash("Choose valid dates. The end date must not precede the start date, and reports can cover at most 367 days.", "danger")
@@ -224,7 +224,7 @@ def register_staff_attendance_routes(ns):
                 (start_text, end_text, school_id, class_filter, class_filter),
             ).fetchall()
             totals = connection.execute(
-                """SELECT COUNT(*) AS students,
+                """SELECT COUNT(DISTINCT s.id) AS students,
                           COALESCE(SUM(CASE WHEN a.status='present' THEN 1 ELSE 0 END),0) AS present_count,
                           COALESCE(SUM(CASE WHEN a.status='absent' THEN 1 ELSE 0 END),0) AS absent_count,
                           COALESCE(SUM(CASE WHEN a.status='late' THEN 1 ELSE 0 END),0) AS late_count,
