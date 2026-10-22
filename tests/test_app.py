@@ -50,6 +50,9 @@ class PortalTestSupport:
         connection.execute("DELETE FROM audit_log")
         connection.execute("DELETE FROM students")
         connection.execute("DELETE FROM users")
+        # Tests that create extra tenants must not leak them into later tests; the
+        # production database is never touched by this test-only cleanup.
+        connection.execute("DELETE FROM schools WHERE id != 1")
         connection.execute(
             "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, ?, 1)",
             ("teacher_demo", generate_password_hash("test-teacher-password"), "teacher"),
@@ -337,6 +340,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
             },
         )
         self.login_as("super_demo", "test-super-password")
+        self.client.post("/admin/select-school", data={"school_id": "1"})
         response = self.client.post(
             "/admin/users",
             data={
