@@ -38,7 +38,7 @@ class PortalTestSupport:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
         }
-        for table_name in ("finance_payments", "school_announcements", "learning_materials"):
+        for table_name in ("parent_student_links", "finance_payments", "school_announcements", "learning_materials"):
             if table_name in existing_tables:
                 connection.execute("DELETE FROM " + table_name)
         connection.execute("DELETE FROM grades")
