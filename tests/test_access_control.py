@@ -95,6 +95,11 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         response = self.login_as("role_only_super_admin")
         self.assertIn(b"Invalid username or password", response.data)
 
+    def test_platform_super_admin_cannot_open_school_scoped_registration_form(self):
+        self.login_as("super_route_test")
+        response = self.client.get("/students/register")
+        self.assertEqual(response.status_code, 403)
+
     def test_school_assigned_super_admin_cannot_authenticate(self):
         connection = portal.get_db_connection()
         try:
