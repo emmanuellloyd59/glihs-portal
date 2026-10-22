@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Register Student | CMHS Digital Campus{% endblock %}
+{% block title %}Register Student | GLIHS Portal{% endblock %}
 {% block content %}
 <div class="mb-4">
     <p class="eyebrow text-primary mb-1">Staff workspace</p>
     <h1 class="h2 fw-bold mb-1">Register New Student</h1>
-    <p class="text-secondary mb-0">Add a fictional student record to demonstrate the registration workflow.</p>
+    <p class="text-secondary mb-0">Enter the student’s details to create a record for the selected school.</p>
 </div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
@@ -80,8 +80,8 @@
     <aside class="col-12 col-lg-4">
         <div class="surface-card p-4">
             <div class="fs-2 mb-3">🛡️</div>
-            <h2 class="h5 fw-bold">Demonstration safety</h2>
-            <p class="text-secondary small">This version is for review and learning, not real school operations. Use invented names, dates, admission numbers, and contact details only.</p>
+            <h2 class="h5 fw-bold">Production readiness</h2>
+            <p class="text-secondary small">Do not enter real student information until durable database storage, backups, access controls, and recovery checks have been verified.</p>
             <hr>
             <h3 class="small fw-bold">What happens after registration?</h3>
             <ol class="small text-secondary ps-3 mb-0">
