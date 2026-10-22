@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Grades & Attendance | CMHS Digital Campus{% endblock %}
+{% block title %}Grades & Attendance | GLIHS Portal{% endblock %}
 {% block content %}
 <section class="rounded-4 text-white p-4 p-md-5 mb-4" style="background:linear-gradient(120deg,#102a43,#164e78 65%,#1769aa);">
   <p class="eyebrow mb-2" style="color:#8ce7df;">ACADEMIC WORKSPACE</p>
@@ -7,7 +7,7 @@
   <p class="mb-0" style="color:#e1edf7;">Record assessment scores and daily attendance, then review saved entries.</p>
 </section>
 {% if not students %}
-<div class="alert alert-warning">No active students are registered yet. Add fictional demo students in Student Registration before entering grades or attendance.</div>
+<div class="alert alert-warning">No active students are registered yet. Register students before entering grades or attendance.</div>
 {% endif %}
 {% if can_enter %}
 <div class="row g-4 mb-4">
@@ -56,5 +56,5 @@
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3"><div><p class="eyebrow text-primary mb-1">Saved records</p><h2 class="h4 fw-bold mb-0">Attendance Register</h2></div><span class="badge text-bg-light">{{ attendance_rows|length }} recent entries</span></div>
   {% if attendance_rows %}<div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>Date</th><th>Student</th><th>Class</th><th>Status</th><th>Note</th><th>Recorded by</th></tr></thead><tbody>{% for a in attendance_rows %}<tr><td>{{ a.attendance_date }}</td><td><strong>{{ a.full_name }}</strong><div class="small text-secondary">{{ a.admission_number }}</div></td><td>{{ a.class_level }}</td><td><span class="badge {% if a.status == 'present' %}text-bg-success{% elif a.status == 'absent' %}text-bg-danger{% elif a.status == 'late' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">{{ a.status.title() }}</span></td><td>{{ a.note or '—' }}</td><td>{{ a.recorded_by }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="text-secondary mb-0">No attendance has been saved yet.</p>{% endif %}
 </section>
-<p class="small text-secondary mt-4">Demonstration only. Use fictional records. Student accounts and finance accounts cannot open this academic workspace.</p>
+<p class="small text-secondary mt-4">Production readiness: Do not enter real student information until durable storage, backups, and security checks have been verified. Student and finance accounts cannot open this academic workspace.</p>
 {% endblock %}
