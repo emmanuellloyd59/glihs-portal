@@ -7,6 +7,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 _TEMP_DIR = tempfile.TemporaryDirectory()
@@ -390,6 +391,40 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertNotIn(b"Other Student Example", response.data)
         self.assertNotIn(b"Private Subject", response.data)
 
+
+    def test_teacher_student_list_context_does_not_receive_financial_values(self):
+        connection = portal.get_db_connection()
+        try:
+            student_id = connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('FINANCE-PRIVACY-001', 'Fictional Finance Privacy Student', 'Grade 7', 1)"""
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id, academic_year, total_fee, amount_paid, updated_by, school_id)
+                   VALUES (?, '2026-2027', 1200, 300, 1, 1)""",
+                (student_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("teacher_route_test")
+        captured = {}
+
+        def capture_template(template_name, **context):
+            captured.update(context)
+            return portal.app.response_class("captured template context")
+
+        with patch.object(portal, "render_template", side_effect=capture_template):
+            response = self.client.get("/students")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(captured["can_view_finances"])
+        self.assertEqual(len(captured["students"]), 1)
+        self.assertIsNone(captured["students"][0]["total_fee"])
+        self.assertIsNone(captured["students"][0]["amount_paid"])
+        self.assertIsNone(captured["students"][0]["balance"])
 
     def test_school_a_cannot_read_or_write_school_b_records(self):
         connection = portal.get_db_connection()
