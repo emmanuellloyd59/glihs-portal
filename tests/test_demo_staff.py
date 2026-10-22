@@ -9,7 +9,7 @@ os.environ.setdefault("SECRET_KEY", "test-only-secret-key-not-for-deployment")
 os.environ["DATABASE_PATH"] = str(Path(_TEMP_DIR.name) / "demo_staff_test.db")
 os.environ["SESSION_COOKIE_SECURE"] = "false"
 
-from werkzeug.security import generate_password_hash, check_password_hash  # noqa: E402
+from werkzeug.security import generate_password_hash  # noqa: E402
 import app as portal  # noqa: E402
 
 
@@ -145,9 +145,16 @@ class DemoStaffProvisioningTests(unittest.TestCase):
                VALUES (?,?, 'super_admin','active',0,1)""",
             ("malformed_admin", generate_password_hash("test-malformed-password")),
         )
+        user_id = db.execute(
+            "SELECT id FROM users WHERE username='malformed_admin'"
+        ).fetchone()["id"]
         db.commit()
         db.close()
-        self.login_as("malformed_admin", "test-malformed-password")
+        # Simulate a legacy/malformed authenticated session so this specifically
+        # exercises the route guard rather than the login-time consistency check.
+        with self.client.session_transaction() as session:
+            session["_user_id"] = str(user_id)
+            session["_fresh"] = True
         response = self.activate()
         self.assertEqual(response.status_code, 403)
 
