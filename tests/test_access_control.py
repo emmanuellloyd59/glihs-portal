@@ -112,7 +112,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"View Student Records", response.data)
         self.assertIn(b"Register Student", response.data)
-        self.assertIn(b"Open Grades &amp; Attendance", response.data)
+        self.assertIn(b"Open Grades & Attendance", response.data)
         self.assertIn(b"Open Report Cards", response.data)
         for path in ("/students", "/students/register", "/academics", "/report-cards",
                      "/finance/payments", "/learning-materials", "/announcements"):
