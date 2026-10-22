@@ -102,7 +102,9 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"CMHS Digital Campus", response.data)
-        self.assertIn(b"DEMONSTRATION VERSION", response.data)
+        self.assertIn(b"CMHS Digital Campus", response.data)
+        self.assertIn(b"DEVELOPMENT PREVIEW", response.data)
+        self.assertNotIn(b"DEMONSTRATION VERSION", response.data)
 
     def test_dashboard_requires_login(self):
         response = self.client.get("/dashboard")
