@@ -1784,7 +1784,7 @@ def ensure_content_tables(connection):
 
 def can_view_material(role, class_level, archived=False):
     if archived:
-        return role in CONTENT_MANAGE_ROLES
+        return role in MATERIALS_MANAGE_ROLES
     if role in MATERIALS_PUBLISH_ROLES:
         return True
     if role in {"student", "parent"}:
