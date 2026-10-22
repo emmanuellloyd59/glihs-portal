@@ -2203,6 +2203,72 @@ def finance_payments():
                            current_year=f"{datetime.now().year}-{datetime.now().year + 1}")
 
 
+@app.route("/parent/children")
+@login_required
+def parent_children():
+    """Show a parent only the children explicitly linked to that account."""
+    if current_user.role != "parent":
+        abort(403)
+    school_id = require_school_context()
+    connection = get_db_connection()
+    try:
+        children = connection.execute(
+            """SELECT s.id, s.full_name, s.admission_number, s.class_level,
+                      s.student_id_number
+               FROM parent_student_links l
+               JOIN students s ON s.id = l.student_id AND s.school_id = l.school_id
+               JOIN users p ON p.id = l.parent_user_id AND p.school_id = l.school_id
+               WHERE l.parent_user_id = ? AND l.school_id = ?
+                 AND p.status = 'active' AND s.status = 'active'
+               ORDER BY s.full_name COLLATE NOCASE""",
+            (current_user.id, school_id),
+        ).fetchall()
+        child_ids = [child["id"] for child in children]
+        report_rows = []
+        attendance_rows = []
+        finance_rows = []
+        if child_ids:
+            placeholders = ",".join("?" for _ in child_ids)
+            params = [school_id, *child_ids]
+            report_rows = connection.execute(
+                f"""SELECT s.id AS student_id, s.full_name, rc.academic_year, rc.term,
+                           rc.published_at, g.subject, g.assessment, g.score, g.max_score
+                    FROM report_cards rc
+                    JOIN students s ON s.id = rc.student_id AND s.school_id = rc.school_id
+                    JOIN grades g ON g.student_id = rc.student_id
+                        AND g.school_id = rc.school_id
+                        AND g.academic_year = rc.academic_year AND g.term = rc.term
+                    WHERE rc.school_id = ? AND s.id IN ({placeholders}) AND rc.published = 1
+                    ORDER BY s.full_name, rc.academic_year DESC, rc.term, g.subject""",
+                params,
+            ).fetchall()
+            attendance_rows = connection.execute(
+                f"""SELECT s.id AS student_id, s.full_name, a.attendance_date, a.status
+                    FROM attendance a
+                    JOIN students s ON s.id = a.student_id AND s.school_id = a.school_id
+                    WHERE a.school_id = ? AND s.id IN ({placeholders})
+                    ORDER BY a.attendance_date DESC LIMIT 100""",
+                params,
+            ).fetchall()
+            academic_year = f"{datetime.now().year}-{datetime.now().year + 1}"
+            finance_rows = connection.execute(
+                f"""SELECT s.id AS student_id, s.full_name, f.academic_year,
+                           f.total_fee, f.amount_paid,
+                           (f.total_fee - f.amount_paid) AS balance
+                    FROM student_finances f
+                    JOIN students s ON s.id = f.student_id AND s.school_id = f.school_id
+                    WHERE f.school_id = ? AND s.id IN ({placeholders}) AND f.academic_year = ?
+                    ORDER BY s.full_name""",
+                [school_id, *child_ids, academic_year],
+            ).fetchall()
+    finally:
+        connection.close()
+    return render_template(
+        "parent_children.html", children=children, report_rows=report_rows,
+        attendance_rows=attendance_rows, finance_rows=finance_rows,
+    )
+
+
 
 if __name__ == "__main__":
     app.run(port=5000, debug=False)
