@@ -474,8 +474,14 @@ def initialize_database():
             )
         """)
         connection.execute(
-            "INSERT INTO schools (id, name, slug) VALUES (1, 'Legacy Demo Campus', 'legacy-demo-campus') "
+            "INSERT INTO schools (id, name, slug) VALUES (1, 'GLIHS', 'legacy-demo-campus') "
             "ON CONFLICT(id) DO NOTHING"
+        )
+        # Rename only the exact legacy placeholder school. Keep its stable ID,
+        # slug, status, and all related records so tenant links remain unchanged.
+        connection.execute(
+            "UPDATE schools SET name = 'GLIHS' "
+            "WHERE slug = 'legacy-demo-campus' AND name = 'Legacy Demo Campus'"
         )
         owned_tables = (
             "users", "students", "student_finances", "grades",
