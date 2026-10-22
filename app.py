@@ -587,10 +587,12 @@ def get_user_by_id(user_id):
             WHERE u.id = ? AND u.status = 'active'
               AND (
                   (u.is_super_admin = 1 AND u.school_id IS NULL)
-                  OR EXISTS (
+                  OR (
+                  u.is_super_admin = 0 AND EXISTS (
                       SELECT 1 FROM schools s
                       WHERE s.id = u.school_id AND s.status = 'active'
                   )
+              )
               )
             """,
             (user_id,),
@@ -613,10 +615,12 @@ def get_user_by_username(username):
             WHERE u.username = ? AND u.status = 'active'
               AND (
                   (u.is_super_admin = 1 AND u.school_id IS NULL)
-                  OR EXISTS (
+                  OR (
+                  u.is_super_admin = 0 AND EXISTS (
                       SELECT 1 FROM schools s
                       WHERE s.id = u.school_id AND s.status = 'active'
                   )
+              )
               )
             """,
             (username,),
@@ -637,7 +641,7 @@ def load_user(user_id):
 def require_super_admin():
     if not current_user.is_authenticated:
         return redirect(url_for("login"))
-    if not current_user.is_super_admin:
+    if not current_user.is_super_admin or current_user.school_id is not None:
         abort(403)
     return None
 
