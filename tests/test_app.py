@@ -48,7 +48,7 @@ class PortalTestSupport:
         connection.execute(
             """INSERT INTO users
                (username, password_hash, role, status, is_super_admin, school_id)
-               VALUES (?, ?, 'super_admin', 'active', 1, 1)""",
+               VALUES (?, ?, 'super_admin', 'active', 1, NULL)""",
             ("super_demo", generate_password_hash("test-super-password")),
         )
         connection.commit()
