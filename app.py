@@ -2566,6 +2566,8 @@ def parent_children():
 
 from homework import register_homework_routes
 register_homework_routes(globals())
+from staff_attendance import register_staff_attendance_routes
+register_staff_attendance_routes(globals())
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@
     <div><p class="eyebrow text-primary mb-1">Your workspace</p><h2 class="h3 fw-bold mb-1">Dashboard Overview</h2><p class="text-secondary mb-0">Choose a workspace to continue.</p></div>
     <span class="badge rounded-pill border bg-white text-secondary px-3 py-2">Version 0.3 Preview</span>
 </div>
-{% if role in ['super_admin', 'school_admin', 'teacher', 'registrar', 'principal', 'vice_principal', 'academic_admin', 'admissions_officer'] and school_context_selected %}
+{% if role in ['super_admin', 'school_admin', 'teacher', 'registrar', 'principal', 'vice_principal', 'academic_admin', 'admissions_officer', 'attendance_officer'] and school_context_selected %}
 <div class="row g-3 mb-4">
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4"><div class="d-flex justify-content-between align-items-start mb-3"><span class="fs-2">👩‍🎓</span><span class="badge text-bg-success">Available</span></div><h3 class="h5 fw-bold">Student Records</h3><p class="text-secondary">Open the student records workspace for the selected school.</p><a href="{{ url_for('list_students') }}" class="btn btn-primary mt-auto">View Student Records <span aria-hidden="true">→</span></a></article></div>
     {% if role in ['super_admin', 'school_admin', 'teacher', 'registrar', 'admissions_officer'] %}
@@ -30,6 +30,12 @@
     {% endif %}
     {% if role in ['super_admin', 'school_admin', 'principal', 'vice_principal', 'academic_admin', 'registrar', 'teacher'] %}
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4 d-flex flex-column"><div class="fs-2 mb-3">📝</div><span class="badge text-bg-success mb-3">Available</span><h3 class="h5 fw-bold">Homework & Assignments</h3><p class="text-secondary">Publish class homework, review submissions and record marks or feedback.</p><a href="{{ url_for('assignments') }}" class="btn btn-primary mt-auto">Open Assignments →</a></article></div>
+    {% endif %}
+    {% if role in ['super_admin', 'school_admin', 'principal', 'vice_principal'] %}
+    <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4 d-flex flex-column"><div class="fs-2 mb-3">👥</div><span class="badge text-bg-success mb-3">Available</span><h3 class="h5 fw-bold">Staff Management</h3><p class="text-secondary">Create staff accounts, assign permitted roles and manage login access for this school.</p><a href="{{ url_for('staff_management') }}" class="btn btn-primary mt-auto">Manage Staff →</a></article></div>
+    {% endif %}
+    {% if role in ['super_admin', 'school_admin', 'principal', 'vice_principal', 'registrar', 'academic_admin', 'attendance_officer', 'teacher'] %}
+    <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4 d-flex flex-column"><div class="fs-2 mb-3">📈</div><span class="badge text-bg-success mb-3">Available</span><h3 class="h5 fw-bold">Attendance Reports</h3><p class="text-secondary">Filter student attendance by date and class, review totals and export CSV reports.</p><a href="{{ url_for('attendance_report') }}" class="btn btn-primary mt-auto">View Attendance Reports →</a></article></div>
     {% endif %}
     {% if role in ['super_admin', 'school_admin', 'principal', 'vice_principal', 'academic_admin', 'registrar', 'teacher'] %}
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4 d-flex flex-column"><div class="fs-2 mb-3">📣</div><span class="badge text-bg-success mb-3">Available</span><h3 class="h5 fw-bold">School Announcements</h3><p class="text-secondary">View school notices; publishing and archiving depend on your role.</p><a href="{{ url_for('announcements') }}" class="btn btn-primary mt-auto">Open Announcements →</a></article></div>
