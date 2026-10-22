@@ -51,6 +51,14 @@ class PortalTestSupport:
                VALUES (?, ?, 'super_admin', 'active', 1, NULL)""",
             ("super_demo", generate_password_hash("test-super-password")),
         )
+        connection.execute(
+            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'finance_admin', 1)",
+            ("finance_demo", generate_password_hash("test-finance-password")),
+        )
+        connection.execute(
+            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'registrar', 1)",
+            ("registrar_demo", generate_password_hash("test-registrar-password")),
+        )
         connection.commit()
         connection.close()
         self.client.post("/logout")  # Clear a prior authenticated test session if any.
@@ -672,7 +680,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
             self.assertEqual(self.client.get("/students").status_code, 302)
             self.assertEqual(self.client.get("/academics").status_code, 302)
             self.login_as("super_demo", "test-super-password")
-            self.assertEqual(self.client.get("/student-finances").status_code, 302)
+            self.assertEqual(self.client.get("/student-finances").status_code, 403)
         finally:
             connection = portal.get_db_connection()
             try:
