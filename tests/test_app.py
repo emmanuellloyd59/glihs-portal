@@ -1124,8 +1124,8 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
     def test_version3_stylesheets_have_cache_busting_versions(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"campus-v02.css?v=20261022-1", response.data)
-        self.assertIn(b"campus-v03.css?v=20261022-1", response.data)
+        self.assertIn(b"campus-v02.css?v=20261022-2", response.data)
+        self.assertIn(b"campus-v03.css?v=20261022-2", response.data)
 
     def test_learning_material_upload_is_school_scoped_and_student_class_restricted(self):
         self.login_as("principal_demo", "test-principal-password")

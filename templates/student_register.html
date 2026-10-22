@@ -1,10 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Register Student | GLIHS Portal{% endblock %}
+{% block title %}Register Student | CMHS Digital Campus{% endblock %}
 {% block content %}
-<div class="mb-4">
-    <p class="eyebrow text-primary mb-1">Staff workspace</p>
+<div class="student-registration-page">
+<div class="registration-intro rounded-4 p-4 p-md-5 mb-4">
+    <p class="eyebrow mb-1">Staff workspace</p>
     <h1 class="h2 fw-bold mb-1">Register New Student</h1>
-    <p class="text-secondary mb-0">Enter the student’s details to create a record for the selected school.</p>
+    <p class="mb-0 opacity-75">Enter the student’s details to create a record for the selected school.</p>
 </div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
@@ -18,7 +19,7 @@
 
 <div class="row g-4 align-items-start">
     <div class="col-12 col-lg-8">
-        <section class="surface-card p-4 p-md-5">
+        <section class="surface-card p-3 p-md-4 p-xl-5">
             <form method="POST" action="{{ url_for('register_student') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="d-flex align-items-center gap-3 mb-4">
@@ -27,15 +28,15 @@
                 </div>
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
-                        <label for="admission_number" class="form-label fw-semibold">Admission Number *</label>
+                        <label for="admission_number" class="form-label">Admission Number <span class="required-mark">*</span></label>
                         <input type="text" class="form-control" id="admission_number" name="admission_number" maxlength="50" placeholder="Enter admission number" required>
                     </div>
                     <div class="col-12 col-md-6">
-                        <label for="full_name" class="form-label fw-semibold">Full Name *</label>
+                        <label for="full_name" class="form-label fw-semibold">Full Name <span class="required-mark">*</span></label>
                         <input type="text" class="form-control" id="full_name" name="full_name" maxlength="150" placeholder="Enter student’s full name" required>
                     </div>
                     <div class="col-12 col-md-6">
-                        <label for="class_level" class="form-label fw-semibold">Class / Grade *</label>
+                        <label for="class_level" class="form-label fw-semibold">Class / Grade <span class="required-mark">*</span></label>
                         <input type="text" class="form-control" id="class_level" name="class_level" maxlength="50" placeholder="e.g. Grade 7" required>
                     </div>
                     <div class="col-12 col-md-6">
@@ -92,5 +93,6 @@
         </div>
         <a href="{{ url_for('dashboard') }}" class="btn btn-link text-decoration-none mt-3 px-0">← Return to Dashboard</a>
     </aside>
+</div>
 </div>
 {% endblock %}
