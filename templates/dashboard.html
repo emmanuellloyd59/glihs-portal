@@ -11,7 +11,7 @@
     <div><p class="eyebrow text-primary mb-1">Your workspace</p><h2 class="h3 fw-bold mb-1">Dashboard Overview</h2><p class="text-secondary mb-0">Choose a workspace to continue.</p></div>
     <span class="badge rounded-pill border bg-white text-secondary px-3 py-2">Version 0.3 Preview</span>
 </div>
-{% if role in ['super_admin', 'school_admin', 'teacher', 'registrar', 'principal', 'vice_principal', 'academic_admin', 'admissions_officer', 'attendance_officer'] and school_context_selected %}
+{% if role in ['super_admin', 'school_admin', 'teacher', 'registrar', 'principal', 'vice_principal', 'academic_admin', 'admissions_officer'] and school_context_selected %}
 <div class="row g-3 mb-4">
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4"><div class="d-flex justify-content-between align-items-start mb-3"><span class="fs-2">👩‍🎓</span><span class="badge text-bg-success">Available</span></div><h3 class="h5 fw-bold">Student Records</h3><p class="text-secondary">Open the student records workspace to view registered demo records.</p><a href="{{ url_for('list_students') }}" class="btn btn-primary mt-auto">View Student Records <span aria-hidden="true">→</span></a></article></div>
     {% if role in ['super_admin', 'school_admin', 'teacher', 'registrar', 'admissions_officer'] %}
@@ -38,7 +38,7 @@
 {% elif role == 'counselor' %}
 <div class="surface-card p-4 mb-4"><h2 class="h5 fw-bold">Counselor Workspace</h2><p class="text-secondary mb-0">Your account is active, but private counseling notes and case-management tools are not yet implemented. No counseling records are exposed.</p></div>
 {% elif role == 'parent' %}
-<div class="surface-card p-4 mb-4"><h2 class="h5 fw-bold">Parent / Guardian Workspace</h2><p class="text-secondary mb-0">Your account can view school announcements and school-wide learning materials. A verified child-account link is required before private attendance, results or fee records can be shown.</p></div>
+<div class="surface-card p-4 mb-4"><h2 class="h5 fw-bold">Parent / Guardian Workspace</h2><p class="text-secondary mb-3">You can view school-wide notices and learning resources. Parent-to-child linking and private family records are not implemented yet, so this account cannot view student results, attendance or fees.</p><a href="{{ url_for('announcements') }}" class="btn btn-outline-primary me-2 mb-2">School Announcements →</a><a href="{{ url_for('learning_materials') }}" class="btn btn-primary mb-2">Learning Materials →</a></div>
 {% elif role == 'student' %}
 <div class="row g-3 mb-4">
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4 d-flex flex-column"><div class="fs-2 mb-3">📊</div><span class="badge text-bg-success mb-3">Available</span><h3 class="h5 fw-bold">My Report Cards</h3><p class="text-secondary">View published term results linked to your verified student record.</p><a href="{{ url_for('my_report_cards') }}" class="btn btn-primary mt-auto">Open My Report Cards <span aria-hidden="true">→</span></a></article></div>
