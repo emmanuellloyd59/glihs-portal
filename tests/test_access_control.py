@@ -96,6 +96,16 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         response = self.login_as("role_only_super_admin")
         self.assertIn(b"Invalid username or password", response.data)
 
+    def test_platform_super_admin_dashboard_only_offers_platform_management(self):
+        self.login_as("super_route_test")
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Administrator Management", response.data)
+        self.assertNotIn(b"View Student Records", response.data)
+        self.assertNotIn(b"Register Student", response.data)
+        self.assertNotIn(b"Open Grades &amp; Attendance", response.data)
+        self.assertNotIn(b"Open Report Cards", response.data)
+
     def test_platform_super_admin_cannot_open_school_scoped_registration_form(self):
         self.login_as("super_route_test")
         response = self.client.get("/students/register")
