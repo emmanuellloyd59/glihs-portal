@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Edit Student Record | CMHS Digital Campus{% endblock %}
+{% block title %}Edit Student Record | GLIHS Portal{% endblock %}
 {% block content %}
 <div class="mb-4"><p class="eyebrow text-primary mb-1">Restricted records management</p><h1 class="h2 fw-bold">Edit Student Record</h1><p class="text-secondary">{{ student['student_id_number'] or 'ID pending' }} · {{ student['admission_number'] }}</p></div>
 {% with messages = get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="alert alert-{{ category }}">{{ message }}</div>{% endfor %}{% endwith %}
