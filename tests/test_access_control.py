@@ -63,6 +63,15 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         )
 
     def test_parent_account_creation_requires_identity_verification(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, status, school_id)
+                   VALUES ('PRIV-VERIFY-001', 'Verification Test Child', 'Grade 4', 'active', 1)"""
+            )
+            connection.commit()
+        finally:
+            connection.close()
         self.login_as("super_route_test")
         response = self.client.post("/admin/users", data={
             "action": "create_account",
