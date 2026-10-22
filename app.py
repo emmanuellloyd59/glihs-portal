@@ -1468,23 +1468,42 @@ def list_students():
             if current_user.role == "teacher"
             else "s.date_of_birth, s.guardian_name, s.guardian_phone"
         )
+        # Do not fetch fee/payment data for roles that cannot view finances. Hiding
+        # columns in the template is not a substitute for least-privilege data access.
+        can_view_finances = current_user.role in {"principal", "registrar"}
+        finance_columns = (
+            "COALESCE(f.total_fee, 0) AS total_fee, "
+            "COALESCE(f.amount_paid, 0) AS amount_paid, "
+            "COALESCE(f.total_fee, 0) - COALESCE(f.amount_paid, 0) AS balance"
+            if can_view_finances
+            else "NULL AS total_fee, NULL AS amount_paid, NULL AS balance"
+        )
+        finance_join = (
+            """LEFT JOIN student_finances f
+                   ON f.student_id = s.id AND f.school_id = s.school_id
+                  AND f.academic_year = ?"""
+            if can_view_finances
+            else ""
+        )
+        query_params = []
+        if can_view_finances:
+            query_params.append(f"{datetime.now().year}-{datetime.now().year + 1}")
+        query_params.extend([
+            require_school_context(), class_filter, class_filter,
+            search_query, f"%{search_query}%", f"%{search_query}%", f"%{search_query}%",
+        ])
         students = connection.execute(
             f"""
             SELECT s.id, s.student_id_number, s.admission_number, s.full_name, s.class_level,
-                   {private_student_fields}, s.status,
-                   COALESCE(f.total_fee, 0) AS total_fee,
-                   COALESCE(f.amount_paid, 0) AS amount_paid,
-                   COALESCE(f.total_fee, 0) - COALESCE(f.amount_paid, 0) AS balance
+                   {private_student_fields}, s.status, {finance_columns}
             FROM students s
-            LEFT JOIN student_finances f ON f.student_id = s.id AND f.school_id = s.school_id
-                AND f.academic_year = ?
+            {finance_join}
             WHERE s.school_id = ? AND (? = '' OR s.class_level = ?)
               AND (? = '' OR s.full_name LIKE ? OR s.admission_number LIKE ?
                    OR COALESCE(s.student_id_number, '') LIKE ?)
             ORDER BY s.class_level, s.full_name COLLATE NOCASE
             """,
-            (f"{datetime.now().year}-{datetime.now().year + 1}", require_school_context(), class_filter, class_filter,
-             search_query, f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"),
+            query_params,
         ).fetchall()
         classes = connection.execute(
             "SELECT DISTINCT class_level FROM students WHERE school_id = ? ORDER BY class_level COLLATE NOCASE",
