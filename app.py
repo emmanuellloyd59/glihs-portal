@@ -2564,5 +2564,9 @@ def parent_children():
 
 
 
+from homework import register_homework_routes
+register_homework_routes(globals())
+
+
 if __name__ == "__main__":
     app.run(port=5000, debug=False)
