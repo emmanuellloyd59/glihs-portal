@@ -98,7 +98,9 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
     def test_platform_super_admin_cannot_open_school_scoped_registration_form(self):
         self.login_as("super_route_test")
         response = self.client.get("/students/register")
-        self.assertEqual(response.status_code, 403)
+        # This route uses a safe redirect for roles that are not allowed to register.
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/dashboard", response.headers["Location"])
 
     def test_school_assigned_super_admin_cannot_authenticate(self):
         connection = portal.get_db_connection()
