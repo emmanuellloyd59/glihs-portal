@@ -866,14 +866,28 @@ def admin_users():
                     if not student:
                         flash("Choose a valid active student record.", "danger")
                     else:
-                        existing = connection.execute(
-                            "SELECT account_user_id FROM students WHERE id = ?", (student_id,)
+                        # Never clear an account's existing link globally: a stale or
+                        # corrupt cross-school link must be reviewed, not silently moved.
+                        existing_link = connection.execute(
+                            "SELECT id, school_id, admission_number FROM students WHERE account_user_id = ?",
+                            (target_id_int,),
                         ).fetchone()
-                        if existing["account_user_id"] not in (None, target_id_int):
+                        selected_record = connection.execute(
+                            "SELECT account_user_id FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
+                            (student["id"], target["school_id"]),
+                        ).fetchone()
+                        if existing_link and (
+                            existing_link["id"] != student["id"]
+                            or existing_link["school_id"] != target["school_id"]
+                        ):
+                            flash("This account is already linked to a different student record. Resolve the existing link before changing it.", "danger")
+                        elif not selected_record or selected_record["account_user_id"] not in (None, target_id_int):
                             flash("That student record is already linked to another account.", "danger")
                         else:
-                            connection.execute("UPDATE students SET account_user_id = NULL WHERE account_user_id = ?", (target_id_int,))
-                            connection.execute("UPDATE students SET account_user_id = ? WHERE id = ?", (target_id_int, student["id"]))
+                            connection.execute(
+                                "UPDATE students SET account_user_id = ? WHERE id = ? AND school_id = ? AND status = 'active'",
+                                (target_id_int, student["id"], target["school_id"]),
+                            )
                             connection.execute(
                                 "INSERT INTO audit_log (actor_user_id, action, target_username, details, school_id) VALUES (?, 'student_account_linked', ?, ?, ?)",
                                 (current_user.id, target_username, "Student record: " + student["admission_number"], target["school_id"]),
@@ -882,12 +896,16 @@ def admin_users():
                             flash("Student account linked to the verified student record.", "success")
             elif action == "unlink_student":
                 linked = connection.execute(
-                    "SELECT admission_number FROM students WHERE account_user_id = ?", (target_id_int,)
+                    "SELECT admission_number FROM students WHERE account_user_id = ? AND school_id = ?",
+                    (target_id_int, target["school_id"]),
                 ).fetchone()
                 if target["role"] != "student":
                     flash("Only student accounts can be unlinked from student records.", "danger")
                 elif linked:
-                    connection.execute("UPDATE students SET account_user_id = NULL WHERE account_user_id = ?", (target_id_int,))
+                    connection.execute(
+                        "UPDATE students SET account_user_id = NULL WHERE account_user_id = ? AND school_id = ?",
+                        (target_id_int, target["school_id"]),
+                    )
                     connection.execute(
                         "INSERT INTO audit_log (actor_user_id, action, target_username, details, school_id) VALUES (?, 'student_account_unlinked', ?, ?, ?)",
                         (current_user.id, target_username, "Student record: " + linked["admission_number"], target["school_id"]),
@@ -924,7 +942,8 @@ def admin_users():
             SELECT u.id, u.username, u.full_name, u.role, u.status, u.is_super_admin,
                    u.created_at, u.approved_at, s.id AS linked_student_id,
                    s.full_name AS linked_student_name, s.admission_number AS linked_admission_number
-            FROM users u LEFT JOIN students s ON s.account_user_id = u.id
+            FROM users u LEFT JOIN students s
+                ON s.account_user_id = u.id AND s.school_id = u.school_id
             ORDER BY CASE u.status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END,
                      u.username COLLATE NOCASE
             """
