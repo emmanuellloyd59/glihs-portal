@@ -1,4 +1,4 @@
-/* CMHS Digital Campus — Version 0.3 advanced responsive UI layer.
+/* GLIHS Portal — Version 0.3 advanced responsive UI layer.
    Loaded after campus-v02.css so existing routes receive the same design system. */
 :root {
   --campus-ink: #202238;
@@ -50,7 +50,7 @@ textarea:focus-visible, summary:focus-visible {
 }
 .site-navbar .btn-light { background: var(--campus-gold); color: var(--campus-navy); border: 0; }
 .site-navbar .btn-light:hover { background: #efc94d; color: var(--campus-navy); }
-.demo-ribbon { background: #fff8e6; color: #5e480d; border-bottom-color: #e8d18a; }
+.release-notice { background: #fff8e6; color: #5e480d; border-bottom-color: #e8d18a; }
 .page-shell { max-width: 1240px; }
 main.page-shell { min-width: 0; }
 .eyebrow { letter-spacing: .15em; line-height: 1.45; }
