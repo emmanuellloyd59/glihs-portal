@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Class Timetable | CMHS Digital Campus{% endblock %}
+{% block content %}
+<section class="rounded-4 p-4 p-md-5 mb-4 text-white" style="background:linear-gradient(120deg,#102a43,#164e78 65%,#1769aa);">
+    <p class="eyebrow mb-2" style="color:#8ce7df;">CMHS DIGITAL CAMPUS · ACADEMIC WORKSPACE</p>
+    <h1 class="display-6 fw-bold mb-2">Class Timetable</h1>
+    <p class="mb-0" style="color:#e1edf7;">Plan weekly lessons and prevent overlapping class, teacher, and room bookings.</p>
+</section>
+
+{% if can_manage %}
+<section class="surface-card p-4 p-md-5 mb-4">
+    <p class="eyebrow text-primary mb-1">Schedule a lesson</p>
+    <h2 class="h4 fw-bold mb-3">Add timetable entry</h2>
+    {% if not teachers %}
+    <div class="alert alert-warning mb-0">No active teachers are registered for this school yet. Add or activate a teacher account before scheduling lessons.</div>
+    {% else %}
+    <form method="POST" action="{{ url_for('timetable') }}" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="create">
+        <div class="col-12 col-md-4"><label class="form-label fw-semibold" for="class_level">Class</label><select class="form-select" id="class_level" name="class_level" required><option value="">Choose class</option>{% for level in class_levels %}<option value="{{ level }}">{{ level }}</option>{% endfor %}</select></div>
+        <div class="col-12 col-md-4"><label class="form-label fw-semibold" for="subject">Subject</label><input class="form-control" id="subject" name="subject" maxlength="80" required placeholder="e.g. Mathematics"></div>
+        <div class="col-12 col-md-4"><label class="form-label fw-semibold" for="teacher_id">Teacher</label><select class="form-select" id="teacher_id" name="teacher_id" required><option value="">Choose teacher</option>{% for teacher in teachers %}<option value="{{ teacher.id }}">{{ teacher.full_name or teacher.username }}{% if teacher.full_name %} ({{ teacher.username }}){% endif %}</option>{% endfor %}</select></div>
+        <div class="col-12 col-md-3"><label class="form-label fw-semibold" for="weekday">Day</label><select class="form-select" id="weekday" name="weekday" required>{% for day in days %}<option value="{{ day }}">{{ day }}</option>{% endfor %}</select></div>
+        <div class="col-6 col-md-3"><label class="form-label fw-semibold" for="start_time">Start time</label><input class="form-control" id="start_time" name="start_time" type="time" required></div>
+        <div class="col-6 col-md-3"><label class="form-label fw-semibold" for="end_time">End time</label><input class="form-control" id="end_time" name="end_time" type="time" required></div>
+        <div class="col-12 col-md-3"><label class="form-label fw-semibold" for="room">Room (optional)</label><input class="form-control" id="room" name="room" maxlength="80" placeholder="e.g. Room 4"></div>
+        <div class="col-12"><button class="btn btn-primary px-4" type="submit">Save lesson</button></div>
+    </form>
+    {% endif %}
+</section>
+{% endif %}
+
+<section class="surface-card p-3 p-md-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div><p class="eyebrow text-primary mb-1">Weekly plan</p><h2 class="h4 fw-bold mb-0">Scheduled lessons</h2></div>
+        <span class="badge rounded-pill border bg-white text-secondary px-3 py-2">{{ entries|length }} lesson{% if entries|length != 1 %}s{% endif %}</span>
+    </div>
+    {% if entries %}
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead><tr><th>Day</th><th>Time</th><th>Class</th><th>Subject</th><th>Teacher</th><th>Room</th>{% if can_manage %}<th class="no-print">Action</th>{% endif %}</tr></thead>
+            <tbody>{% for entry in entries %}
+            <tr><td class="fw-semibold">{{ entry.weekday }}</td><td class="text-nowrap">{{ entry.start_time }}–{{ entry.end_time }}</td><td>{{ entry.class_level }}</td><td>{{ entry.subject }}</td><td>{{ entry.teacher_name or entry.teacher_username }}</td><td>{{ entry.room or "—" }}</td>
+                {% if can_manage %}<td class="no-print"><form method="POST" action="{{ url_for('timetable') }}" onsubmit="return confirm('Remove this timetable entry?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="delete"><input type="hidden" name="schedule_id" value="{{ entry.id }}"><button class="btn btn-sm btn-outline-danger" type="submit">Remove</button></form></td>{% endif %}
+            </tr>{% endfor %}</tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5"><div class="fs-1 mb-2">🗓️</div><h3 class="h5 fw-bold">No lessons scheduled yet</h3><p class="text-secondary mb-0">{% if can_manage %}Use the form above to create the school's first timetable entry.{% else %}An academic administrator can add lessons for your school.{% endif %}</p></div>
+    {% endif %}
+    <div class="d-flex flex-wrap gap-2 mt-3 no-print"><a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">← Dashboard</a><button class="btn btn-outline-primary" type="button" onclick="window.print()">Print timetable</button></div>
+</section>
+{% endblock %}

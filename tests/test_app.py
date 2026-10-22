@@ -38,7 +38,7 @@ class PortalTestSupport:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
         }
-        for table_name in ("parent_student_links", "finance_payments", "school_announcements", "learning_materials"):
+        for table_name in ("parent_student_links", "finance_payments", "school_announcements", "learning_materials", "class_timetable"):
             if table_name in existing_tables:
                 connection.execute("DELETE FROM " + table_name)
         connection.execute("DELETE FROM grades")
@@ -1453,3 +1453,93 @@ class StudentParentAccountLifecycleTests(PortalTestSupport, unittest.TestCase):
             self.assertIsNone(student["account_user_id"])
         finally:
             connection.close()
+
+
+
+class TimetableTests(PortalTestSupport, unittest.TestCase):
+    def tearDown(self):
+        connection = portal.get_db_connection()
+        connection.execute("DELETE FROM class_timetable")
+        connection.commit()
+        connection.close()
+
+    def setUp(self):
+        super().setUp()
+        connection = portal.get_db_connection()
+        connection.execute("DELETE FROM class_timetable")
+        connection.execute(
+            """INSERT INTO users
+               (username, full_name, password_hash, role, status, school_id)
+               VALUES (?, ?, ?, 'school_admin', 'active', 1)""",
+            ("school_admin_timetable", "Timetable Administrator",
+             generate_password_hash("test-school-admin-password")),
+        )
+        connection.commit()
+        connection.close()
+
+    def _create_lesson(self, **overrides):
+        connection = portal.get_db_connection()
+        teacher = connection.execute(
+            "SELECT id FROM users WHERE username='teacher_demo' AND school_id=1"
+        ).fetchone()
+        connection.close()
+        data = {
+            "action": "create",
+            "class_level": "Grade 7",
+            "subject": "Mathematics",
+            "teacher_id": str(teacher["id"]),
+            "weekday": "Monday",
+            "start_time": "09:00",
+            "end_time": "10:00",
+            "room": "Room 1",
+        }
+        data.update(overrides)
+        return self.client.post("/timetable", data=data, follow_redirects=True)
+
+    def test_teacher_can_view_timetable_but_cannot_manage_it(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        page = self.client.get("/timetable")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b"Class Timetable", page.data)
+        self.assertNotIn(b"Add timetable entry", page.data)
+        response = self._create_lesson()
+        self.assertEqual(response.status_code, 403)
+
+    def test_school_admin_can_create_timetable_entry(self):
+        self.login_as("school_admin_timetable", "test-school-admin-password")
+        response = self._create_lesson()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Class timetable entry saved.", response.data)
+        self.assertIn(b"Mathematics", response.data)
+        connection = portal.get_db_connection()
+        rows = connection.execute(
+            "SELECT class_level, subject, weekday, start_time, end_time, school_id FROM class_timetable"
+        ).fetchall()
+        connection.close()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["school_id"], 1)
+        self.assertEqual(rows[0]["class_level"], "Grade 7")
+
+    def test_overlapping_class_teacher_or_room_is_rejected(self):
+        self.login_as("school_admin_timetable", "test-school-admin-password")
+        self._create_lesson()
+        response = self._create_lesson(subject="English", class_level="Grade 8", start_time="09:30", end_time="10:30", room="Room 2")
+        self.assertIn(b"Schedule conflict", response.data)
+        connection = portal.get_db_connection()
+        count = connection.execute("SELECT COUNT(*) FROM class_timetable").fetchone()[0]
+        connection.close()
+        self.assertEqual(count, 1)
+
+    def test_invalid_time_range_is_rejected(self):
+        self.login_as("school_admin_timetable", "test-school-admin-password")
+        response = self._create_lesson(start_time="11:00", end_time="10:00")
+        self.assertIn(b"End time must be after start time", response.data)
+        connection = portal.get_db_connection()
+        count = connection.execute("SELECT COUNT(*) FROM class_timetable").fetchone()[0]
+        connection.close()
+        self.assertEqual(count, 0)
+
+    def test_student_cannot_access_timetable(self):
+        self.login_as("student_demo", "test-student-password")
+        response = self.client.get("/timetable")
+        self.assertEqual(response.status_code, 403)
