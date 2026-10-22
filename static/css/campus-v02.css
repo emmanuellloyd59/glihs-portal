@@ -1,4 +1,4 @@
-/* CMHS Digital Campus — Version 0.2 visual system
+/* GLIHS Portal — Version 0.2 visual system
    Responsive, accessible enhancements layered over Bootstrap 5.3.3. */
 :root {
   color-scheme: light;
@@ -25,7 +25,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .site-navbar .nav-link { padding: .65rem .8rem; border-radius: .65rem; transition: background-color .18s ease, color .18s ease; }
 .site-navbar .nav-link:hover, .site-navbar .nav-link:focus-visible { background: rgba(255,255,255,.1); color: #fff !important; }
 .site-navbar .btn-light { border: 0; border-radius: 999px; box-shadow: 0 3px 10px rgba(0,0,0,.12); }
-.demo-ribbon { letter-spacing: .01em; }
+.release-notice { letter-spacing: .01em; }
 .page-shell { max-width: 1240px; }
 .eyebrow { letter-spacing: .15em; line-height: 1.4; }
 .surface-card { border: 1px solid var(--campus-border); border-radius: var(--campus-radius); box-shadow: var(--campus-shadow); transition: box-shadow .2s ease, border-color .2s ease, transform .2s ease; }
@@ -96,7 +96,7 @@ footer .fw-bold { letter-spacing: .015em; }
 .eyebrow, .text-primary { --bs-text-opacity: 1; }
 .text-primary { color: #8a6810 !important; }
 .surface-card { border-top: 3px solid rgba(213,165,30,.45); }
-.demo-ribbon { background: #fff8e6; color: #59430a; border-bottom-color: #e8ce79; }
+.release-notice { background: #fff8e6; color: #59430a; border-bottom-color: #e8ce79; }
 .table thead th { background: #f5efdc; color: #292b3b; }
 .form-control:focus, .form-select:focus { border-color: #c69b20; box-shadow: 0 0 0 .22rem rgba(213,165,30,.2); }
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline-color: #c69b20 !important; }
