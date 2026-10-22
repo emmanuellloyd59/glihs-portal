@@ -19,7 +19,7 @@
         <span class="badge rounded-pill text-bg-light px-3 py-2">Super Administrator</span>
     </div>
 </section>
-<div class="alert alert-warning border-0 rounded-4 mb-4"><strong>Security reminder:</strong> Only approve people whose identity and school role have been verified. Use fictional information while this portal is in demonstration mode. Share temporary passwords privately, never in this page's notes or audit log.</div>
+<div class="alert alert-warning border-0 rounded-4 mb-4"><strong>Security reminder:</strong> Only approve people whose identity and school role have been verified. Do not use real student information until production-readiness checks are complete. Share temporary passwords privately, never in this page's notes or audit log.</div>
 {% set pending_count = users|selectattr('status', 'equalto', 'pending')|list|length %}
 {% set active_count = users|selectattr('status', 'equalto', 'active')|list|length %}
 {% set suspended_count = users|selectattr('status', 'equalto', 'suspended')|list|length %}
