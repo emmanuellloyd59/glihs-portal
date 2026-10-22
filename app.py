@@ -1785,10 +1785,10 @@ def ensure_content_tables(connection):
 def can_view_material(role, class_level, archived=False):
     if archived:
         return role in CONTENT_MANAGE_ROLES
-    if role in CONTENT_PUBLISH_ROLES:
+    if role in MATERIALS_PUBLISH_ROLES:
         return True
-    if role == "student":
-        # Until student accounts have a verified enrollment link, only school-wide
+    if role in {"student", "parent"}:
+        # Until student/parent accounts have a verified enrollment link, only school-wide
         # materials are exposed; never trust a class supplied by the browser.
         return class_level.lower() in {"all classes", "school-wide"}
     return False
