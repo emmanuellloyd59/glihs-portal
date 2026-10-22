@@ -76,7 +76,7 @@ STAFF_ROLES = {
     "finance_admin": "Finance Officer",
     "teacher": "Teacher",
 }
-STUDENT_RECORD_ROLES = {"super_admin", "principal", "registrar", "academic_admin", "teacher"}
+STUDENT_RECORD_ROLES = {"principal", "registrar", "academic_admin", "teacher"}
 
 
 # --------------------------------------------------
@@ -954,8 +954,8 @@ def admin_users():
 # 6. GRADES AND ATTENDANCE
 # --------------------------------------------------
 
-ACADEMIC_ENTRY_ROLES = {"super_admin", "teacher", "academic_admin"}
-ACADEMIC_VIEW_ROLES = {"super_admin", "teacher", "academic_admin", "principal", "registrar"}
+ACADEMIC_ENTRY_ROLES = {"teacher", "academic_admin"}
+ACADEMIC_VIEW_ROLES = {"teacher", "academic_admin", "principal", "registrar"}
 
 
 @app.route("/academics", methods=["GET", "POST"])
@@ -1088,8 +1088,8 @@ def academics():
 # 6. REPORT CARDS
 # --------------------------------------------------
 
-REPORT_CARD_VIEW_ROLES = {"super_admin", "principal", "academic_admin", "teacher", "registrar"}
-REPORT_CARD_PUBLISH_ROLES = {"super_admin", "principal", "academic_admin"}
+REPORT_CARD_VIEW_ROLES = {"principal", "academic_admin", "teacher", "registrar"}
+REPORT_CARD_PUBLISH_ROLES = {"principal", "academic_admin"}
 
 
 @app.route("/my-report-cards")
@@ -1221,9 +1221,12 @@ def report_cards():
 @app.route("/students/register", methods=["GET", "POST"])
 @login_required
 def register_student():
-    if current_user.role not in ("super_admin", "registrar", "teacher"):
+    if current_user.role not in ("registrar", "teacher"):
         flash("You are not authorized to register students.", "danger")
         return redirect(url_for("dashboard"))
+    # Enforce tenant context on GET as well as POST so platform admins cannot
+    # open a school-scoped form that they cannot safely submit.
+    require_school_context()
 
     if request.method == "POST":
         admission_number = request.form.get("admission_number", "").strip()
@@ -1327,7 +1330,7 @@ def student_detail(student_id):
         if student is None:
             abort(404)
         finance_summary = None
-        if current_user.role in {"super_admin", "principal", "registrar", "finance_admin"}:
+        if current_user.role in {"principal", "registrar", "finance_admin"}:
             finance_summary = connection.execute(
                 """SELECT COALESCE(total_fee, 0) AS total_fee,
                           COALESCE(amount_paid, 0) AS amount_paid,
@@ -1358,7 +1361,7 @@ def student_detail(student_id):
 @app.route("/students/<int:student_id>/edit", methods=["GET", "POST"])
 @login_required
 def edit_student(student_id):
-    if current_user.role not in {"super_admin", "principal", "registrar"}:
+    if current_user.role not in {"principal", "registrar"}:
         abort(403)
     connection = get_db_connection()
     try:
@@ -1478,7 +1481,7 @@ def list_students():
 @app.route("/student-finances", methods=["GET", "POST"])
 @login_required
 def student_finances():
-    if current_user.role not in {"super_admin", "principal", "registrar", "finance_admin"}:
+    if current_user.role not in {"principal", "registrar", "finance_admin"}:
         abort(403)
 
     connection = get_db_connection()
