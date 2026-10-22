@@ -73,13 +73,24 @@ def add_security_headers(response):
 
 
 STAFF_ROLES = {
-    "principal": "Principal / School Administrator",
+    "school_admin": "School Administrator",
+    "principal": "Principal",
+    "vice_principal": "Vice Principal",
     "registrar": "Registrar / Student Records Officer",
-    "academic_admin": "Vice Principal / Academic Administrator",
-    "finance_admin": "Finance Officer",
+    "admissions_officer": "Admissions Officer",
+    "academic_admin": "Academic Administrator",
+    "attendance_officer": "Attendance Officer",
     "teacher": "Teacher",
+    "finance_admin": "Accountant / Bursar",
+    "librarian": "Librarian / Learning Resources Officer",
+    "counselor": "School Counselor",
+    "parent": "Parent / Guardian (child link required)",
+    "student": "Student (enrollment link required)",
 }
-STUDENT_RECORD_ROLES = {"super_admin", "principal", "registrar", "academic_admin", "teacher"}
+STUDENT_RECORD_ROLES = {
+    "super_admin", "school_admin", "principal", "vice_principal", "registrar",
+    "academic_admin", "teacher", "admissions_officer", "attendance_officer",
+}
 
 
 # --------------------------------------------------
@@ -103,9 +114,15 @@ def migrate_users_table(connection):
     columns = {
         row["name"] for row in connection.execute("PRAGMA table_info(users)").fetchall()
     }
+    required_role_tokens = (
+        "'super_admin'", "'school_admin'", "'principal'", "'vice_principal'",
+        "'registrar'", "'admissions_officer'", "'academic_admin'",
+        "'attendance_officer'", "'finance_admin'", "'librarian'",
+        "'counselor'", "'teacher'", "'parent'", "'student'",
+    )
     if (
-        "super_admin" in schema_sql
-        and {"status", "is_super_admin", "created_at", "approved_by", "approved_at", "full_name"}.issubset(columns)
+        all(token in schema_sql for token in required_role_tokens)
+        and {"status", "is_super_admin", "created_at", "approved_by", "approved_at", "full_name", "school_id"}.issubset(columns)
     ):
         return
 
@@ -118,8 +135,10 @@ def migrate_users_table(connection):
             full_name TEXT NOT NULL DEFAULT '',
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL CHECK (
-                role IN ('super_admin', 'principal', 'registrar',
-                         'academic_admin', 'finance_admin', 'teacher', 'student')
+                role IN ('super_admin', 'school_admin', 'principal', 'vice_principal',
+                         'registrar', 'admissions_officer', 'academic_admin',
+                         'attendance_officer', 'finance_admin', 'librarian',
+                         'counselor', 'teacher', 'parent', 'student')
             ),
             status TEXT NOT NULL DEFAULT 'active'
                 CHECK (status IN ('pending', 'active', 'suspended')),
@@ -286,7 +305,9 @@ def initialize_database():
                 full_name TEXT NOT NULL DEFAULT '',
                 password_hash TEXT NOT NULL,
                 role TEXT NOT NULL CHECK (
-                    role IN ('super_admin', 'principal', 'registrar',                             'academic_admin', 'finance_admin', 'teacher', 'student')
+                    role IN ('super_admin', 'school_admin', 'principal', 'vice_principal', 'registrar',
+                         'admissions_officer', 'academic_admin', 'attendance_officer',
+                         'finance_admin', 'librarian', 'counselor', 'teacher', 'parent', 'student')
                 ),
                 status TEXT NOT NULL DEFAULT 'active'
                     CHECK (status IN ('pending', 'active', 'suspended')),
@@ -1049,8 +1070,11 @@ def admin_users():
 # 6. GRADES AND ATTENDANCE
 # --------------------------------------------------
 
-ACADEMIC_ENTRY_ROLES = {"super_admin", "teacher", "academic_admin"}
-ACADEMIC_VIEW_ROLES = {"super_admin", "teacher", "academic_admin", "principal", "registrar"}
+ACADEMIC_ENTRY_ROLES = {"super_admin", "teacher", "academic_admin", "vice_principal", "attendance_officer"}
+ACADEMIC_VIEW_ROLES = {
+    "super_admin", "school_admin", "teacher", "academic_admin", "principal",
+    "vice_principal", "registrar", "attendance_officer",
+}
 
 
 @app.route("/academics", methods=["GET", "POST"])
@@ -1071,6 +1095,9 @@ def academics():
             if current_user.role not in ACADEMIC_ENTRY_ROLES:
                 abort(403)
             action = request.form.get("action", "").strip()
+            # Attendance officers may record attendance only, never assessment grades.
+            if current_user.role == "attendance_officer" and action != "attendance":
+                abort(403)
             student_id = request.form.get("student_id", "").strip()
             student = connection.execute(
                 "SELECT id FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
@@ -1184,8 +1211,13 @@ def academics():
 # 6. REPORT CARDS
 # --------------------------------------------------
 
-REPORT_CARD_VIEW_ROLES = {"super_admin", "principal", "academic_admin", "teacher", "registrar"}
-REPORT_CARD_PUBLISH_ROLES = {"super_admin", "principal", "academic_admin"}
+REPORT_CARD_VIEW_ROLES = {
+    "super_admin", "school_admin", "principal", "vice_principal",
+    "academic_admin", "teacher", "registrar",
+}
+REPORT_CARD_PUBLISH_ROLES = {
+    "super_admin", "school_admin", "principal", "vice_principal", "academic_admin",
+}
 
 
 @app.route("/my-report-cards")
@@ -1317,7 +1349,7 @@ def report_cards():
 @app.route("/students/register", methods=["GET", "POST"])
 @login_required
 def register_student():
-    if current_user.role not in ("super_admin", "registrar", "teacher"):
+    if current_user.role not in ("super_admin", "school_admin", "registrar", "admissions_officer", "teacher"):
         flash("You are not authorized to register students.", "danger")
         return redirect(url_for("dashboard"))
     # Enforce tenant context on GET as well as POST so platform admins cannot
@@ -1611,7 +1643,7 @@ def list_students():
 @app.route("/student-finances", methods=["GET", "POST"])
 @login_required
 def student_finances():
-    if current_user.role not in {"super_admin", "principal", "registrar", "finance_admin"}:
+    if current_user.role not in {"super_admin", "school_admin", "principal", "registrar", "finance_admin"}:
         abort(403)
     school_id = require_school_context()
 
@@ -1692,8 +1724,16 @@ def student_finances():
 RESOURCE_DIR = INSTANCE_DIR / "learning_materials"
 RESOURCE_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_RESOURCE_EXTENSIONS = {".pdf", ".txt", ".png", ".jpg", ".jpeg"}
-CONTENT_PUBLISH_ROLES = {"super_admin", "principal", "academic_admin", "registrar", "teacher"}
-CONTENT_MANAGE_ROLES = {"super_admin", "principal", "academic_admin", "registrar"}
+CONTENT_PUBLISH_ROLES = {
+    "super_admin", "school_admin", "principal", "vice_principal",
+    "academic_admin", "registrar", "teacher",
+}
+CONTENT_MANAGE_ROLES = {
+    "super_admin", "school_admin", "principal", "vice_principal",
+    "academic_admin", "registrar",
+}
+MATERIALS_PUBLISH_ROLES = CONTENT_PUBLISH_ROLES | {"librarian"}
+MATERIALS_MANAGE_ROLES = CONTENT_MANAGE_ROLES | {"librarian"}
 
 def ensure_content_tables(connection):
     """Create tenant-scoped content tables without altering existing school data."""
@@ -1744,11 +1784,11 @@ def ensure_content_tables(connection):
 
 def can_view_material(role, class_level, archived=False):
     if archived:
-        return role in CONTENT_MANAGE_ROLES
-    if role in CONTENT_PUBLISH_ROLES:
+        return role in MATERIALS_MANAGE_ROLES
+    if role in MATERIALS_PUBLISH_ROLES:
         return True
-    if role == "student":
-        # Until student accounts have a verified enrollment link, only school-wide
+    if role in {"student", "parent"}:
+        # Until student/parent accounts have a verified enrollment link, only school-wide
         # materials are exposed; never trust a class supplied by the browser.
         return class_level.lower() in {"all classes", "school-wide"}
     return False
@@ -1762,7 +1802,7 @@ def learning_materials():
     try:
         ensure_content_tables(connection)
         if request.method == "POST":
-            if role not in CONTENT_PUBLISH_ROLES:
+            if role not in MATERIALS_PUBLISH_ROLES:
                 abort(403)
             upload = request.files.get("resource_file")
             title = request.form.get("title", "").strip()
@@ -1800,8 +1840,8 @@ def learning_materials():
     finally:
         connection.close()
     return render_template("learning_materials.html", materials=visible,
-                           can_upload=role in CONTENT_PUBLISH_ROLES,
-                           can_manage=role in CONTENT_MANAGE_ROLES)
+                           can_upload=role in MATERIALS_PUBLISH_ROLES,
+                           can_manage=role in MATERIALS_MANAGE_ROLES)
 
 @app.route("/learning-materials/<int:material_id>/download")
 @login_required
@@ -1830,7 +1870,7 @@ def download_learning_material(material_id):
 @app.route("/learning-materials/<int:material_id>/archive", methods=["POST"])
 @login_required
 def archive_learning_material(material_id):
-    if current_user.role not in CONTENT_MANAGE_ROLES:
+    if current_user.role not in MATERIALS_MANAGE_ROLES:
         abort(403)
     school_id = require_school_context()
     connection = get_db_connection()
@@ -1898,7 +1938,7 @@ def announcements():
                 (school_id,),
             ).fetchall()
         else:
-            allowed = ("students", "all") if role == "student" else ("staff", "all")
+            allowed = ("students", "all") if role in {"student", "parent"} else ("staff", "all")
             rows = connection.execute(
                 """SELECT * FROM school_announcements WHERE school_id=? AND status='published'
                    AND audience IN (?,?) ORDER BY updated_at DESC""",
@@ -1936,7 +1976,7 @@ def archive_announcement(announcement_id):
 @app.route("/finance/payments", methods=["GET", "POST"])
 @login_required
 def finance_payments():
-    if current_user.role not in {"super_admin", "principal", "registrar", "finance_admin"}:
+    if current_user.role not in {"super_admin", "school_admin", "principal", "registrar", "finance_admin"}:
         abort(403)
     school_id = require_school_context()
     connection = get_db_connection()

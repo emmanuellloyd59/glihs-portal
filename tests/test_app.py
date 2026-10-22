@@ -1257,5 +1257,91 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(response.status_code, 403)
 
 
+    def test_all_school_roles_are_registered_for_approved_account_requests(self):
+        expected = {
+            "school_admin", "principal", "vice_principal", "registrar",
+            "admissions_officer", "academic_admin", "attendance_officer",
+            "teacher", "finance_admin", "librarian", "counselor", "parent", "student",
+        }
+        self.assertTrue(expected.issubset(set(portal.STAFF_ROLES)))
+        for role in sorted(expected):
+            username = "rolecheck_" + role
+            response = self.client.post("/admin/request-access", data={
+                "full_name": "Fictional " + role.replace("_", " ").title(),
+                "username": username,
+                "requested_role": role,
+                "school_slug": "legacy-demo-campus",
+            })
+            self.assertEqual(response.status_code, 302, role)
+            connection = portal.get_db_connection()
+            try:
+                row = connection.execute(
+                    "SELECT role, status, school_id, is_super_admin FROM users WHERE username = ?",
+                    (username,),
+                ).fetchone()
+                self.assertIsNotNone(row, role)
+                self.assertEqual(row["role"], role)
+                self.assertEqual(row["status"], "pending")
+                self.assertEqual(row["school_id"], 1)
+                self.assertEqual(row["is_super_admin"], 0)
+            finally:
+                connection.close()
+
+    def test_attendance_officer_can_record_attendance_but_cannot_enter_grades(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'attendance_officer', 1)",
+                ("attendance_demo", generate_password_hash("test-attendance-password")),
+            )
+            student_id = connection.execute(
+                "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
+                ("ATTENDANCE-001", "Fictional Attendance Student", "Grade 7"),
+            ).lastrowid
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("attendance_demo", "test-attendance-password")
+        self.assertEqual(self.client.get("/academics").status_code, 200)
+        denied_grade = self.client.post("/academics", data={
+            "action": "grade", "student_id": str(student_id),
+        })
+        self.assertEqual(denied_grade.status_code, 403)
+        saved_attendance = self.client.post("/academics", data={
+            "action": "attendance", "student_id": str(student_id),
+            "attendance_date": "2026-10-22", "status": "present", "note": "",
+        })
+        self.assertEqual(saved_attendance.status_code, 302)
+        connection = portal.get_db_connection()
+        try:
+            row = connection.execute(
+                "SELECT status FROM attendance WHERE student_id = ? AND school_id = 1",
+                (student_id,),
+            ).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row["status"], "present")
+        finally:
+            connection.close()
+
+    def test_parent_dashboard_does_not_expose_private_student_records(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'parent', 1)",
+                ("parent_demo", generate_password_hash("test-parent-password")),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        self.login_as("parent_demo", "test-parent-password")
+        dashboard = self.client.get("/dashboard")
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertIn(b"Parent / Guardian Workspace", dashboard.data)
+        records = self.client.get("/students", follow_redirects=True)
+        self.assertEqual(records.status_code, 200)
+        self.assertIn(b"not authorized to view student records", records.data)
+        self.assertEqual(self.client.get("/announcements").status_code, 200)
+
 if __name__ == "__main__":
     unittest.main()
