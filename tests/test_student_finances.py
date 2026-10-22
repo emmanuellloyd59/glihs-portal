@@ -44,7 +44,7 @@ class StudentFinanceTests(PortalTestSupport, unittest.TestCase):
             connection.commit()
         finally:
             connection.close()
-        self.login_as("super_demo", "test-super-password")
+        self.login_as("finance_demo", "test-finance-password")
         response = self.client.post("/student-finances", data={
             "student_id": str(student_id),
             "academic_year": "2026-2027",
