@@ -1070,7 +1070,7 @@ def admin_users():
 # 6. GRADES AND ATTENDANCE
 # --------------------------------------------------
 
-ACADEMIC_ENTRY_ROLES = {"super_admin", "teacher", "academic_admin", "vice_principal"}
+ACADEMIC_ENTRY_ROLES = {"super_admin", "teacher", "academic_admin", "vice_principal", "attendance_officer"}
 ACADEMIC_VIEW_ROLES = {
     "super_admin", "school_admin", "teacher", "academic_admin", "principal",
     "vice_principal", "registrar", "attendance_officer",
@@ -1095,6 +1095,9 @@ def academics():
             if current_user.role not in ACADEMIC_ENTRY_ROLES:
                 abort(403)
             action = request.form.get("action", "").strip()
+            # Attendance officers may record attendance only, never assessment grades.
+            if current_user.role == "attendance_officer" and action != "attendance":
+                abort(403)
             student_id = request.form.get("student_id", "").strip()
             student = connection.execute(
                 "SELECT id FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
