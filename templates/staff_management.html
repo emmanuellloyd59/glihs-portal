@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Staff Management | CMHS Digital Campus{% endblock %}
+{% block content %}
+<section class="rounded-4 p-4 p-md-5 mb-4 text-white" style="background:linear-gradient(120deg,#102a43,#164e78 65%,#1769aa);">
+  <p class="eyebrow mb-2" style="color:#8ce7df;">CMHS DIGITAL CAMPUS · STAFF ADMINISTRATION</p>
+  <h1 class="display-6 fw-bold mb-2">Staff Management</h1>
+  <p class="mb-1" style="color:#e1edf7;">Manage staff accounts and permissions for {{ school.name }}.</p>
+  <p class="small mb-0" style="color:#c6d8e9;">Changes apply only to this selected school. Never share temporary passwords publicly.</p>
+</section>
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3"><div class="surface-card p-3 h-100"><div class="small text-secondary">Staff accounts</div><div class="fs-2 fw-bold">{{ counts.total or 0 }}</div></div></div>
+  <div class="col-6 col-lg-3"><div class="surface-card p-3 h-100"><div class="small text-secondary">Active</div><div class="fs-2 fw-bold text-success">{{ counts.active or 0 }}</div></div></div>
+  <div class="col-6 col-lg-3"><div class="surface-card p-3 h-100"><div class="small text-secondary">Pending</div><div class="fs-2 fw-bold">{{ counts.pending or 0 }}</div></div></div>
+  <div class="col-6 col-lg-3"><div class="surface-card p-3 h-100"><div class="small text-secondary">Suspended</div><div class="fs-2 fw-bold text-danger">{{ counts.suspended or 0 }}</div></div></div>
+</div>
+<section class="surface-card p-4 p-md-5 mb-4">
+  <p class="eyebrow text-primary mb-1">Add a colleague</p><h2 class="h4 fw-bold mb-2">Create staff account</h2>
+  <p class="text-secondary small">Use a unique username and a temporary password of at least 12 characters. Accounts are created in the current school only.</p>
+  <form method="post" action="{{ url_for('staff_management') }}" class="row g-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="create">
+    <div class="col-12 col-md-6"><label class="form-label" for="staff-full-name">Full name</label><input class="form-control" id="staff-full-name" name="full_name" maxlength="120" autocomplete="name" required></div>
+    <div class="col-12 col-md-6"><label class="form-label" for="staff-username">Username</label><input class="form-control" id="staff-username" name="username" maxlength="64" pattern="[A-Za-z0-9_-]+" autocomplete="off" required></div>
+    <div class="col-12 col-md-6"><label class="form-label" for="staff-role">Role</label><select class="form-select" id="staff-role" name="role" required><option value="">Choose a role</option>{% for key, label in assignable_roles.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
+    <div class="col-12 col-md-6"><label class="form-label" for="staff-password">Temporary password</label><input class="form-control" id="staff-password" name="temporary_password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required><div class="form-text">At least 12 characters. Give it privately to the staff member.</div></div>
+    <div class="col-12"><button class="btn btn-primary" type="submit">Create Staff Account</button></div>
+  </form>
+</section>
+<section class="surface-card p-3 p-md-4">
+  <div class="d-flex flex-column flex-sm-row justify-content-between gap-2 mb-3"><div><p class="eyebrow text-primary mb-1">Current school only</p><h2 class="h4 fw-bold mb-0">Staff directory</h2></div><span class="badge rounded-pill border bg-white text-secondary align-self-start">{{ users|length }} accounts</span></div>
+  {% if users %}
+  <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Name / Username</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+  {% for user in users %}
+    <tr><td><strong>{{ user.full_name or user.username }}</strong><div class="small text-secondary">@{{ user.username }}</div><div class="small text-secondary">Created {{ user.created_at }}</div></td>
+      <td><span class="badge text-bg-light border">{{ user.role.replace('_',' ').title() }}</span></td>
+      <td><span class="badge {% if user.status == 'active' %}text-bg-success{% elif user.status == 'pending' %}text-bg-warning{% else %}text-bg-danger{% endif %}">{{ user.status.title() }}</span></td>
+      <td>
+      {% if user.id != current_user.id and user.role in manageable_roles %}
+        <div class="d-flex flex-column gap-2" style="min-width:180px;">
+        {% if user.status == 'active' %}<form method="post" action="{{ url_for('staff_management') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="suspend"><input type="hidden" name="user_id" value="{{ user.id }}"><button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Suspend this staff account? The person will lose login access.')">Suspend account</button></form>
+        {% elif user.status == 'suspended' %}<form method="post" action="{{ url_for('staff_management') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="reactivate"><input type="hidden" name="user_id" value="{{ user.id }}"><button class="btn btn-sm btn-outline-success" type="submit">Reactivate account</button></form>{% endif %}
+        {% if can_manage_roles and user.role not in ['student','parent','super_admin'] %}<form method="post" action="{{ url_for('staff_management') }}" class="d-flex flex-column gap-1"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="change_role"><input type="hidden" name="user_id" value="{{ user.id }}"><label class="small text-secondary" for="role-{{ user.id }}">Change role</label><select class="form-select form-select-sm" id="role-{{ user.id }}" name="role" required>{% for key, label in assignable_roles.items() %}<option value="{{ key }}" {% if key == user.role %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><button class="btn btn-sm btn-outline-primary" type="submit">Save role</button></form>{% endif %}
+        </div>
+      {% else %}<span class="small text-secondary">{% if user.id == current_user.id %}Your account{% else %}No actions available{% endif %}</span>{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody></table></div>
+  {% else %}<p class="text-secondary py-4 mb-0">No staff accounts are assigned to this school yet.</p>{% endif %}
+</section>
+{% endblock %}
