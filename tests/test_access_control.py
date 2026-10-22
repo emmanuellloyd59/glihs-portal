@@ -399,11 +399,14 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
                 """INSERT INTO students (admission_number, full_name, class_level, school_id)
                    VALUES ('FINANCE-PRIVACY-001', 'Fictional Finance Privacy Student', 'Grade 7', 1)"""
             ).lastrowid
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username = 'teacher_route_test'"
+            ).fetchone()["id"]
             connection.execute(
                 """INSERT INTO student_finances
                    (student_id, academic_year, total_fee, amount_paid, updated_by, school_id)
-                   VALUES (?, '2026-2027', 1200, 300, 1, 1)""",
-                (student_id,),
+                   VALUES (?, '2026-2027', 1200, 300, ?, 1)""",
+                (student_id, teacher_id),
             )
             connection.commit()
         finally:
