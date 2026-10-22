@@ -79,7 +79,7 @@ STAFF_ROLES = {
     "finance_admin": "Finance Officer",
     "teacher": "Teacher",
 }
-STUDENT_RECORD_ROLES = {"principal", "registrar", "academic_admin", "teacher"}
+STUDENT_RECORD_ROLES = {"super_admin", "principal", "registrar", "academic_admin", "teacher"}
 
 
 # --------------------------------------------------
@@ -728,10 +728,23 @@ def login():
 @app.route("/dashboard")
 @login_required
 def dashboard():
+    school_context_selected = not current_user.is_super_admin
+    if current_user.is_super_admin:
+        selected_school_id = session.get("active_school_id")
+        if isinstance(selected_school_id, int) and not isinstance(selected_school_id, bool):
+            connection = get_db_connection()
+            try:
+                school_context_selected = connection.execute(
+                    "SELECT 1 FROM schools WHERE id = ? AND status = 'active'",
+                    (selected_school_id,),
+                ).fetchone() is not None
+            finally:
+                connection.close()
     return render_template(
         "dashboard.html",
         name=current_user.username,
         role=current_user.role,
+        school_context_selected=school_context_selected,
     )
 
 
@@ -1036,8 +1049,8 @@ def admin_users():
 # 6. GRADES AND ATTENDANCE
 # --------------------------------------------------
 
-ACADEMIC_ENTRY_ROLES = {"teacher", "academic_admin"}
-ACADEMIC_VIEW_ROLES = {"teacher", "academic_admin", "principal", "registrar"}
+ACADEMIC_ENTRY_ROLES = {"super_admin", "teacher", "academic_admin"}
+ACADEMIC_VIEW_ROLES = {"super_admin", "teacher", "academic_admin", "principal", "registrar"}
 
 
 @app.route("/academics", methods=["GET", "POST"])
@@ -1046,12 +1059,13 @@ def academics():
     """Record and review demo grades and daily attendance with role checks."""
     if current_user.role not in ACADEMIC_VIEW_ROLES:
         abort(403)
+    school_id = require_school_context()
 
     connection = get_db_connection()
     try:
         students = connection.execute(
             "SELECT id, admission_number, full_name, class_level FROM students WHERE school_id = ? AND status = 'active' ORDER BY class_level, full_name",
-            (current_user.school_id,),
+            (school_id,),
         ).fetchall()
         if request.method == "POST":
             if current_user.role not in ACADEMIC_ENTRY_ROLES:
@@ -1060,7 +1074,7 @@ def academics():
             student_id = request.form.get("student_id", "").strip()
             student = connection.execute(
                 "SELECT id FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
-                (student_id, current_user.school_id),
+                (student_id, school_id),
             ).fetchone()
             if not student:
                 flash("Choose a valid active student.", "danger")
@@ -1170,8 +1184,8 @@ def academics():
 # 6. REPORT CARDS
 # --------------------------------------------------
 
-REPORT_CARD_VIEW_ROLES = {"principal", "academic_admin", "teacher", "registrar"}
-REPORT_CARD_PUBLISH_ROLES = {"principal", "academic_admin"}
+REPORT_CARD_VIEW_ROLES = {"super_admin", "principal", "academic_admin", "teacher", "registrar"}
+REPORT_CARD_PUBLISH_ROLES = {"super_admin", "principal", "academic_admin"}
 
 
 @app.route("/my-report-cards")
@@ -1303,7 +1317,7 @@ def report_cards():
 @app.route("/students/register", methods=["GET", "POST"])
 @login_required
 def register_student():
-    if current_user.role not in ("registrar", "teacher"):
+    if current_user.role not in ("super_admin", "registrar", "teacher"):
         flash("You are not authorized to register students.", "danger")
         return redirect(url_for("dashboard"))
     # Enforce tenant context on GET as well as POST so platform admins cannot
@@ -1597,8 +1611,9 @@ def list_students():
 @app.route("/student-finances", methods=["GET", "POST"])
 @login_required
 def student_finances():
-    if current_user.role not in {"principal", "registrar", "finance_admin"}:
+    if current_user.role not in {"super_admin", "principal", "registrar", "finance_admin"}:
         abort(403)
+    school_id = require_school_context()
 
     connection = get_db_connection()
     try:
@@ -1631,7 +1646,7 @@ def student_finances():
                      total_fee = excluded.total_fee, amount_paid = excluded.amount_paid,
                      notes = excluded.notes, updated_by = excluded.updated_by,
                      updated_at = CURRENT_TIMESTAMP""",
-                (student_id, academic_year, total_fee, amount_paid, notes or None, current_user.id, current_user.school_id),
+                (student_id, academic_year, total_fee, amount_paid, notes or None, current_user.id, school_id),
             )
             connection.commit()
             write_audit(current_user.id, "student_finance_updated", student["admission_number"],

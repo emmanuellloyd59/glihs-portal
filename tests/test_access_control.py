@@ -96,22 +96,28 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         response = self.login_as("role_only_super_admin")
         self.assertIn(b"Invalid username or password", response.data)
 
-    def test_platform_super_admin_dashboard_only_offers_platform_management(self):
+    def test_platform_super_admin_must_select_school_before_school_features(self):
         self.login_as("super_route_test")
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Administrator Management", response.data)
+        self.assertIn(b"Select School Workspace", response.data)
         self.assertNotIn(b"View Student Records", response.data)
         self.assertNotIn(b"Register Student", response.data)
-        self.assertNotIn(b"Open Grades &amp; Attendance", response.data)
-        self.assertNotIn(b"Open Report Cards", response.data)
+        self.assertEqual(self.client.get("/students/register").status_code, 403)
 
-    def test_platform_super_admin_cannot_open_school_scoped_registration_form(self):
+    def test_platform_super_admin_can_access_school_features_after_selecting_school(self):
         self.login_as("super_route_test")
-        response = self.client.get("/students/register")
-        # This route uses a safe redirect for roles that are not allowed to register.
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("/dashboard", response.headers["Location"])
+        response = self.client.post("/admin/select-school", data={"school_id": "1"}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"View Student Records", response.data)
+        self.assertIn(b"Register Student", response.data)
+        self.assertIn(b"Open Grades & Attendance", response.data)
+        self.assertIn(b"Open Report Cards", response.data)
+        for path in ("/students", "/students/register", "/academics", "/report-cards",
+                     "/finance/payments", "/learning-materials", "/announcements"):
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path).status_code, 200)
 
     def test_existing_student_link_is_not_reassigned_across_schools(self):
         connection = portal.get_db_connection()
