@@ -156,7 +156,15 @@ class DemoStaffProvisioningTests(unittest.TestCase):
             session["_user_id"] = str(user_id)
             session["_fresh"] = True
         response = self.activate()
-        self.assertEqual(response.status_code, 403)
+        # The loader may reject malformed privileged accounts before the route
+        # runs (302 to login); either that or a direct 403 is a safe denial.
+        self.assertIn(response.status_code, (302, 403))
+        db = portal.get_db_connection()
+        self.assertEqual(
+            db.execute("SELECT COUNT(*) FROM users WHERE username LIKE 'cmhs_%_demo%'").fetchone()[0],
+            0,
+        )
+        db.close()
 
 
 if __name__ == "__main__":
