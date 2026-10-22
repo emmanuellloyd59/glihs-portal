@@ -102,6 +102,55 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn("/dashboard", response.headers["Location"])
 
+    def test_existing_student_link_is_not_reassigned_across_schools(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO schools (name, slug, status) VALUES ('Link Test School B', 'link-test-school-b', 'active') "
+                "ON CONFLICT(slug) DO NOTHING"
+            )
+            school_b_id = connection.execute(
+                "SELECT id FROM schools WHERE slug = 'link-test-school-b'"
+            ).fetchone()["id"]
+            target_user_id = connection.execute(
+                "INSERT INTO users (username, password_hash, role, status, school_id) "
+                "VALUES ('link_test_student_account', ?, 'student', 'active', 1)",
+                (generate_password_hash("test-password-for-route"),),
+            ).lastrowid
+            connection.execute(
+                "INSERT INTO students (admission_number, full_name, class_level, school_id, account_user_id) "
+                "VALUES ('LINK-B-001', 'Fictional School B Student', 'Grade 8', ?, ?)",
+                (school_b_id, target_user_id),
+            )
+            school_a_student_id = connection.execute(
+                "INSERT INTO students (admission_number, full_name, class_level, school_id) "
+                "VALUES ('LINK-A-001', 'Fictional School A Student', 'Grade 7', 1)"
+            ).lastrowid
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("super_route_test")
+        response = self.client.post("/admin/users", data={
+            "action": "link_student",
+            "user_id": str(target_user_id),
+            "student_id": str(school_a_student_id),
+            "verify_identity": "yes",
+        }, follow_redirects=True)
+        self.assertIn(b"already linked to a different student record", response.data)
+
+        connection = portal.get_db_connection()
+        try:
+            linked = connection.execute(
+                "SELECT id, school_id FROM students WHERE account_user_id = ?",
+                (target_user_id,),
+            ).fetchone()
+            self.assertIsNotNone(linked)
+            self.assertEqual(linked["school_id"], school_b_id)
+            self.assertNotEqual(linked["id"], school_a_student_id)
+        finally:
+            connection.close()
+
     def test_school_assigned_super_admin_cannot_authenticate(self):
         connection = portal.get_db_connection()
         try:
