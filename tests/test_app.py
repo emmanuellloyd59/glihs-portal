@@ -31,6 +31,16 @@ class PortalTestSupport:
 
     def setUp(self):
         connection = portal.get_db_connection()
+        # New Version 3 modules reference users and students. Clear dependent rows
+        # first so repeated test runs remain isolated and respect SQLite foreign keys.
+        existing_tables = {
+            row["name"] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        for table_name in ("finance_payments", "school_announcements", "learning_materials"):
+            if table_name in existing_tables:
+                connection.execute("DELETE FROM " + table_name)
         connection.execute("DELETE FROM grades")
         connection.execute("DELETE FROM attendance")
         connection.execute("DELETE FROM report_cards")
