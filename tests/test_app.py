@@ -1177,7 +1177,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
             connection.execute(
                 """INSERT INTO student_finances
                    (student_id,academic_year,total_fee,amount_paid,updated_by,school_id)
-                   VALUES (?, '2026-2027', 100, 0, 1, 1)""",
+                   VALUES (?, '2026-2027', 100, 0, (SELECT id FROM users WHERE username='teacher_demo'), 1)""",
                 (student_id,),
             )
             connection.commit()
