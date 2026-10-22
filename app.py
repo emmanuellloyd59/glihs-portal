@@ -586,9 +586,9 @@ def get_user_by_id(user_id):
             FROM users u
             WHERE u.id = ? AND u.status = 'active'
               AND (
-                  (u.is_super_admin = 1 AND u.school_id IS NULL)
+                  (u.role = 'super_admin' AND u.is_super_admin = 1 AND u.school_id IS NULL)
                   OR (
-                  u.is_super_admin = 0 AND EXISTS (
+                  u.role != 'super_admin' AND u.is_super_admin = 0 AND EXISTS (
                       SELECT 1 FROM schools s
                       WHERE s.id = u.school_id AND s.status = 'active'
                   )
@@ -614,9 +614,9 @@ def get_user_by_username(username):
             FROM users u
             WHERE u.username = ? AND u.status = 'active'
               AND (
-                  (u.is_super_admin = 1 AND u.school_id IS NULL)
+                  (u.role = 'super_admin' AND u.is_super_admin = 1 AND u.school_id IS NULL)
                   OR (
-                  u.is_super_admin = 0 AND EXISTS (
+                  u.role != 'super_admin' AND u.is_super_admin = 0 AND EXISTS (
                       SELECT 1 FROM schools s
                       WHERE s.id = u.school_id AND s.status = 'active'
                   )
@@ -641,7 +641,13 @@ def load_user(user_id):
 def require_super_admin():
     if not current_user.is_authenticated:
         return redirect(url_for("login"))
-    if not current_user.is_super_admin or current_user.school_id is not None:
+    # Require all three platform-admin invariants. A malformed account must
+    # never gain global access from a flag alone.
+    if (
+        current_user.role != "super_admin"
+        or not current_user.is_super_admin
+        or current_user.school_id is not None
+    ):
         abort(403)
     return None
 
