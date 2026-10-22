@@ -9,7 +9,7 @@ def register_demo_staff_routes(ns):
     @app.route("/staff/demo-team", methods=["POST"])
     @login_required
     def create_demo_staff_team():
-        if current_user.role != "super_admin": abort(403)
+        if (current_user.role != "super_admin" or not current_user.is_super_admin or current_user.school_id is not None): abort(403)
         if request.form.get("confirm_demo_team") != "yes": abort(400)
         school_id=require_school_context()
         people=[
@@ -36,10 +36,27 @@ def register_demo_staff_routes(ns):
         try:
             school=db.execute("SELECT name FROM schools WHERE id=? AND status='active'",(school_id,)).fetchone()
             if not school: abort(403)
-            for username,full_name,role,subject in people:
-                old=db.execute("SELECT role,status FROM users WHERE username=? AND school_id=?",(username,school_id)).fetchone()
-                if old:
-                    existing.append({"username":username,"role":old["role"],"status":old["status"]}); continue
+            for base_username,full_name,role,subject in people:
+                # Usernames are globally unique in the current schema. Keep the
+                # familiar username when available; add a deterministic school
+                # suffix when another tenant already owns it.
+                username = base_username
+                suffix = 0
+                while True:
+                    old = db.execute(
+                        "SELECT role,status,school_id FROM users WHERE username=?",
+                        (username,),
+                    ).fetchone()
+                    if old is None:
+                        break
+                    if old["school_id"] == school_id:
+                        existing.append({"username":username,"role":old["role"],"status":old["status"]})
+                        username = None
+                        break
+                    suffix += 1
+                    username = f"{base_username}_s{school_id}" if suffix == 1 else f"{base_username}_s{school_id}_{suffix}"
+                if username is None:
+                    continue
                 password=secrets.token_urlsafe(15)
                 db.execute("""INSERT INTO users (username,full_name,password_hash,role,status,is_super_admin,school_id,approved_by,approved_at)
                     VALUES (?,?,?,?, 'active',0,?,?,CURRENT_TIMESTAMP)""",
