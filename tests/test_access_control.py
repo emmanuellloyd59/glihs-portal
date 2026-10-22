@@ -42,9 +42,10 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         for username, role in accounts:
             connection.execute(
                 """INSERT INTO users (username, password_hash, role, status, is_super_admin, school_id)
-                   VALUES (?, ?, ?, 'active', ?, 1)""",
+                   VALUES (?, ?, ?, 'active', ?, ?)""",
                 (username, generate_password_hash("test-password-for-route"), role,
-                 1 if role == "super_admin" else 0),
+                 1 if role == "super_admin" else 0,
+                 None if role == "super_admin" else 1),
             )
         connection.commit()
         connection.close()
@@ -57,6 +58,27 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             data={"username": username, "password": "test-password-for-route"},
             follow_redirects=True,
         )
+
+    def test_school_assigned_super_admin_cannot_authenticate(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                """INSERT INTO users
+                   (username, password_hash, role, status, is_super_admin, school_id)
+                   VALUES (?, ?, 'super_admin', 'active', 1, 1)""",
+                ("invalid_school_super_admin", generate_password_hash("test-password-for-route")),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        # Platform super-administrators must be platform-scoped (school_id NULL).
+        # A school-bound account must not gain global administrator privileges.
+        self.assertIsNone(portal.get_user_by_username("invalid_school_super_admin"))
+        response = self.login_as("invalid_school_super_admin")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Invalid username or password", response.data)
+
 
     def test_student_direct_post_to_academics_is_forbidden(self):
         self.login_as("student_route_test")
