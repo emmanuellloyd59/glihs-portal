@@ -23,6 +23,12 @@ CMHS Digital Campus is a Flask-based school-portal demonstration built with Flas
 - Audit events for sign-in/sign-out, administrator actions, grades, and attendance.
 - Automated regression tests and a GitHub Actions workflow.
 
+## Version 0.3 school operations branch
+
+The Version 0.3 feature branch adds a school-operations workspace for timetable entries (with overlapping class/teacher/room checks), homework assignments with due dates and optional resource links, in-app announcements, a staff-account overview, and basic operational counts. The module is linked from the authenticated navigation and includes regression tests for role restrictions and timetable conflicts.
+
+This is a staged feature expansion, not a claim that every requested module is complete. Parent self-service, complete staff profiles and assignments, file submissions and teacher feedback, finance receipts/refunds/reconciliation, outbound notifications, comprehensive analytics/exports, and enforced multi-school tenant isolation still require implementation and verification. Review docs/version-03-school-modules.md for the exact scope and release gates. Do not deploy this branch or use real school data until CI, data persistence/recovery, security, and tenant-isolation gates are passed.
+
 ## Important demonstration limits
 
 This is a development/demo build, not a production school management system. Do not enter real student records, dates of birth, guardian details, payment information, or real contact information. Use fictional test data only.

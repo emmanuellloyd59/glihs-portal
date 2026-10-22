@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}School Tools | CMHS Digital Campus{% endblock %}
+{% block content %}
+<section class="rounded-4 text-white p-4 p-md-5 mb-4" style="background:linear-gradient(120deg,#102a43,#1769aa);">
+  <p class="eyebrow mb-2" style="color:#8ce7df;">VERSION 0.3 MODULES</p>
+  <h1 class="display-6 fw-bold">School Operations</h1>
+  <p class="mb-0">Timetables, homework, announcements, staff overview, and school activity counts.</p>
+</section>
+<div class="alert alert-warning"><strong>Demo safety:</strong> use fictional data only. These tools are currently single-school; multi-school isolation and production data recovery are not yet implemented.</div>
+<div class="row g-3 mb-4">
+{% for label, value in [('Timetable entries',stats.timetable),('Homework assignments',stats.homework),('Published announcements',stats.announcements),('Student records',stats.students),('Active staff accounts',stats.staff)] %}
+<div class="col-6 col-lg"><div class="surface-card p-3 h-100"><div class="small text-secondary">{{ label }}</div><div class="fs-3 fw-bold">{{ value }}</div></div></div>
+{% endfor %}
+</div>
+<div class="row g-4">
+<div class="col-12 col-xl-6">
+<section class="surface-card p-4 h-100">
+<h2 class="h4 fw-bold">Class timetable</h2>
+{% if can_manage_timetable %}
+<form method="post" class="row g-3 mb-4">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="add_timetable">
+<div class="col-6"><label class="form-label" for="class_name">Class</label><input class="form-control" id="class_name" name="class_name" maxlength="80" required></div>
+<div class="col-6"><label class="form-label" for="subject">Subject</label><input class="form-control" id="subject" name="subject" maxlength="100" required></div>
+<div class="col-12"><label class="form-label" for="teacher_name">Teacher name</label><input class="form-control" id="teacher_name" name="teacher_name" maxlength="120" required></div>
+<div class="col-6"><label class="form-label" for="room">Room (optional)</label><input class="form-control" id="room" name="room" maxlength="80"></div>
+<div class="col-6"><label class="form-label" for="day_of_week">Day</label><select class="form-select" id="day_of_week" name="day_of_week" required>{% for day in ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'] %}<option>{{ day }}</option>{% endfor %}</select></div>
+<div class="col-6"><label class="form-label" for="start_time">Start</label><input type="time" class="form-control" id="start_time" name="start_time" required></div>
+<div class="col-6"><label class="form-label" for="end_time">End</label><input type="time" class="form-control" id="end_time" name="end_time" required></div>
+<div class="col-12"><button class="btn btn-primary" type="submit">Add timetable entry</button></div>
+</form>
+{% else %}<p class="text-secondary">Only academic administrators can edit timetable entries.</p>{% endif %}
+<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Day/time</th><th>Class / subject</th><th>Teacher / room</th>{% if can_manage_timetable %}<th></th>{% endif %}</tr></thead><tbody>
+{% for item in timetable %}<tr><td>{{ item.day_of_week }}<br><strong>{{ item.start_time }}–{{ item.end_time }}</strong></td><td>{{ item.class_name }}<br>{{ item.subject }}</td><td>{{ item.teacher_name }}<br><span class="text-secondary">{{ item.room or 'Room not set' }}</span></td>{% if can_manage_timetable %}<td><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="delete_timetable"><input type="hidden" name="entry_id" value="{{ item.id }}"><button class="btn btn-sm btn-outline-danger" type="submit">Remove</button></form></td>{% endif %}</tr>
+{% else %}<tr><td colspan="4" class="text-secondary">No timetable entries yet.</td></tr>{% endfor %}
+</tbody></table></div>
+</section>
+</div>
+<div class="col-12 col-xl-6">
+<section class="surface-card p-4 mb-4">
+<h2 class="h4 fw-bold">Homework and learning resources</h2>
+{% if can_assign_homework %}
+<form method="post" class="row g-3 mb-4"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="add_homework">
+<div class="col-12"><label class="form-label" for="title">Assignment title</label><input class="form-control" id="title" name="title" maxlength="160" required></div>
+<div class="col-6"><label class="form-label" for="hw_class">Class</label><input class="form-control" id="hw_class" name="class_name" maxlength="80" required></div>
+<div class="col-6"><label class="form-label" for="hw_subject">Subject</label><input class="form-control" id="hw_subject" name="subject" maxlength="100" required></div>
+<div class="col-12"><label class="form-label" for="instructions">Instructions</label><textarea class="form-control" id="instructions" name="instructions" rows="3" maxlength="4000" required></textarea></div>
+<div class="col-6"><label class="form-label" for="due_date">Due date</label><input type="date" class="form-control" id="due_date" name="due_date" required></div>
+<div class="col-6"><label class="form-label" for="resource_url">Resource link (optional)</label><input type="url" class="form-control" id="resource_url" name="resource_url" maxlength="500" placeholder="https://…"></div>
+<div class="col-12"><button class="btn btn-primary" type="submit">Publish homework</button></div></form>
+{% endif %}
+{% for item in homework %}<article class="border rounded-3 p-3 mb-2"><div class="d-flex justify-content-between gap-2"><h3 class="h6 fw-bold mb-1">{{ item.title }}</h3><span class="badge text-bg-light">Due {{ item.due_date }}</span></div><div class="small text-secondary mb-2">{{ item.class_name }} · {{ item.subject }}</div><p class="mb-2">{{ item.instructions }}</p>{% if item.resource_url %}<a href="{{ item.resource_url }}" target="_blank" rel="noopener noreferrer">Open learning resource ↗</a>{% endif %}</article>{% else %}<p class="text-secondary">No homework assignments have been added.</p>{% endfor %}
+</section>
+<section class="surface-card p-4">
+<h2 class="h4 fw-bold">Announcements</h2>
+{% if can_publish %}<form method="post" class="row g-3 mb-4"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="add_announcement">
+<div class="col-12"><label class="form-label" for="announcement_title">Title</label><input class="form-control" id="announcement_title" name="announcement_title" maxlength="160" required></div>
+<div class="col-12"><label class="form-label" for="announcement_body">Message</label><textarea class="form-control" id="announcement_body" name="announcement_body" rows="3" maxlength="4000" required></textarea></div>
+<div class="col-12"><label class="form-label" for="audience">Audience</label><select class="form-select" id="audience" name="audience">{% for audience in ['everyone','students','staff','parents'] %}<option value="{{ audience }}">{{ audience.title() }}</option>{% endfor %}</select></div>
+<div class="col-12"><button class="btn btn-primary" type="submit">Publish announcement</button></div></form>{% endif %}
+{% for item in announcements %}<article class="border rounded-3 p-3 mb-2"><h3 class="h6 fw-bold">{{ item.title }}</h3><p class="mb-1">{{ item.body }}</p><div class="small text-secondary">Audience: {{ item.audience }} · Posted by {{ item.author }}</div></article>{% else %}<p class="text-secondary">No announcements yet.</p>{% endfor %}
+</section>
+</div>
+</div>
+{% if can_manage_staff %}
+<section class="surface-card p-4 mt-4"><div class="d-flex flex-column flex-md-row justify-content-between gap-3"><div><h2 class="h4 fw-bold">Staff account overview</h2><p class="text-secondary">Account status and approval changes remain in Administrator Management.</p></div><a class="btn btn-outline-primary align-self-start" href="{{ url_for('admin_users') }}">Manage accounts →</a></div>
+<div class="table-responsive"><table class="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th></tr></thead><tbody>{% for staff in staff_rows %}<tr><td>{{ staff.full_name or staff.username }}</td><td>{{ staff.username }}</td><td>{{ staff.role.replace('_',' ').title() }}</td><td>{{ staff.status }}</td></tr>{% else %}<tr><td colspan="4">No staff accounts found.</td></tr>{% endfor %}</tbody></table></div></section>
+{% endif %}
+<section class="surface-card p-4 mt-4"><h2 class="h5 fw-bold">Other workspaces</h2><div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-primary" href="{{ url_for('academics') }}">Grades & attendance</a><a class="btn btn-outline-primary" href="{{ url_for('report_cards') }}">Report cards</a>{% if current_user.role in ['finance_admin','super_admin','principal'] %}<a class="btn btn-outline-primary" href="{{ url_for('student_finances') }}">Finance records</a>{% endif %}</div><p class="small text-secondary mt-3 mb-0">Parent self-service and multi-school isolation are not enabled yet; guardian links are not exposed until the account-role migration and access tests are completed.</p></section>
+{% endblock %}
