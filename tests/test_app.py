@@ -1206,6 +1206,47 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         finally:
             connection.close()
 
+    def test_platform_super_admin_must_select_active_school_before_school_modules(self):
+        self.login_as("super_demo", "test-super-password")
+        # Platform administrators have no permanent school_id and must fail closed
+        # until they explicitly select an active tenant for this session.
+        self.assertEqual(self.client.get("/learning-materials").status_code, 403)
+        self.assertEqual(self.client.get("/announcements").status_code, 403)
+        self.assertEqual(self.client.get("/finance/payments").status_code, 403)
+
+        selection = self.client.post(
+            "/admin/select-school", data={"school_id": "1"}
+        )
+        self.assertEqual(selection.status_code, 302)
+        self.assertIn("/dashboard", selection.headers["Location"])
+        self.assertEqual(self.client.get("/learning-materials").status_code, 200)
+        self.assertEqual(self.client.get("/announcements").status_code, 200)
+        self.assertEqual(self.client.get("/finance/payments").status_code, 200)
+
+    def test_platform_super_admin_cannot_select_suspended_school(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO schools (name, slug, status) VALUES (?, ?, 'suspended')",
+                ("Fictional Suspended Tenant", "fictional-suspended-tenant"),
+            )
+            suspended_id = connection.execute(
+                "SELECT id FROM schools WHERE slug=?",
+                ("fictional-suspended-tenant",),
+            ).fetchone()["id"]
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("super_demo", "test-super-password")
+        response = self.client.post(
+            "/admin/select-school", data={"school_id": str(suspended_id)},
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"That school is not active", response.data)
+        self.assertEqual(self.client.get("/learning-materials").status_code, 403)
+
     def test_student_cannot_publish_announcement_or_record_finance_payment(self):
         self.login_as("student_demo", "test-student-password")
         response = self.client.post("/announcements", data={
