@@ -44,7 +44,7 @@
     {% endif %}
 </div>
 {% elif role == 'finance_admin' %}
-<div class="surface-card p-4 mb-4"><h2 class="h5 fw-bold">Finance Workspace</h2><p class="text-secondary mb-3">Manage fee accounts and record individual payments with receipt numbers.</p><a href="{{ url_for('student_finances') }}" class="btn btn-primary me-2 mb-2">Student Financial Records →</a><a href="{{ url_for('finance_payments') }}" class="btn btn-outline-primary mb-2">Payments & Receipts →</a></div>
+<div class="surface-card p-4 mb-4"><h2 class="h5 fw-bold">Finance Workspace</h2><p class="text-secondary mb-3">Manage fee accounts and record individual payments with receipt numbers.</p><a href="{{ url_for('student_finances') }}" class="btn btn-primary me-2 mb-2">Student Financial Records →</a><a href="{{ url_for('finance_payments') }}" class="btn btn-outline-primary mb-2">Payments & Receipts →</a> <a href="{{ url_for('school_performance') }}" class="btn btn-outline-primary mb-2">Financial Overview →</a></div>
 {% elif role == 'librarian' %}
 <div class="surface-card p-4 mb-4"><h2 class="h5 fw-bold">Library & Learning Resources</h2><p class="text-secondary mb-3">Upload, organize, archive and share learning materials for your assigned school.</p><a href="{{ url_for('learning_materials') }}" class="btn btn-primary">Open Learning Materials →</a></div>
 {% elif role == 'attendance_officer' %}
