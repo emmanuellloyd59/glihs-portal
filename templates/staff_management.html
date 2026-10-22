@@ -13,6 +13,13 @@
   <div class="col-6 col-lg-3"><div class="surface-card p-3 h-100"><div class="small text-secondary">Pending</div><div class="fs-2 fw-bold">{{ counts.pending or 0 }}</div></div></div>
   <div class="col-6 col-lg-3"><div class="surface-card p-3 h-100"><div class="small text-secondary">Suspended</div><div class="fs-2 fw-bold text-danger">{{ counts.suspended or 0 }}</div></div></div>
 </div>
+{% if current_user.role == "super_admin" %}
+<section class="surface-card p-3 p-md-4 mb-4 border border-warning-subtle">
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
+<div><p class="eyebrow text-primary mb-1">TEST ENVIRONMENT</p><h2 class="h5 fw-bold mb-1">Activate fictional staff team</h2><p class="small text-secondary mb-0">Creates 9 leadership/support accounts and 9 subject-labelled teacher accounts in the selected school. New temporary passwords are shown once.</p></div>
+<form method="post" action="{{ url_for('create_demo_staff_team') }}" onsubmit="return confirm('Create fictional staff accounts in the selected school? Existing matching accounts will not be changed.');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="confirm_demo_team" value="yes"><button class="btn btn-warning" type="submit">Activate Demo Staff Team</button></form>
+</div></section>
+{% endif %}
 <section class="surface-card p-4 p-md-5 mb-4">
   <p class="eyebrow text-primary mb-1">Add a colleague</p><h2 class="h4 fw-bold mb-2">Create staff account</h2>
   <p class="text-secondary small">Use a unique username and a temporary password of at least 12 characters. Accounts are created in the current school only.</p>
