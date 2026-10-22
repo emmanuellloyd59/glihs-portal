@@ -108,9 +108,12 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
                 """INSERT INTO students (admission_number, full_name, class_level, status, school_id)
                    VALUES ('PRIV-OTHER-001', 'Unlinked Fictional Child', 'Grade 4', 'active', 1)"""
             )
+            creator = connection.execute(
+                "SELECT id FROM users WHERE username = ?", ("super_route_test",)
+            ).fetchone()
             connection.execute(
                 """INSERT INTO parent_student_links (parent_user_id, student_id, school_id, created_by)
-                   VALUES (?, ?, 1, ?)""", (parent_id, linked_id, 1)
+                   VALUES (?, ?, 1, ?)""", (parent_id, linked_id, creator["id"])
             )
             connection.commit()
         finally:
