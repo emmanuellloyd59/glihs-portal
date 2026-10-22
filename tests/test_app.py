@@ -4,6 +4,7 @@ Run with: python -m unittest discover -s tests -v
 Tests use a temporary SQLite database and fictional accounts only.
 """
 import os
+import io
 import tempfile
 import sqlite3
 import unittest
@@ -30,6 +31,16 @@ class PortalTestSupport:
 
     def setUp(self):
         connection = portal.get_db_connection()
+        # New Version 3 modules reference users and students. Clear dependent rows
+        # first so repeated test runs remain isolated and respect SQLite foreign keys.
+        existing_tables = {
+            row["name"] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        for table_name in ("finance_payments", "school_announcements", "learning_materials"):
+            if table_name in existing_tables:
+                connection.execute("DELETE FROM " + table_name)
         connection.execute("DELETE FROM grades")
         connection.execute("DELETE FROM attendance")
         connection.execute("DELETE FROM report_cards")
@@ -1106,6 +1117,104 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
                 self.assertEqual(count, 0)
             finally:
                 connection.close()
+
+
+    def test_version3_stylesheets_have_cache_busting_versions(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"campus-v02.css?v=20261022-1", response.data)
+        self.assertIn(b"campus-v03.css?v=20261022-1", response.data)
+
+    def test_learning_material_upload_is_school_scoped_and_student_class_restricted(self):
+        self.login_as("principal_demo", "test-principal-password")
+        response = self.client.post("/learning-materials", data={
+            "title": "Fictional Grade Seven Notes",
+            "description": "Test resource",
+            "class_level": "Grade 7",
+            "resource_file": (io.BytesIO(b"fictional study notes"), "notes.txt"),
+        }, content_type="multipart/form-data", follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Fictional Grade Seven Notes", response.data)
+        connection = portal.get_db_connection()
+        try:
+            material_id = connection.execute(
+                "SELECT id FROM learning_materials WHERE title = ?",
+                ("Fictional Grade Seven Notes",),
+            ).fetchone()["id"]
+        finally:
+            connection.close()
+        self.client.post("/logout")
+        self.login_as("student_demo", "test-student-password")
+        page = self.client.get("/learning-materials")
+        self.assertEqual(page.status_code, 200)
+        self.assertNotIn(b"Fictional Grade Seven Notes", page.data)
+        download = self.client.get(f"/learning-materials/{material_id}/download")
+        self.assertEqual(download.status_code, 404)
+
+    def test_student_sees_only_student_or_all_audience_announcements(self):
+        self.login_as("principal_demo", "test-principal-password")
+        for title, audience in (("Student Notice Example", "students"),
+                                ("Staff Notice Example", "staff")):
+            response = self.client.post("/announcements", data={
+                "title": title, "body": "Fictional school notice", "audience": audience,
+            })
+            self.assertIn(response.status_code, (302, 303))
+        self.client.post("/logout")
+        self.login_as("student_demo", "test-student-password")
+        response = self.client.get("/announcements")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Student Notice Example", response.data)
+        self.assertNotIn(b"Staff Notice Example", response.data)
+
+    def test_finance_payment_creates_receipt_and_updates_balance(self):
+        connection = portal.get_db_connection()
+        try:
+            student_id = connection.execute(
+                """INSERT INTO students
+                   (admission_number,full_name,class_level,school_id)
+                   VALUES ('PAYMENT-TEST-001','Fictional Payment Student','Grade 7',1)"""
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id,academic_year,total_fee,amount_paid,updated_by,school_id)
+                   VALUES (?, '2026-2027', 100, 0, (SELECT id FROM users WHERE username='teacher_demo'), 1)""",
+                (student_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        self.login_as("finance_demo", "test-finance-password")
+        response = self.client.post("/finance/payments", data={
+            "student_id": str(student_id), "academic_year": "2026-2027",
+            "amount": "25.00", "method": "cash", "reference": "TEST-CASH-001",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"RCPT-", response.data)
+        connection = portal.get_db_connection()
+        try:
+            finance = connection.execute(
+                "SELECT amount_paid FROM student_finances WHERE student_id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()
+            payment = connection.execute(
+                "SELECT amount,receipt_number FROM finance_payments WHERE student_id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()
+            self.assertEqual(finance["amount_paid"], 25.0)
+            self.assertEqual(payment["amount"], 25.0)
+            self.assertTrue(payment["receipt_number"].startswith("RCPT-"))
+        finally:
+            connection.close()
+
+    def test_student_cannot_publish_announcement_or_record_finance_payment(self):
+        self.login_as("student_demo", "test-student-password")
+        response = self.client.post("/announcements", data={
+            "title": "Unauthorized", "body": "Must not publish", "audience": "all",
+        })
+        self.assertEqual(response.status_code, 403)
+        response = self.client.get("/finance/payments")
+        self.assertEqual(response.status_code, 403)
+
 
 if __name__ == "__main__":
     unittest.main()

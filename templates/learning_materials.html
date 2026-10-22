@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Learning Materials | CMHS Digital Campus{% endblock %}
+{% block content %}
+<section class="rounded-4 text-white p-4 p-md-5 mb-4"><p class="eyebrow mb-2">TEACHING & LEARNING</p><h1 class="display-6 fw-bold">Learning Materials</h1><p class="mb-0">Browse resources published for your school. Downloads are checked against your account and school.</p></section>
+{% if can_upload %}<section class="surface-card p-4 mb-4"><h2 class="h5 fw-bold">Upload a resource</h2><p class="text-secondary">Allowed files: PDF, TXT, PNG and JPG. Maximum request size is 6 MB.</p>
+<form method="post" enctype="multipart/form-data" class="row g-3"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<div class="col-12 col-md-6"><label class="form-label" for="title">Resource title</label><input class="form-control" id="title" name="title" maxlength="120" required></div>
+<div class="col-12 col-md-6"><label class="form-label" for="class_level">Visible class</label><input class="form-control" id="class_level" name="class_level" maxlength="60" placeholder="e.g. Grade 7 or All classes" required></div>
+<div class="col-12"><label class="form-label" for="description">Description</label><textarea class="form-control" id="description" name="description" maxlength="500" rows="2"></textarea></div>
+<div class="col-12"><label class="form-label" for="resource_file">Choose file</label><input class="form-control" id="resource_file" name="resource_file" type="file" accept=".pdf,.txt,.png,.jpg,.jpeg" required></div>
+<div class="col-12"><button class="btn btn-primary" type="submit">Upload material</button></div></form></section>{% endif %}
+<section class="surface-card p-3 p-md-4"><h2 class="h5 fw-bold mb-3">Available resources</h2>
+{% if materials %}<div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>Resource</th><th>Class</th><th>Added</th><th>Status</th><th></th></tr></thead><tbody>{% for item in materials %}<tr><td><strong>{{ item['title'] }}</strong><div class="small text-secondary">{{ item['description'] }}</div><div class="small text-secondary">{{ item['original_name'] }}</div></td><td>{{ item['class_level'] }}</td><td>{{ item['created_at'] }}</td><td>{% if item['archived'] %}<span class="badge text-bg-secondary">Archived</span>{% else %}<span class="badge text-bg-success">Available</span>{% endif %}</td><td>{% if not item['archived'] %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('download_learning_material', material_id=item['id']) }}">Download</a>{% endif %}{% if can_manage and not item['archived'] %}<form class="d-inline" method="post" action="{{ url_for('archive_learning_material', material_id=item['id']) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary" type="submit">Archive</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="text-secondary mb-0">No materials are available for your account yet.</p>{% endif %}</section>
+<a class="btn btn-outline-secondary mt-3" href="{{ url_for('dashboard') }}">Back to dashboard</a>
+{% endblock %}
