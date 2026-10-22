@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Attendance Reports | CMHS Digital Campus{% endblock %}
+{% block content %}
+<section class="rounded-4 p-4 p-md-5 mb-4 text-white" style="background:linear-gradient(120deg,#102a43,#164e78 65%,#1769aa);">
+  <p class="eyebrow mb-2" style="color:#8ce7df;">CMHS DIGITAL CAMPUS · ACADEMICS</p>
+  <h1 class="display-6 fw-bold mb-2">Attendance Reports</h1>
+  <p class="mb-0" style="color:#e1edf7;">Review attendance patterns for the selected school and export a filtered report.</p>
+</section>
+<section class="surface-card p-4 mb-4 no-print">
+  <form method="get" action="{{ url_for('attendance_report') }}" class="row g-3 align-items-end">
+    <div class="col-12 col-md-4"><label class="form-label" for="start_date">From</label><input class="form-control" type="date" id="start_date" name="start_date" value="{{ start_date }}" max="{{ end_date }}" required></div>
+    <div class="col-12 col-md-4"><label class="form-label" for="end_date">To</label><input class="form-control" type="date" id="end_date" name="end_date" value="{{ end_date }}" min="{{ start_date }}" max="{{ today }}" required></div>
+    <div class="col-12 col-md-4"><label class="form-label" for="class_level">Class</label><select class="form-select" id="class_level" name="class_level"><option value="">All classes</option>{% for item in classes %}<option value="{{ item.class_level }}" {% if class_filter == item.class_level %}selected{% endif %}>{{ item.class_level }}</option>{% endfor %}</select></div>
+    <div class="col-12 d-flex flex-wrap gap-2"><button class="btn btn-primary" type="submit">Run Report</button><a class="btn btn-outline-primary" href="{{ url_for('attendance_report', start_date=start_date, end_date=end_date, class_level=class_filter, export='csv') }}">Export CSV</a><button class="btn btn-outline-secondary" type="button" onclick="window.print()">Print Report</button></div>
+  </form>
+  <p class="small text-secondary mt-3 mb-0">Reports are limited to 367 days per request. Attendance rate counts Present and Late as attended and excludes Excused entries from the rate denominator. Only dates with recorded attendance contribute to each student's rate.</p>
+</section>
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3"><div class="surface-card p-3 h-100"><div class="small text-secondary">Students in filter</div><div class="fs-2 fw-bold">{{ totals.students or 0 }}</div></div></div>
+  <div class="col-6 col-lg-3"><div class="surface-card p-3 h-100"><div class="small text-secondary">Attendance entries</div><div class="fs-2 fw-bold">{{ totals.attendance_entries or 0 }}</div></div></div>
+  <div class="col-6 col-lg-3"><div class="surface-card p-3 h-100"><div class="small text-secondary">Present</div><div class="fs-2 fw-bold text-success">{{ totals.present_count or 0 }}</div></div></div>
+  <div class="col-6 col-lg-3"><div class="surface-card p-3 h-100"><div class="small text-secondary">Absent</div><div class="fs-2 fw-bold text-danger">{{ totals.absent_count or 0 }}</div></div></div>
+</div>
+<section class="surface-card p-3 p-md-4 mb-4">
+  <div class="d-flex flex-column flex-sm-row justify-content-between gap-2 mb-3"><div><p class="eyebrow text-primary mb-1">Student breakdown</p><h2 class="h4 fw-bold mb-0">Attendance by student</h2></div><span class="small text-secondary">{{ start_date }} to {{ end_date }}{% if class_filter %} · {{ class_filter }}{% endif %}</span></div>
+  {% if rows %}<div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>Student</th><th>Class</th><th>Days recorded</th><th>Present</th><th>Absent</th><th>Late</th><th>Excused</th><th>Rate</th></tr></thead><tbody>{% for row in rows %}<tr><td><strong>{{ row.full_name }}</strong><div class="small text-secondary">{{ row.admission_number }}</div></td><td>{{ row.class_level }}</td><td>{{ row.days_recorded }}</td><td>{{ row.present_count }}</td><td>{{ row.absent_count }}</td><td>{{ row.late_count }}</td><td>{{ row.excused_count }}</td><td>{% if row.attendance_rate is not none %}<span class="badge {% if row.attendance_rate >= 90 %}text-bg-success{% elif row.attendance_rate >= 75 %}text-bg-warning{% else %}text-bg-danger{% endif %}">{{ row.attendance_rate }}%</span>{% else %}<span class="text-secondary">No records</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+  {% else %}<p class="text-secondary py-4 mb-0">No active students match this class filter.</p>{% endif %}
+</section>
+<section class="surface-card p-3 p-md-4">
+  <p class="eyebrow text-primary mb-1">Daily overview</p><h2 class="h4 fw-bold mb-3">Attendance entries by date</h2>
+  {% if daily %}<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Date</th><th>Present</th><th>Absent</th><th>Late</th><th>Excused</th><th>Total</th></tr></thead><tbody>{% for day in daily %}<tr><td>{{ day.attendance_date }}</td><td>{{ day.present_count }}</td><td>{{ day.absent_count }}</td><td>{{ day.late_count }}</td><td>{{ day.excused_count }}</td><td>{{ day.total_entries }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="text-secondary mb-0">No attendance entries exist for this date range.</p>{% endif %}
+</section>
+{% endblock %}
