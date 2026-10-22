@@ -1470,7 +1470,7 @@ def list_students():
         )
         # Do not fetch fee/payment data for roles that cannot view finances. Hiding
         # columns in the template is not a substitute for least-privilege data access.
-        can_view_finances = current_user.role in {"principal", "registrar"}
+        can_view_finances = current_user.role in {"principal", "registrar", "finance_admin"}
         finance_columns = (
             "COALESCE(f.total_fee, 0) AS total_fee, "
             "COALESCE(f.amount_paid, 0) AS amount_paid, "
