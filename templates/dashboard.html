@@ -37,7 +37,9 @@
     {% if role in ['super_admin', 'school_admin', 'principal', 'vice_principal', 'registrar', 'academic_admin', 'attendance_officer', 'teacher'] %}
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4 d-flex flex-column"><div class="fs-2 mb-3">📈</div><span class="badge text-bg-success mb-3">Available</span><h3 class="h5 fw-bold">Attendance Reports</h3><p class="text-secondary">Filter student attendance by date and class, review totals and export CSV reports.</p><a href="{{ url_for('attendance_report') }}" class="btn btn-primary mt-auto">View Attendance Reports →</a></article></div>
     {% endif %}
-    {% if role in ['super_admin', 'school_admin', 'principal', 'vice_principal', 'academic_admin', 'registrar', 'teacher'] %}
+    {% if role in ['super_admin','school_admin','principal','vice_principal','academic_admin','registrar','attendance_officer'] %}
+<div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4 d-flex flex-column"><div class="fs-2 mb-3">📊</div><span class="badge text-bg-success mb-3">Available</span><h3 class="h5 fw-bold">School Performance</h3><p class="text-secondary">Review enrollment, attendance trends and recorded academic results. Finance summaries remain role-restricted.</p><a href="{{ url_for('school_performance') }}" class="btn btn-primary mt-auto">Open Performance Dashboard →</a></article></div>
+{% if role in ['super_admin', 'school_admin', 'principal', 'vice_principal', 'academic_admin', 'registrar', 'teacher'] %}
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4 d-flex flex-column"><div class="fs-2 mb-3">📣</div><span class="badge text-bg-success mb-3">Available</span><h3 class="h5 fw-bold">School Announcements</h3><p class="text-secondary">View school notices; publishing and archiving depend on your role.</p><a href="{{ url_for('announcements') }}" class="btn btn-primary mt-auto">Open Announcements →</a></article></div>
     {% endif %}
 </div>
