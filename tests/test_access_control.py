@@ -37,6 +37,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             ("student_route_test", "student"),
             ("finance_route_test", "finance_admin"),
             ("registrar_route_test", "registrar"),
+            ("principal_route_test", "principal"),
             ("super_route_test", "super_admin"),
         ]
         for username, role in accounts:
@@ -466,7 +467,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         finally:
             connection.close()
 
-        self.login_as("super_route_test")
+        self.login_as("principal_route_test")
         response = self.client.post("/report-cards", data={
             "action": "publish", "student_id": str(student_b_id),
             "academic_year": "2026-2027", "term": "Term 1",
