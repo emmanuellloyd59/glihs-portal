@@ -478,7 +478,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.client.post("/logout")
         connection = portal.get_db_connection()
         connection.execute(
-            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, ?, 1)",
+            "INSERT OR IGNORE INTO users (username, password_hash, role, school_id) VALUES (?, ?, ?, 1)",
             ("finance_demo", generate_password_hash("test-finance-password"), "finance_admin"),
         )
         connection.commit()
