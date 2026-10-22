@@ -29,6 +29,28 @@
     <div class="col-12 col-md-4"><div class="metric-card"><div class="small text-secondary mb-1">Suspended accounts</div><div class="metric-number">{{ suspended_count }}</div><div class="small text-secondary">Sign-in blocked</div></div></div>
 </div>
 <section class="surface-card p-3 p-md-4 mb-4">
+    <div class="mb-3"><p class="eyebrow text-primary mb-1">Student and parent access</p><h2 class="h4 fw-bold mb-1">Create a student or parent account</h2><p class="text-secondary small mb-0">Use a unique username and a strong temporary password. Select the verified student record in the same school. Give the password privately.</p></div>
+    <form method="POST" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="create_account">
+        <div class="col-12 col-md-6"><label class="form-label" for="new-full-name">Full name</label><input class="form-control" id="new-full-name" name="new_full_name" maxlength="120" required></div>
+        <div class="col-12 col-md-6"><label class="form-label" for="new-username">Username</label><input class="form-control" id="new-username" name="new_username" maxlength="64" pattern="[A-Za-z0-9_-]+" autocomplete="off" required></div>
+        <div class="col-12 col-md-6"><label class="form-label" for="new-role">Account type</label><select class="form-select" id="new-role" name="new_role" required><option value="student">Student</option><option value="parent">Parent / Guardian</option></select></div>
+        <div class="col-12 col-md-6"><label class="form-label" for="account-school">School</label><select class="form-select" id="account-school" name="school_id" required><option value="">Choose a school</option>{% for school in schools %}<option value="{{ school.id }}">{{ school.name }}</option>{% endfor %}</select></div>
+        <div class="col-12 col-md-6"><label class="form-label" for="linked-student">Verified student record</label><select class="form-select" id="linked-student" name="linked_student_id" required><option value="">Choose a student</option>{% for student in available_students %}<option value="{{ student.id }}">{{ student.full_name }} — {{ student.admission_number }} ({{ student.class_level }})</option>{% endfor %}</select><div class="form-text">Choose a student from the selected school. The server validates the school relationship.</div></div>
+        <div class="col-12 col-md-6"><label class="form-label" for="new-password">Temporary password (at least 12 characters)</label><input class="form-control" id="new-password" name="new_password" type="password" minlength="12" autocomplete="new-password" required></div>
+        <div class="col-12"><button class="btn btn-primary" type="submit">Create and link account</button></div>
+    </form>
+</section>
+<section class="surface-card p-3 p-md-4 mb-4">
+    <div class="mb-3"><p class="eyebrow text-primary mb-1">Family links</p><h2 class="h4 fw-bold mb-1">Parent / guardian relationships</h2><p class="text-secondary small mb-0">Each link is limited to a student and parent account in the same school.</p></div>
+    {% if parent_links %}
+    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Parent account</th><th>Student</th><th>Action</th></tr></thead><tbody>
+    {% for link in parent_links %}<tr><td>@{{ link.parent_username }}</td><td>{{ link.student_name }} — {{ link.admission_number }}</td><td><form method="POST" onsubmit="return confirm('Unlink this parent from this student?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="unlink_parent"><input type="hidden" name="user_id" value="{{ link.parent_user_id }}"><input type="hidden" name="student_id" value="{{ link.student_id }}"><button class="btn btn-outline-warning btn-sm" type="submit">Unlink</button></form></td></tr>{% endfor %}
+    </tbody></table></div>
+    {% else %}<p class="text-secondary mb-0">No parent-to-student links yet.</p>{% endif %}
+</section>
+<section class="surface-card p-3 p-md-4 mb-4">
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3"><div><p class="eyebrow text-primary mb-1">Account directory</p><h2 class="h4 fw-bold mb-1">Staff accounts and requests</h2><p class="text-secondary small mb-0">Requests cannot sign in until you approve them and set a temporary password.</p></div><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('request_staff_access') }}" target="_blank" rel="noopener">Open request form ↗</a></div>
     {% if users %}
     <div class="table-responsive"><table class="table align-middle mb-0">
@@ -77,6 +99,12 @@
                     <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" value="{{ user.id }}"><button class="btn btn-outline-danger btn-sm" name="action" value="suspend" type="submit" onclick="return confirm('Suspend this account? The user will no longer be able to sign in.');">Suspend account</button></form>
                     {% else %}
                     <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" value="{{ user.id }}"><button class="btn btn-outline-success btn-sm" name="action" value="reactivate" type="submit">Reactivate account</button></form>
+                    {% endif %}
+                    {% if not user.is_super_admin %}
+                    <form method="POST" class="mt-2" onsubmit="return confirm('Remove this account’s login access? School records and audit history will be preserved.');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="delete_account"><input type="hidden" name="user_id" value="{{ user.id }}">
+                        <button class="btn btn-danger btn-sm" type="submit">Delete login account</button>
+                    </form>
                     {% endif %}
                 </td>
             </tr>
