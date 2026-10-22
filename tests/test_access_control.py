@@ -36,7 +36,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         accounts = [
             ("teacher_route_test", "teacher"),
             ("student_route_test", "student"),
-            ("finance_route_test", "finance_admin"),
+            ("principal_route_test", "finance_admin"),
             ("registrar_route_test", "registrar"),
             ("principal_route_test", "principal"),
             ("super_route_test", "super_admin"),
@@ -192,7 +192,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_finance_direct_post_to_academics_is_forbidden(self):
-        self.login_as("finance_route_test")
+        self.login_as("principal_route_test")
         response = self.client.post("/academics", data={
             "action": "grade", "student_id": "1", "subject": "Math",
             "assessment": "Test", "score": "10", "max_score": "10",
@@ -439,15 +439,15 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertIsNone(captured["students"][0]["amount_paid"])
         self.assertIsNone(captured["students"][0]["balance"])
 
-    def test_finance_admin_student_list_receives_finance_values(self):
+    def test_principal_student_list_receives_finance_values(self):
         connection = portal.get_db_connection()
         try:
             student_id = connection.execute(
                 """INSERT INTO students (admission_number, full_name, class_level, school_id)
-                   VALUES ('FINANCE-ADMIN-001', 'Fictional Finance Admin Student', 'Grade 7', 1)"""
+                   VALUES ('PRINCIPAL-FINANCE-001', 'Fictional Principal Finance Student', 'Grade 7', 1)"""
             ).lastrowid
             finance_user_id = connection.execute(
-                "SELECT id FROM users WHERE username = 'finance_route_test'"
+                "SELECT id FROM users WHERE username = 'principal_route_test'"
             ).fetchone()["id"]
             connection.execute(
                 """INSERT INTO student_finances
@@ -459,7 +459,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         finally:
             connection.close()
 
-        self.login_as("finance_route_test")
+        self.login_as("principal_route_test")
         captured = {}
 
         def capture_template(template_name, **context):
@@ -577,7 +577,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
 
         self.client.post("/logout")
-        self.login_as("finance_route_test")
+        self.login_as("principal_route_test")
         finance_page = self.client.get("/student-finances")
         self.assertEqual(finance_page.status_code, 200)
         self.assertNotIn(b"School B Fictional Student", finance_page.data)
