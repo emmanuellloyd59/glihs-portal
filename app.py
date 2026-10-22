@@ -485,6 +485,28 @@ def initialize_database():
                     "UPDATE " + table_name + " SET school_id = 1 WHERE school_id IS NULL"
                 )
 
+        # Parent-child links are explicit, school-scoped, and many-to-many so one
+        # guardian can be linked to siblings without gaining access to other families.
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS parent_student_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+                school_id INTEGER NOT NULL REFERENCES schools(id),
+                linked_by INTEGER NOT NULL REFERENCES users(id),
+                linked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(parent_user_id, student_id)
+            )
+        """)
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_parent_links_school_parent "
+            "ON parent_student_links(school_id, parent_user_id)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_parent_links_school_student "
+            "ON parent_student_links(school_id, student_id)"
+        )
+
         # Remove the legacy global admission-number constraint only after all
         # records have a school owner, so the new constraint can be tenant-scoped.
         migrate_student_admission_number_uniqueness(connection)
@@ -889,6 +911,9 @@ def admin_users():
     denial = require_super_admin()
     if denial:
         return denial
+    # A platform administrator must explicitly choose the school whose accounts
+    # are being managed. Never display or modify every school's accounts at once.
+    school_id = require_school_context()
 
     if request.method == "POST":
         action = request.form.get("action", "").strip()
@@ -896,8 +921,9 @@ def admin_users():
         connection = get_db_connection()
         try:
             target = connection.execute(
-                "SELECT id, username, role, status, is_super_admin, school_id FROM users WHERE id = ?",
-                (target_id,),
+                """SELECT id, username, role, status, is_super_admin, school_id
+                   FROM users WHERE id = ? AND school_id = ?""",
+                (target_id, school_id),
             ).fetchone()
             if target is None:
                 flash("The selected account could not be found.", "danger")
@@ -991,6 +1017,63 @@ def admin_users():
                             )
                             connection.commit()
                             flash("Student account linked to the verified student record.", "success")
+            elif action == "link_parent_student":
+                student_id = request.form.get("student_id", "").strip()
+                if target["role"] != "parent" or target["status"] != "active":
+                    flash("Only an active parent/guardian account can be linked to a child.", "danger")
+                elif request.form.get("verify_identity") != "yes":
+                    flash("Confirm the guardian's identity and relationship against school records before linking.", "danger")
+                else:
+                    student = connection.execute(
+                        """SELECT id, admission_number FROM students
+                           WHERE id = ? AND school_id = ? AND status = 'active'""",
+                        (student_id, school_id),
+                    ).fetchone()
+                    if not student:
+                        flash("Choose a valid active student record from this school.", "danger")
+                    else:
+                        connection.execute(
+                            """INSERT OR IGNORE INTO parent_student_links
+                               (parent_user_id, student_id, school_id, linked_by)
+                               VALUES (?, ?, ?, ?)""",
+                            (target_id_int, student["id"], school_id, current_user.id),
+                        )
+                        connection.execute(
+                            """INSERT INTO audit_log
+                               (actor_user_id, action, target_username, details, school_id)
+                               VALUES (?, 'parent_child_linked', ?, ?, ?)""",
+                            (current_user.id, target_username,
+                             "Verified child record: " + student["admission_number"], school_id),
+                        )
+                        connection.commit()
+                        flash("Parent account linked to the verified child record.", "success")
+            elif action == "unlink_parent_student":
+                student_id = request.form.get("student_id", "").strip()
+                linked = connection.execute(
+                    """SELECT s.admission_number FROM parent_student_links p
+                       JOIN students s ON s.id = p.student_id AND s.school_id = p.school_id
+                       WHERE p.parent_user_id = ? AND p.student_id = ? AND p.school_id = ?""",
+                    (target_id_int, student_id, school_id),
+                ).fetchone()
+                if target["role"] != "parent":
+                    flash("Only parent/guardian accounts can be unlinked from child records.", "danger")
+                elif linked:
+                    connection.execute(
+                        """DELETE FROM parent_student_links
+                           WHERE parent_user_id = ? AND student_id = ? AND school_id = ?""",
+                        (target_id_int, student_id, school_id),
+                    )
+                    connection.execute(
+                        """INSERT INTO audit_log
+                           (actor_user_id, action, target_username, details, school_id)
+                           VALUES (?, 'parent_child_unlinked', ?, ?, ?)""",
+                        (current_user.id, target_username,
+                         "Child record: " + linked["admission_number"], school_id),
+                    )
+                    connection.commit()
+                    flash("Parent-child link removed.", "success")
+                else:
+                    flash("This parent account is not linked to that child.", "info")
             elif action == "unlink_student":
                 linked = connection.execute(
                     "SELECT admission_number FROM students WHERE account_user_id = ? AND school_id = ?",
@@ -1041,21 +1124,36 @@ def admin_users():
                    s.full_name AS linked_student_name, s.admission_number AS linked_admission_number
             FROM users u LEFT JOIN students s
                 ON s.account_user_id = u.id AND s.school_id = u.school_id
+            WHERE u.school_id = ?
             ORDER BY CASE u.status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END,
                      u.username COLLATE NOCASE
-            """
+            """, (school_id,)
         ).fetchall()
         available_students = connection.execute(
             """SELECT id, full_name, admission_number, class_level, account_user_id
-               FROM students WHERE status = 'active' ORDER BY class_level, full_name"""
+               FROM students WHERE school_id = ? AND status = 'active'
+               ORDER BY class_level, full_name""", (school_id,)
         ).fetchall()
+        parent_links_by_user = {}
+        parent_links = connection.execute(
+            """SELECT p.parent_user_id, p.student_id, s.full_name, s.admission_number,
+                      s.class_level
+               FROM parent_student_links p
+               JOIN students s ON s.id = p.student_id AND s.school_id = p.school_id
+               JOIN users u ON u.id = p.parent_user_id AND u.school_id = p.school_id
+               WHERE p.school_id = ?
+               ORDER BY s.class_level, s.full_name COLLATE NOCASE""", (school_id,)
+        ).fetchall()
+        for link in parent_links:
+            parent_links_by_user.setdefault(link["parent_user_id"], []).append(link)
         audit_entries = connection.execute(
             """
             SELECT audit_log.action, audit_log.target_username, audit_log.details,
                    audit_log.created_at, users.username AS actor_username
             FROM audit_log LEFT JOIN users ON users.id = audit_log.actor_user_id
+            WHERE audit_log.school_id = ?
             ORDER BY audit_log.id DESC LIMIT 20
-            """
+            """, (school_id,)
         ).fetchall()
     finally:
         connection.close()
@@ -1063,6 +1161,7 @@ def admin_users():
     return render_template(
         "admin_users.html", users=users, roles=STAFF_ROLES,
         available_students=available_students, audit_entries=audit_entries,
+        parent_links_by_user=parent_links_by_user,
     )
 
 
@@ -1210,6 +1309,60 @@ def academics():
 # --------------------------------------------------
 # 6. REPORT CARDS
 # --------------------------------------------------
+
+@app.route("/parent/children")
+@login_required
+def parent_children():
+    """Show only children explicitly linked to this active parent in this school."""
+    if current_user.role != "parent":
+        abort(403)
+    school_id = require_school_context()
+    connection = get_db_connection()
+    try:
+        children = connection.execute(
+            """SELECT s.id, s.full_name, s.admission_number, s.class_level,
+                      s.student_id_number
+               FROM parent_student_links p
+               JOIN students s ON s.id = p.student_id AND s.school_id = p.school_id
+               JOIN users u ON u.id = p.parent_user_id AND u.school_id = p.school_id
+               WHERE p.parent_user_id = ? AND p.school_id = ?
+                 AND u.role = 'parent' AND u.status = 'active' AND s.status = 'active'
+               ORDER BY s.class_level, s.full_name COLLATE NOCASE""",
+            (current_user.id, school_id),
+        ).fetchall()
+        child_data = []
+        for child in children:
+            reports = connection.execute(
+                """SELECT rc.academic_year, rc.term, g.subject, g.assessment,
+                          g.score, g.max_score
+                   FROM report_cards rc
+                   JOIN grades g ON g.student_id = rc.student_id
+                     AND g.school_id = rc.school_id
+                     AND g.academic_year = rc.academic_year AND g.term = rc.term
+                   WHERE rc.student_id = ? AND rc.school_id = ? AND rc.published = 1
+                   ORDER BY rc.academic_year DESC, rc.term, g.subject COLLATE NOCASE""",
+                (child["id"], school_id),
+            ).fetchall()
+            attendance = connection.execute(
+                """SELECT status, COUNT(*) AS total FROM attendance
+                   WHERE student_id = ? AND school_id = ? GROUP BY status""",
+                (child["id"], school_id),
+            ).fetchall()
+            finances = connection.execute(
+                """SELECT academic_year, total_fee, amount_paid,
+                          total_fee - amount_paid AS balance
+                   FROM student_finances WHERE student_id = ? AND school_id = ?
+                   ORDER BY academic_year DESC""",
+                (child["id"], school_id),
+            ).fetchall()
+            child_data.append({
+                "student": child, "reports": reports,
+                "attendance": attendance, "finances": finances,
+            })
+    finally:
+        connection.close()
+    return render_template("parent_children.html", child_data=child_data)
+
 
 REPORT_CARD_VIEW_ROLES = {
     "super_admin", "school_admin", "principal", "vice_principal",

@@ -41,6 +41,8 @@ class PortalTestSupport:
         for table_name in ("finance_payments", "school_announcements", "learning_materials"):
             if table_name in existing_tables:
                 connection.execute("DELETE FROM " + table_name)
+        if "parent_student_links" in existing_tables:
+            connection.execute("DELETE FROM parent_student_links")
         connection.execute("DELETE FROM grades")
         connection.execute("DELETE FROM attendance")
         connection.execute("DELETE FROM report_cards")
@@ -48,6 +50,9 @@ class PortalTestSupport:
         connection.execute("DELETE FROM audit_log")
         connection.execute("DELETE FROM students")
         connection.execute("DELETE FROM users")
+        # Tests that create extra tenants must not leak them into later tests; the
+        # production database is never touched by this test-only cleanup.
+        connection.execute("DELETE FROM schools WHERE id != 1")
         connection.execute(
             "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, ?, 1)",
             ("teacher_demo", generate_password_hash("test-teacher-password"), "teacher"),
@@ -77,6 +82,8 @@ class PortalTestSupport:
         connection.commit()
         connection.close()
         self.client.post("/logout")  # Clear a prior authenticated test session if any.
+        with self.client.session_transaction() as session:
+            session.clear()
 
     def login_as(self, username, password):
         return self.client.post(
@@ -335,6 +342,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
             },
         )
         self.login_as("super_demo", "test-super-password")
+        self.client.post("/admin/select-school", data={"school_id": "1"})
         response = self.client.post(
             "/admin/users",
             data={
@@ -1342,6 +1350,106 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(records.status_code, 200)
         self.assertIn(b"not authorized to view student records", records.data)
         self.assertEqual(self.client.get("/announcements").status_code, 200)
+
+    def test_parent_can_view_only_verified_linked_children_and_their_published_records(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO users (username, full_name, password_hash, role, status, school_id) VALUES (?, ?, ?, 'parent', 'active', 1)",
+                ("parent_family_demo", "Fictional Parent", generate_password_hash("test-parent-family-password")),
+            )
+            child_id = connection.execute(
+                "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
+                ("FAMILY-001", "Fictional Linked Child", "Grade 5"),
+            ).lastrowid
+            unrelated_child_id = connection.execute(
+                "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
+                ("FAMILY-002", "Fictional Unlinked Child", "Grade 6"),
+            ).lastrowid
+            connection.execute(
+                "INSERT INTO report_cards (student_id, academic_year, term, published, school_id) VALUES (?, '2026-2027', 'Term 1', 1, 1)",
+                (child_id,),
+            )
+            connection.execute(
+                "INSERT INTO grades (student_id, subject, assessment, score, max_score, recorded_by, academic_year, term, school_id) VALUES (?, 'Mathematics', 'Test 1', 18, 20, (SELECT id FROM users WHERE username='registrar_demo'), '2026-2027', 'Term 1', 1)",
+                (child_id,),
+            )
+            connection.commit()
+            parent_id = connection.execute(
+                "SELECT id FROM users WHERE username='parent_family_demo'"
+            ).fetchone()["id"]
+        finally:
+            connection.close()
+
+        self.login_as("super_demo", "test-super-password")
+        self.client.post("/admin/select-school", data={"school_id": "1"})
+        response = self.client.post("/admin/users", data={
+            "action": "link_parent_student", "user_id": str(parent_id),
+            "student_id": str(child_id), "verify_identity": "yes",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Parent account linked to the verified child record", response.data)
+
+        connection = portal.get_db_connection()
+        try:
+            linked = connection.execute(
+                "SELECT student_id FROM parent_student_links WHERE parent_user_id=? AND school_id=1",
+                (parent_id,),
+            ).fetchall()
+            self.assertEqual([row["student_id"] for row in linked], [child_id])
+            self.assertNotIn(unrelated_child_id, [row["student_id"] for row in linked])
+        finally:
+            connection.close()
+
+        self.client.post("/logout")
+        self.login_as("parent_family_demo", "test-parent-family-password")
+        page = self.client.get("/parent/children")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b"Fictional Linked Child", page.data)
+        self.assertIn(b"Mathematics", page.data)
+        self.assertNotIn(b"Fictional Unlinked Child", page.data)
+
+    def test_parent_child_link_cannot_cross_school_boundaries(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO schools (name, slug, status) VALUES ('Fictional Second School', 'family-second-school', 'active')"
+            )
+            second_school_id = connection.execute(
+                "SELECT id FROM schools WHERE slug='family-second-school'"
+            ).fetchone()["id"]
+            connection.execute(
+                "INSERT INTO users (username, full_name, password_hash, role, status, school_id) VALUES (?, ?, ?, 'parent', 'active', 1)",
+                ("parent_scope_demo", "Fictional Parent", generate_password_hash("test-parent-scope-password")),
+            )
+            other_child_id = connection.execute(
+                "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, ?)",
+                ("OTHER-001", "Fictional Other School Child", "Grade 3", second_school_id),
+            ).lastrowid
+            parent_id = connection.execute(
+                "SELECT id FROM users WHERE username='parent_scope_demo'"
+            ).fetchone()["id"]
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("super_demo", "test-super-password")
+        self.client.post("/admin/select-school", data={"school_id": "1"})
+        response = self.client.post("/admin/users", data={
+            "action": "link_parent_student", "user_id": str(parent_id),
+            "student_id": str(other_child_id), "verify_identity": "yes",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        try:
+            linked = connection.execute(
+                "SELECT 1 FROM parent_student_links WHERE parent_user_id=? AND student_id=?",
+                (parent_id, other_child_id),
+            ).fetchone()
+            self.assertIsNone(linked)
+        finally:
+            connection.close()
+
 
 if __name__ == "__main__":
     unittest.main()
