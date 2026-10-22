@@ -1343,8 +1343,23 @@ def student_detail(student_id):
         abort(403)
     connection = get_db_connection()
     try:
+        # Only the principal and registrar need the full private profile. Other
+        # instructional roles receive NULLs from SQL, not merely hidden template fields.
+        private_profile_fields = (
+            "s.date_of_birth, s.previous_school, s.guardian_name, s.guardian_phone, "
+            "s.emergency_contact_name, s.emergency_contact_phone, s.record_notes"
+            if current_user.role in {"principal", "registrar"}
+            else "NULL AS date_of_birth, NULL AS previous_school, NULL AS guardian_name, "
+                 "NULL AS guardian_phone, NULL AS emergency_contact_name, "
+                 "NULL AS emergency_contact_phone, NULL AS record_notes"
+        )
         student = connection.execute(
-            "SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, require_school_context())
+            f"""SELECT s.id, s.student_id_number, s.admission_number, s.full_name,
+                       s.class_level, {private_profile_fields}, s.enrollment_date,
+                       s.created_at, s.status
+                FROM students s
+                WHERE s.id = ? AND s.school_id = ?""",
+            (student_id, require_school_context()),
         ).fetchone()
         if student is None:
             abort(404)
@@ -1464,9 +1479,9 @@ def list_students():
         # Teachers need class/identity details for instruction, not private guardian
         # contact information or student birth dates. Expressions are fixed constants.
         private_student_fields = (
-            "NULL AS date_of_birth, NULL AS guardian_name, NULL AS guardian_phone"
-            if current_user.role == "teacher"
-            else "s.date_of_birth, s.guardian_name, s.guardian_phone"
+            "s.date_of_birth, s.guardian_name, s.guardian_phone"
+            if current_user.role in {"principal", "registrar"}
+            else "NULL AS date_of_birth, NULL AS guardian_name, NULL AS guardian_phone"
         )
         # Do not fetch fee/payment data for roles that cannot view finances. Hiding
         # columns in the template is not a substitute for least-privilege data access.
