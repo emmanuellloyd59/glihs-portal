@@ -1450,7 +1450,7 @@ def student_detail(student_id):
         private_profile_fields = (
             "s.date_of_birth, s.previous_school, s.guardian_name, s.guardian_phone, "
             "s.emergency_contact_name, s.emergency_contact_phone, s.record_notes"
-            if current_user.role in {"principal", "registrar"}
+            if current_user.role in {"school_admin", "principal", "vice_principal", "registrar"}
             else "NULL AS date_of_birth, NULL AS previous_school, NULL AS guardian_name, "
                  "NULL AS guardian_phone, NULL AS emergency_contact_name, "
                  "NULL AS emergency_contact_phone, NULL AS record_notes"
@@ -1466,7 +1466,7 @@ def student_detail(student_id):
         if student is None:
             abort(404)
         finance_summary = None
-        if current_user.role in {"principal", "registrar"}:
+        if current_user.role in {"school_admin", "principal", "vice_principal", "registrar"}:
             finance_summary = connection.execute(
                 """SELECT COALESCE(total_fee, 0) AS total_fee,
                           COALESCE(amount_paid, 0) AS amount_paid,
@@ -1582,12 +1582,12 @@ def list_students():
         # contact information or student birth dates. Expressions are fixed constants.
         private_student_fields = (
             "s.date_of_birth, s.guardian_name, s.guardian_phone"
-            if current_user.role in {"principal", "registrar"}
+            if current_user.role in {"school_admin", "principal", "vice_principal", "registrar"}
             else "NULL AS date_of_birth, NULL AS guardian_name, NULL AS guardian_phone"
         )
         # Do not fetch fee/payment data for roles that cannot view finances. Hiding
         # columns in the template is not a substitute for least-privilege data access.
-        can_view_finances = current_user.role in {"principal", "registrar"}
+        can_view_finances = current_user.role in {"school_admin", "principal", "registrar", "finance_admin"}
         finance_columns = (
             "COALESCE(f.total_fee, 0) AS total_fee, "
             "COALESCE(f.amount_paid, 0) AS amount_paid, "
@@ -1630,13 +1630,13 @@ def list_students():
         connection.close()
     return render_template("students.html", students=students, classes=classes,
                            class_filter=class_filter, search_query=search_query,
-                           can_view_finances=current_user.role in {"principal", "registrar"})
+                           can_view_finances=current_user.role in {"school_admin", "principal", "registrar", "finance_admin"})
 
 
 @app.route("/student-finances", methods=["GET", "POST"])
 @login_required
 def student_finances():
-    if current_user.role not in {"super_admin", "principal", "registrar", "finance_admin"}:
+    if current_user.role not in {"super_admin", "school_admin", "principal", "registrar", "finance_admin"}:
         abort(403)
     school_id = require_school_context()
 
@@ -1967,7 +1967,7 @@ def archive_announcement(announcement_id):
 @app.route("/finance/payments", methods=["GET", "POST"])
 @login_required
 def finance_payments():
-    if current_user.role not in {"super_admin", "principal", "registrar", "finance_admin"}:
+    if current_user.role not in {"super_admin", "school_admin", "principal", "registrar", "finance_admin"}:
         abort(403)
     school_id = require_school_context()
     connection = get_db_connection()
