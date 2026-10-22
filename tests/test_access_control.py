@@ -36,7 +36,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         accounts = [
             ("teacher_route_test", "teacher"),
             ("student_route_test", "student"),
-            ("principal_route_test", "finance_admin"),
+            ("finance_route_test", "finance_admin"),
             ("registrar_route_test", "registrar"),
             ("principal_route_test", "principal"),
             ("super_route_test", "super_admin"),
@@ -192,7 +192,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_finance_direct_post_to_academics_is_forbidden(self):
-        self.login_as("principal_route_test")
+        self.login_as("finance_route_test")
         response = self.client.post("/academics", data={
             "action": "grade", "student_id": "1", "subject": "Math",
             "assessment": "Test", "score": "10", "max_score": "10",
@@ -577,7 +577,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
 
         self.client.post("/logout")
-        self.login_as("principal_route_test")
+        self.login_as("finance_route_test")
         finance_page = self.client.get("/student-finances")
         self.assertEqual(finance_page.status_code, 200)
         self.assertNotIn(b"School B Fictional Student", finance_page.data)
@@ -643,7 +643,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         finally:
             connection.close()
 
-        self.login_as("principal_route_test")
+        self.login_as("finance_route_test")
         response = self.client.post("/report-cards", data={
             "action": "publish", "student_id": str(student_b_id),
             "academic_year": "2026-2027", "term": "Term 1",
