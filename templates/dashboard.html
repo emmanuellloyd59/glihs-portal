@@ -26,6 +26,9 @@
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4 d-flex flex-column"><div class="fs-2 mb-3">📚</div><span class="badge text-bg-success mb-3">Available</span><h3 class="h5 fw-bold">Learning Materials</h3><p class="text-secondary">Browse school resources; authorized staff can upload or manage them.</p><a href="{{ url_for('learning_materials') }}" class="btn btn-primary mt-auto">Open Materials →</a></article></div>
     {% endif %}
     {% if role in ['super_admin', 'school_admin', 'principal', 'vice_principal', 'academic_admin', 'registrar', 'teacher'] %}
+    <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4 d-flex flex-column"><div class="fs-2 mb-3">🗓️</div><span class="badge text-bg-success mb-3">Available</span><h3 class="h5 fw-bold">Class Timetable</h3><p class="text-secondary">View the weekly class schedule. Authorized academic leaders can create lessons and prevent class, teacher or room conflicts.</p><a href="{{ url_for('timetable') }}" class="btn btn-primary mt-auto">Open Timetable →</a></article></div>
+    {% endif %}
+    {% if role in ['super_admin', 'school_admin', 'principal', 'vice_principal', 'academic_admin', 'registrar', 'teacher'] %}
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4 d-flex flex-column"><div class="fs-2 mb-3">📣</div><span class="badge text-bg-success mb-3">Available</span><h3 class="h5 fw-bold">School Announcements</h3><p class="text-secondary">View school notices; publishing and archiving depend on your role.</p><a href="{{ url_for('announcements') }}" class="btn btn-primary mt-auto">Open Announcements →</a></article></div>
     {% endif %}
 </div>
