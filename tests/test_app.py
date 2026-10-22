@@ -1456,6 +1456,149 @@ class StudentParentAccountLifecycleTests(PortalTestSupport, unittest.TestCase):
 
 
 
+class StaffAndAttendanceReportTests(PortalTestSupport, unittest.TestCase):
+    def _add_student(self, admission, name, level, school_id=1):
+        connection = portal.get_db_connection()
+        try:
+            cursor = connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, status, school_id)
+                   VALUES (?, ?, ?, 'active', ?)""",
+                (admission, name, level, school_id),
+            )
+            connection.commit()
+            return cursor.lastrowid
+        finally:
+            connection.close()
+
+    def test_principal_can_create_school_scoped_staff_account(self):
+        self.login_as("principal_demo", "test-principal-password")
+        response = self.client.post("/staff", data={
+            "action": "create", "full_name": "Fictional New Teacher",
+            "username": "new_teacher_01", "role": "teacher",
+            "temporary_password": "temporary-pass-1234",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Staff account created for this school", response.data)
+        connection = portal.get_db_connection()
+        row = connection.execute(
+            "SELECT role, school_id, status FROM users WHERE username='new_teacher_01'"
+        ).fetchone()
+        connection.close()
+        self.assertEqual((row["role"], row["school_id"], row["status"]), ("teacher", 1, "active"))
+
+    def test_principal_cannot_assign_privileged_school_admin_role(self):
+        self.login_as("principal_demo", "test-principal-password")
+        response = self.client.post("/staff", data={
+            "action": "create", "full_name": "Attempted Privileged Account",
+            "username": "not_school_admin", "role": "school_admin",
+            "temporary_password": "temporary-pass-1234",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Enter a valid name, username, permitted role", response.data)
+        connection = portal.get_db_connection()
+        row = connection.execute("SELECT id FROM users WHERE username='not_school_admin'").fetchone()
+        connection.close()
+        self.assertIsNone(row)
+
+    def test_teacher_cannot_manage_staff_but_can_view_attendance_report(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        self.assertEqual(self.client.get("/staff").status_code, 403)
+        self.assertEqual(self.client.get("/attendance-report").status_code, 200)
+
+    def test_attendance_report_aggregates_rates_and_exports_csv(self):
+        student_id = self._add_student("ATT-001", "Fictional Grade Seven Student", "Grade 7")
+        self._add_student("ATT-002", "Fictional Grade Eight Student", "Grade 8")
+        connection = portal.get_db_connection()
+        teacher_id = connection.execute("SELECT id FROM users WHERE username='teacher_demo'").fetchone()["id"]
+        connection.execute(
+            """INSERT INTO attendance (student_id, attendance_date, status, note, recorded_by, school_id)
+               VALUES (?, '2026-10-01', 'present', NULL, ?, 1)""", (student_id, teacher_id)
+        )
+        connection.execute(
+            """INSERT INTO attendance (student_id, attendance_date, status, note, recorded_by, school_id)
+               VALUES (?, '2026-10-02', 'absent', NULL, ?, 1)""", (student_id, teacher_id)
+        )
+        connection.execute(
+            """INSERT INTO attendance (student_id, attendance_date, status, note, recorded_by, school_id)
+               VALUES (?, '2026-10-03', 'excused', NULL, ?, 1)""", (student_id, teacher_id)
+        )
+        connection.commit()
+        connection.close()
+        self.login_as("principal_demo", "test-principal-password")
+        response = self.client.get(
+            "/attendance-report?start_date=2026-10-01&end_date=2026-10-31&class_level=Grade%207"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Fictional Grade Seven Student", response.data)
+        self.assertNotIn(b"Fictional Grade Eight Student", response.data)
+        self.assertIn(b"50.0%", response.data)
+        exported = self.client.get(
+            "/attendance-report?start_date=2026-10-01&end_date=2026-10-31&class_level=Grade%207&export=csv"
+        )
+        self.assertEqual(exported.status_code, 200)
+        self.assertIn("text/csv", exported.content_type)
+        self.assertIn(b"ATT-001", exported.data)
+        self.assertNotIn(b"ATT-002", exported.data)
+
+    def test_attendance_report_does_not_expose_another_school(self):
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT OR IGNORE INTO schools (name, slug, status) VALUES ('Fictional Other School', 'fictional-other-school', 'active')"
+        )
+        school_id = connection.execute(
+            "SELECT id FROM schools WHERE slug='fictional-other-school'"
+        ).fetchone()["id"]
+        other_student_id = self._add_student("OTHER-001", "Other School Student", "Grade 7", school_id)
+        connection.execute(
+            """INSERT INTO users (username, full_name, password_hash, role, status, school_id)
+               VALUES ('other_school_teacher', 'Other School Teacher', ?, 'teacher', 'active', ?)""",
+            (generate_password_hash("test-other-school-password"), school_id),
+        )
+        other_teacher_id = connection.execute(
+            "SELECT id FROM users WHERE username='other_school_teacher'"
+        ).fetchone()["id"]
+        connection.execute(
+            """INSERT INTO attendance (student_id, attendance_date, status, recorded_by, school_id)
+               VALUES (?, '2026-10-02', 'present', ?, ?)""",
+            (other_student_id, other_teacher_id, school_id),
+        )
+        connection.commit()
+        connection.close()
+        self.login_as("principal_demo", "test-principal-password")
+        response = self.client.get(
+            "/attendance-report?start_date=2026-10-01&end_date=2026-10-31"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b"Other School Student", response.data)
+
+    def test_staff_manager_cannot_change_account_in_another_school(self):
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT OR IGNORE INTO schools (name, slug, status) VALUES ('Fictional Other School', 'fictional-other-school', 'active')"
+        )
+        school_id = connection.execute(
+            "SELECT id FROM schools WHERE slug='fictional-other-school'"
+        ).fetchone()["id"]
+        connection.execute(
+            """INSERT OR IGNORE INTO users
+               (username, full_name, password_hash, role, status, school_id)
+               VALUES ('isolated_staff', 'Isolated Staff', ?, 'teacher', 'active', ?)""",
+            (generate_password_hash("test-isolated-staff-password"), school_id),
+        )
+        target_id = connection.execute("SELECT id FROM users WHERE username='isolated_staff'").fetchone()["id"]
+        connection.commit()
+        connection.close()
+        self.login_as("principal_demo", "test-principal-password")
+        response = self.client.post("/staff", data={
+            "action": "suspend", "user_id": str(target_id),
+        })
+        self.assertEqual(response.status_code, 404)
+        connection = portal.get_db_connection()
+        row = connection.execute("SELECT status FROM users WHERE id=?", (target_id,)).fetchone()
+        connection.close()
+        self.assertEqual(row["status"], "active")
+
+
 class HomeworkAssignmentTests(PortalTestSupport, unittest.TestCase):
     def setUp(self):
         super().setUp()
