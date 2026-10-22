@@ -52,7 +52,7 @@
                     <th class="py-3">Admission No.</th>
                     <th class="py-3">Full Name</th>
                     <th class="py-3">Class / Grade</th>
-                    {% if current_user.role != 'teacher' %}
+                    {% if current_user.role in ['principal', 'registrar'] %}
                     <th class="py-3">Date of Birth</th>
                     <th class="py-3">Parent / Guardian</th>
                     <th class="py-3">Phone</th>
@@ -70,7 +70,7 @@
                     <td>{{ student['admission_number'] }}</td>
                     <td>{{ student['full_name'] }}</td>
                     <td>{{ student['class_level'] }}</td>
-                    {% if current_user.role != 'teacher' %}
+                    {% if current_user.role in ['principal', 'registrar'] %}
                     <td>{{ student['date_of_birth'] or '—' }}</td>
                     <td>{{ student['guardian_name'] or '—' }}</td>
                     <td>{{ student['guardian_phone'] or '—' }}</td>

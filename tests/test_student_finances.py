@@ -1,10 +1,11 @@
 """Tests for class-based student IDs and financial record access."""
 import unittest
 
-from test_app import CMHSPortalTests
+import unittest
+from test_app import PortalTestSupport
 
 
-class StudentFinanceTests(CMHSPortalTests):
+class StudentFinanceTests(PortalTestSupport, unittest.TestCase):
     def test_finance_page_is_restricted_to_authorized_staff(self):
         self.login_as("student_demo", "test-student-password")
         response = self.client.get("/student-finances")
@@ -37,13 +38,13 @@ class StudentFinanceTests(CMHSPortalTests):
         connection = portal.get_db_connection()
         try:
             student_id = connection.execute(
-                "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+                "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
                 ("FEE-DEMO-001", "Morgan Example", "Grade 9"),
             ).lastrowid
             connection.commit()
         finally:
             connection.close()
-        self.login_as("super_demo", "test-super-password")
+        self.login_as("finance_demo", "test-finance-password")
         response = self.client.post("/student-finances", data={
             "student_id": str(student_id),
             "academic_year": "2026-2027",

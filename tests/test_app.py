@@ -18,7 +18,7 @@ from werkzeug.security import generate_password_hash  # noqa: E402
 import app as portal  # noqa: E402
 
 
-class CMHSPortalTests(unittest.TestCase):
+class PortalTestSupport:
     @classmethod
     def setUpClass(cls):
         portal.app.config.update(
@@ -38,18 +38,30 @@ class CMHSPortalTests(unittest.TestCase):
         connection.execute("DELETE FROM students")
         connection.execute("DELETE FROM users")
         connection.execute(
-            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, ?, 1)",
             ("teacher_demo", generate_password_hash("test-teacher-password"), "teacher"),
         )
         connection.execute(
-            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, ?, 1)",
             ("student_demo", generate_password_hash("test-student-password"), "student"),
         )
         connection.execute(
             """INSERT INTO users
-               (username, password_hash, role, status, is_super_admin)
-               VALUES (?, ?, 'super_admin', 'active', 1)""",
+               (username, password_hash, role, status, is_super_admin, school_id)
+               VALUES (?, ?, 'super_admin', 'active', 1, NULL)""",
             ("super_demo", generate_password_hash("test-super-password")),
+        )
+        connection.execute(
+            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'finance_admin', 1)",
+            ("finance_demo", generate_password_hash("test-finance-password")),
+        )
+        connection.execute(
+            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'registrar', 1)",
+            ("registrar_demo", generate_password_hash("test-registrar-password")),
+        )
+        connection.execute(
+            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'principal', 1)",
+            ("principal_demo", generate_password_hash("test-principal-password")),
         )
         connection.commit()
         connection.close()
@@ -63,6 +75,10 @@ class CMHSPortalTests(unittest.TestCase):
         )
 
 
+
+
+
+class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
     def test_health_check_reports_ok_without_exposing_database_details(self):
         response = self.client.get("/healthz")
         self.assertEqual(response.status_code, 200)
@@ -276,6 +292,7 @@ class CMHSPortalTests(unittest.TestCase):
                 "full_name": "Morgan Example",
                 "username": "registrar_example",
                 "requested_role": "registrar",
+                "school_slug": "legacy-demo-campus",
             },
             follow_redirects=True,
         )
@@ -303,6 +320,7 @@ class CMHSPortalTests(unittest.TestCase):
                 "full_name": "Morgan Example",
                 "username": "registrar_example",
                 "requested_role": "registrar",
+                "school_slug": "legacy-demo-campus",
             },
         )
         self.login_as("super_demo", "test-super-password")
@@ -428,7 +446,7 @@ class CMHSPortalTests(unittest.TestCase):
         self.login_as("teacher_demo", "test-teacher-password")
         connection = portal.get_db_connection()
         connection.execute(
-            "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
             ("ACADEMIC-001", "Jamie Example", "Grade 7"),
         )
         student_id = connection.execute(
@@ -460,7 +478,7 @@ class CMHSPortalTests(unittest.TestCase):
         self.client.post("/logout")
         connection = portal.get_db_connection()
         connection.execute(
-            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            "INSERT OR IGNORE INTO users (username, password_hash, role, school_id) VALUES (?, ?, ?, 1)",
             ("finance_demo", generate_password_hash("test-finance-password"), "finance_admin"),
         )
         connection.commit()
@@ -472,7 +490,7 @@ class CMHSPortalTests(unittest.TestCase):
         self.login_as("teacher_demo", "test-teacher-password")
         connection = portal.get_db_connection()
         connection.execute(
-            "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
             ("ACADEMIC-002", "Alex Example", "Grade 8"),
         )
         student_id = connection.execute(
@@ -520,12 +538,111 @@ class CMHSPortalTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
         self.assertEqual(self._student_count(), 0)
 
+    def test_student_registration_rejects_invalid_enrollment_date_and_emergency_phone(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        base_data = {
+            "admission_number": "REG-VALIDATION-001",
+            "full_name": "Avery Fiction",
+            "class_level": "Grade 8",
+            "date_of_birth": "2012-01-10",
+            "guardian_name": "Morgan Fiction",
+            "guardian_phone": "+231 770 000 000",
+            "enrollment_date": "2026-10-20",
+            "previous_school": "Fictional Primary School",
+            "emergency_contact_name": "Jordan Fiction",
+            "emergency_contact_phone": "+231 770 000 001",
+            "record_notes": "",
+        }
+        invalid_cases = (
+            {"enrollment_date": "2026-02-31"},
+            {"emergency_contact_phone": "not-a-phone"},
+        )
+        for index, changes in enumerate(invalid_cases):
+            data = dict(base_data)
+            data["admission_number"] = "REG-VALIDATION-" + str(index + 1)
+            data.update(changes)
+            response = self.client.post(
+                "/students/register", data=data, follow_redirects=True
+            )
+            self.assertEqual(response.status_code, 200)
+
+        connection = portal.get_db_connection()
+        try:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM students WHERE admission_number LIKE 'REG-VALIDATION-%'"
+            ).fetchone()[0]
+            self.assertEqual(count, 0)
+        finally:
+            connection.close()
+
+    def test_student_edit_rejects_invalid_phone_and_future_birth_date(self):
+        connection = portal.get_db_connection()
+        try:
+            cursor = connection.execute(
+                """INSERT INTO students
+                   (admission_number, full_name, class_level, school_id)
+                   VALUES (?, ?, ?, 1)""",
+                ("EDIT-VALIDATION-001", "Riley Example", "Grade 7"),
+            )
+            student_id = cursor.lastrowid
+            connection.commit()
+        finally:
+            connection.close()
+
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                """INSERT INTO users (username, password_hash, role, school_id)
+                   VALUES (?, ?, 'principal', 1)""",
+                ("principal_edit_demo", generate_password_hash("principal-demo-secret-2026")),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        self.login_as("principal_edit_demo", "principal-demo-secret-2026")
+        invalid_cases = (
+            {"guardian_phone": "abc<script>", "date_of_birth": "2010-01-01"},
+            {"guardian_phone": "000-000-0000", "date_of_birth": "2099-01-01"},
+        )
+        for changes in invalid_cases:
+            response = self.client.post(
+                f"/students/{student_id}/edit",
+                data={
+                    "full_name": "Riley Example",
+                    "class_level": "Grade 7",
+                    "date_of_birth": changes["date_of_birth"],
+                    "guardian_name": "Casey Example",
+                    "guardian_phone": changes["guardian_phone"],
+                    "enrollment_date": "",
+                    "previous_school": "",
+                    "emergency_contact_name": "",
+                    "emergency_contact_phone": "",
+                    "record_notes": "",
+                },
+                follow_redirects=True,
+            )
+            if changes["guardian_phone"].startswith("abc"):
+                self.assertIn(b"valid phone number", response.data)
+            else:
+                self.assertIn(b"future", response.data)
+
+        connection = portal.get_db_connection()
+        try:
+            row = connection.execute(
+                "SELECT date_of_birth, guardian_phone FROM students WHERE id = ?",
+                (student_id,),
+            ).fetchone()
+            self.assertIsNone(row["date_of_birth"])
+            self.assertIsNone(row["guardian_phone"])
+        finally:
+            connection.close()
+
     def test_teacher_student_list_hides_private_fields(self):
         connection = portal.get_db_connection()
         connection.execute(
             """INSERT INTO students
-               (admission_number, full_name, class_level, date_of_birth, guardian_name, guardian_phone)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (admission_number, full_name, class_level, date_of_birth, guardian_name, guardian_phone, school_id)
+               VALUES (?, ?, ?, ?, ?, ?, 1)""",
             ("PRIVACY-001", "Jordan Example", "Grade 7", "2012-05-04",
              "Private Guardian", "+231 770 000 000"),
         )
@@ -549,32 +666,446 @@ class CMHSPortalTests(unittest.TestCase):
         self.assertIn("private", response.headers.get("Cache-Control", ""))
         self.assertEqual(response.headers.get("Pragma"), "no-cache")
 
-    def test_teacher_student_detail_hides_private_personal_and_guardian_fields(self):
+
+
+
+    def test_suspended_school_loses_access_to_existing_tenant_sessions(self):
+        self.login_as("teacher_demo", "test-teacher-password")
         connection = portal.get_db_connection()
-        cursor = connection.execute(
-            """INSERT INTO students
-               (admission_number, full_name, class_level, date_of_birth, guardian_name,
-                guardian_phone, previous_school, emergency_contact_name,
-                emergency_contact_phone, record_notes)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            ("DETAIL-PRIVACY-001", "Jordan Example", "Grade 7", "2012-05-04",
-             "Private Guardian", "+231 770 000 000", "Private Previous School",
-             "Private Emergency Contact", "+231 880 000 000", "Confidential notes"),
-        )
-        student_id = cursor.lastrowid
-        connection.commit()
-        connection.close()
+        try:
+            connection.execute("UPDATE schools SET status = 'suspended' WHERE id = 1")
+            connection.commit()
+        finally:
+            connection.close()
+
+        try:
+            # Suspended-school sessions are invalidated at user reload, so protected
+            # routes redirect to login instead of returning tenant-scoped data.
+            self.assertEqual(self.client.get("/students").status_code, 302)
+            self.assertEqual(self.client.get("/academics").status_code, 302)
+            self.login_as("super_demo", "test-super-password")
+            self.assertEqual(self.client.get("/student-finances").status_code, 403)
+        finally:
+            connection = portal.get_db_connection()
+            try:
+                connection.execute("UPDATE schools SET status = 'active' WHERE id = 1")
+                connection.commit()
+            finally:
+                connection.close()
+
+    def test_school_one_cannot_view_school_two_student_record(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute("INSERT INTO schools (name, slug) VALUES (?, ?)", ("Fictional School Two", "fictional-school-two"))
+            school_two_id = connection.execute("SELECT id FROM schools WHERE slug = ?", ("fictional-school-two",)).fetchone()["id"]
+            cursor = connection.execute("INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, ?)", ("SCHOOL2-001", "Morgan Fiction", "Grade 6", school_two_id))
+            school_two_student_id = cursor.lastrowid
+            connection.commit()
+        finally:
+            connection.close()
 
         self.login_as("teacher_demo", "test-teacher-password")
-        response = self.client.get(f"/students/{student_id}")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Jordan Example", response.data)
-        for private_value in (
-            b"2012-05-04", b"Private Guardian", b"+231 770 000 000",
-            b"Private Previous School", b"Private Emergency Contact",
-            b"+231 880 000 000", b"Confidential notes",
+        detail = self.client.get("/students/" + str(school_two_student_id))
+        self.assertEqual(detail.status_code, 404)
+        listing = self.client.get("/students")
+        self.assertEqual(listing.status_code, 200)
+        self.assertNotIn(b"Morgan Fiction", listing.data)
+        academics = self.client.get("/academics")
+        self.assertEqual(academics.status_code, 200)
+        self.assertNotIn(b"Morgan Fiction", academics.data)
+
+    def test_school_one_cannot_write_grades_or_attendance_for_school_two_student(self):
+        connection = portal.get_db_connection()
+        try:
+            school = connection.execute(
+                "SELECT id FROM schools WHERE slug = ?", ("fictional-school-write-test",)
+            ).fetchone()
+            if school:
+                school_two_id = school["id"]
+            else:
+                connection.execute(
+                    "INSERT INTO schools (name, slug) VALUES (?, ?)",
+                    ("Fictional School Write Test", "fictional-school-write-test"),
+                )
+                school_two_id = connection.execute(
+                    "SELECT id FROM schools WHERE slug = ?", ("fictional-school-write-test",)
+                ).fetchone()["id"]
+            cursor = connection.execute(
+                """INSERT INTO students
+                   (admission_number, full_name, class_level, school_id)
+                   VALUES (?, ?, ?, ?)""",
+                ("SCHOOL2-WRITE-001", "Taylor Fiction", "Grade 6", school_two_id),
+            )
+            school_two_student_id = cursor.lastrowid
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("teacher_demo", "test-teacher-password")
+        for action_data in (
+            {
+                "action": "grade", "student_id": str(school_two_student_id),
+                "subject": "Mathematics", "assessment": "Unauthorized test",
+                "academic_year": "2026-2027", "term": "Term 1",
+                "score": "80", "max_score": "100",
+            },
+            {
+                "action": "attendance", "student_id": str(school_two_student_id),
+                "attendance_date": "2026-10-20", "status": "present",
+                "note": "Unauthorized test",
+            },
         ):
-            self.assertNotIn(private_value, response.data)
+            response = self.client.post("/academics", data=action_data)
+            self.assertIn(response.status_code, (302, 303))
+
+        connection = portal.get_db_connection()
+        try:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM grades WHERE student_id = ?",
+                    (school_two_student_id,),
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM attendance WHERE student_id = ?",
+                    (school_two_student_id,),
+                ).fetchone()[0],
+                0,
+            )
+        finally:
+            connection.close()
+
+    def test_school_one_cannot_read_or_mutate_school_two_report_cards_or_finances(self):
+        connection = portal.get_db_connection()
+        try:
+            school = connection.execute(
+                "SELECT id FROM schools WHERE slug = ?", ("fictional-school-finance-isolation",)
+            ).fetchone()
+            if school:
+                school_two_id = school["id"]
+            else:
+                connection.execute(
+                    "INSERT INTO schools (name, slug) VALUES (?, ?)",
+                    ("Fictional Finance School", "fictional-school-finance-isolation"),
+                )
+                school_two_id = connection.execute(
+                    "SELECT id FROM schools WHERE slug = ?", ("fictional-school-finance-isolation",)
+                ).fetchone()["id"]
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username = 'teacher_demo'"
+            ).fetchone()["id"]
+            super_id = connection.execute(
+                "SELECT id FROM users WHERE username = 'super_demo'"
+            ).fetchone()["id"]
+            student_id = connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES (?, ?, ?, ?)""",
+                ("SCHOOL2-FINANCE-001", "Finance School Two Student", "Grade 8", school_two_id),
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO grades
+                   (student_id, subject, assessment, score, max_score, recorded_by,
+                    academic_year, term, school_id)
+                   VALUES (?, 'Science', 'School Two Quiz', 18, 20, ?, '2026-2027', 'Term 1', ?)""",
+                (student_id, teacher_id, school_two_id),
+            )
+            connection.execute(
+                """INSERT INTO report_cards
+                   (student_id, academic_year, term, published, published_by, published_at, school_id)
+                   VALUES (?, '2026-2027', 'Term 1', 1, ?, CURRENT_TIMESTAMP, ?)""",
+                (student_id, super_id, school_two_id),
+            )
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id, academic_year, total_fee, amount_paid, notes, updated_by, school_id)
+                   VALUES (?, '2026-2027', 1000, 300, 'School Two fictional fees', ?, ?)""",
+                (student_id, teacher_id, school_two_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("principal_demo", "test-principal-password")
+        finance_page = self.client.get("/student-finances?academic_year=2026-2027")
+        self.assertEqual(finance_page.status_code, 200)
+        self.assertNotIn(b"Finance School Two Student", finance_page.data)
+        report_page = self.client.get(
+            f"/report-cards?student_id={student_id}&academic_year=2026-2027&term=Term%201"
+        )
+        self.assertEqual(report_page.status_code, 200)
+        self.assertNotIn(b"Finance School Two Student", report_page.data)
+        self.assertNotIn(b"School Two Quiz", report_page.data)
+
+        self.client.post("/report-cards", data={
+            "action": "unpublish", "student_id": str(student_id),
+            "academic_year": "2026-2027", "term": "Term 1",
+        }, follow_redirects=True)
+        self.client.post("/student-finances", data={
+            "student_id": str(student_id), "academic_year": "2026-2027",
+            "total_fee": "500", "amount_paid": "100", "notes": "attempted cross-school edit",
+        }, follow_redirects=True)
+
+        connection = portal.get_db_connection()
+        try:
+            report = connection.execute(
+                "SELECT published FROM report_cards WHERE student_id = ? AND school_id = ?",
+                (student_id, school_two_id),
+            ).fetchone()
+            finance = connection.execute(
+                "SELECT total_fee, amount_paid FROM student_finances WHERE student_id = ? AND school_id = ?",
+                (student_id, school_two_id),
+            ).fetchone()
+            self.assertEqual(report["published"], 1)
+            self.assertEqual((finance["total_fee"], finance["amount_paid"]), (1000.0, 300.0))
+        finally:
+            connection.close()
+
+    def test_legacy_student_migration_preserves_records_and_scopes_admission_numbers(self):
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("CREATE TABLE schools (id INTEGER PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE)")
+            connection.execute("INSERT INTO schools (id, name, slug) VALUES (1, 'Legacy School', 'legacy-school')")
+            connection.execute("INSERT INTO schools (id, name, slug) VALUES (2, 'Second School', 'second-school')")
+            connection.execute("CREATE TABLE users (id INTEGER PRIMARY KEY)")
+            connection.execute("INSERT INTO users (id) VALUES (7)")
+            connection.execute(
+                """CREATE TABLE students (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    admission_number TEXT NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL,
+                    class_level TEXT NOT NULL,
+                    date_of_birth TEXT,
+                    guardian_name TEXT,
+                    guardian_phone TEXT,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    account_user_id INTEGER REFERENCES users(id),
+                    enrollment_date TEXT,
+                    previous_school TEXT,
+                    emergency_contact_name TEXT,
+                    emergency_contact_phone TEXT,
+                    record_notes TEXT,
+                    student_id_number TEXT,
+                    school_id INTEGER REFERENCES schools(id)
+                )"""
+            )
+            connection.execute(
+                """INSERT INTO students
+                   (id, admission_number, full_name, class_level, date_of_birth,
+                    guardian_name, guardian_phone, status, account_user_id,
+                    enrollment_date, previous_school, emergency_contact_name,
+                    emergency_contact_phone, record_notes, student_id_number, school_id)
+                   VALUES (42, 'LEGACY-042', 'Fictional Legacy Student', 'Grade 7',
+                    '2012-04-05', 'Guardian Example', '000-123-4567', 'active', 7,
+                    '2026-09-01', 'Example Primary', 'Contact Example', '000-765-4321',
+                    'Preserve this note', 'CMHS-LEGACY-00042', 1)"""
+            )
+            connection.commit()
+            connection.execute("PRAGMA foreign_keys = OFF")
+            portal.migrate_student_admission_number_uniqueness(connection)
+            connection.commit()
+            connection.execute("PRAGMA foreign_keys = ON")
+
+            row = connection.execute(
+                """SELECT id, admission_number, full_name, guardian_name, previous_school,
+                          record_notes, student_id_number, school_id
+                   FROM students WHERE id = 42"""
+            ).fetchone()
+            self.assertEqual(
+                tuple(row),
+                (42, "LEGACY-042", "Fictional Legacy Student", "Guardian Example",
+                 "Example Primary", "Preserve this note", "CMHS-LEGACY-00042", 1),
+            )
+            connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('LEGACY-042', 'Second School Student', 'Grade 7', 2)"""
+            )
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute(
+                    """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                       VALUES ('LEGACY-042', 'Duplicate Legacy Student', 'Grade 7', 1)"""
+                )
+            self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
+        finally:
+            connection.close()
+
+    def test_v03_school_ownership_schema_is_created_and_migration_is_idempotent(self):
+        # Re-running startup migration must not duplicate the default school or
+        # discard existing fictional records.
+        connection = portal.get_db_connection()
+        try:
+            school = connection.execute(
+                "SELECT id, slug FROM schools WHERE id = 1"
+            ).fetchone()
+            self.assertIsNotNone(school)
+            self.assertEqual(school["slug"], "legacy-demo-campus")
+            for table in (
+                "users", "students", "student_finances", "grades",
+                "report_cards", "attendance", "audit_log",
+            ):
+                columns = {
+                    row["name"] for row in connection.execute(
+                        "PRAGMA table_info(" + table + ")"
+                    ).fetchall()
+                }
+                self.assertIn("school_id", columns, table)
+        finally:
+            connection.close()
+
+        portal.initialize_database()
+        connection = portal.get_db_connection()
+        try:
+            count = connection.execute(
+                "SELECT COUNT(*) AS n FROM schools WHERE slug = 'legacy-demo-campus'"
+            ).fetchone()["n"]
+            self.assertEqual(count, 1)
+            teacher = connection.execute(
+                "SELECT school_id FROM users WHERE username = 'teacher_demo'"
+            ).fetchone()
+            self.assertIsNotNone(teacher)
+            self.assertEqual(teacher["school_id"], 1)
+        finally:
+            connection.close()
+
+
+    def test_unassigned_school_user_cannot_create_student_records(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "UPDATE users SET school_id = NULL WHERE username = ?",
+                ("teacher_demo",),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        response = self.client.post(
+            "/students/register",
+            data={
+                "admission_number": "NO-SCHOOL-001",
+                "full_name": "Fictional Unassigned Student",
+                "class_level": "Grade 7",
+            },
+        )
+        # An account with no tenant assignment cannot authenticate, so the
+        # protected POST redirects to login and must not write any student record.
+        self.assertEqual(response.status_code, 302)
+        connection = portal.get_db_connection()
+        try:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM students WHERE admission_number = ?",
+                ("NO-SCHOOL-001",),
+            ).fetchone()[0]
+            self.assertEqual(count, 0)
+        finally:
+            connection.close()
+
+
+
+    def test_admission_numbers_are_unique_per_school_not_globally(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO schools (name, slug) VALUES (?, ?)",
+                ("Fictional School Admission Test", "fictional-admission-test"),
+            )
+            school_two_id = connection.execute(
+                "SELECT id FROM schools WHERE slug = ?",
+                ("fictional-admission-test",),
+            ).fetchone()["id"]
+            connection.execute(
+                "INSERT INTO students (admission_number, full_name, class_level, school_id) "
+                "VALUES (?, ?, ?, 1)",
+                ("SHARED-ADM-001", "Student One Example", "Grade 7"),
+            )
+            connection.execute(
+                "INSERT INTO students (admission_number, full_name, class_level, school_id) "
+                "VALUES (?, ?, ?, ?)",
+                ("SHARED-ADM-001", "Student Two Example", "Grade 7", school_two_id),
+            )
+            connection.commit()
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM students WHERE admission_number = ?",
+                    ("SHARED-ADM-001",),
+                ).fetchone()[0],
+                2,
+            )
+        finally:
+            connection.close()
+
+
+
+    def test_staff_access_request_is_assigned_to_selected_active_school(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO schools (name, slug, status) VALUES (?, ?, 'active')",
+                ("Fictional Request School", "fictional-request-school"),
+            )
+            school_id = connection.execute(
+                "SELECT id FROM schools WHERE slug = ?", ("fictional-request-school",)
+            ).fetchone()["id"]
+            connection.commit()
+        finally:
+            connection.close()
+
+        response = self.client.post("/admin/request-access", data={
+            "full_name": "Fictional Staff Member",
+            "username": "fictional_staff_request",
+            "requested_role": "teacher",
+            "school_slug": "fictional-request-school",
+        })
+        self.assertEqual(response.status_code, 302)
+        connection = portal.get_db_connection()
+        try:
+            row = connection.execute(
+                "SELECT school_id, status, role, is_super_admin FROM users WHERE username = ?",
+                ("fictional_staff_request",),
+            ).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row["school_id"], school_id)
+            self.assertEqual(row["status"], "pending")
+            self.assertEqual(row["role"], "teacher")
+            self.assertEqual(row["is_super_admin"], 0)
+        finally:
+            connection.close()
+
+    def test_staff_access_request_rejects_unknown_or_suspended_school(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO schools (name, slug, status) VALUES (?, ?, 'suspended')",
+                ("Fictional Suspended School", "fictional-suspended-school"),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        for username, slug in (
+            ("unknown_school_request", "does-not-exist"),
+            ("suspended_school_request", "fictional-suspended-school"),
+        ):
+            response = self.client.post("/admin/request-access", data={
+                "full_name": "Fictional Staff Member",
+                "username": username,
+                "requested_role": "teacher",
+                "school_slug": slug,
+            })
+            self.assertEqual(response.status_code, 200)
+            connection = portal.get_db_connection()
+            try:
+                count = connection.execute(
+                    "SELECT COUNT(*) FROM users WHERE username = ?", (username,)
+                ).fetchone()[0]
+                self.assertEqual(count, 0)
+            finally:
+                connection.close()
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,13 +24,13 @@ class ReportCardTests(unittest.TestCase):
             ):
                 connection.execute(
                     """INSERT OR IGNORE INTO users
-                       (username, full_name, password_hash, role, status, is_super_admin)
-                       VALUES (?, ?, ?, ?, 'active', ?)""",
+                       (username, full_name, password_hash, role, status, is_super_admin, school_id)
+                       VALUES (?, ?, ?, ?, 'active', ?, 1)""",
                     (username, username, generate_password_hash("test-password-123"), role, is_super),
                 )
             connection.execute(
-                """INSERT OR IGNORE INTO students (admission_number, full_name, class_level)
-                   VALUES ('DEMO-001', 'Fictional Test Student', 'Grade 7')"""
+                """INSERT OR IGNORE INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('DEMO-001', 'Fictional Test Student', 'Grade 7', 1)"""
             )
             student_id = connection.execute(
                 "SELECT id FROM students WHERE admission_number = 'DEMO-001'"
@@ -40,8 +40,8 @@ class ReportCardTests(unittest.TestCase):
             ).fetchone()["id"]
             connection.execute(
                 """INSERT OR IGNORE INTO grades
-                   (student_id, subject, assessment, score, max_score, recorded_by, academic_year, term)
-                   VALUES (?, 'Mathematics', 'Test Quiz', 8, 10, ?, '2026-2027', 'Term 1')""",
+                   (student_id, subject, assessment, score, max_score, recorded_by, academic_year, term, school_id)
+                   VALUES (?, 'Mathematics', 'Test Quiz', 8, 10, ?, '2026-2027', 'Term 1', 1)""",
                 (student_id, teacher_id),
             )
             connection.commit()
@@ -168,7 +168,7 @@ class ReportCardTests(unittest.TestCase):
         connection = get_db_connection()
         try:
             connection.execute(
-                "INSERT INTO students (admission_number, full_name, class_level) VALUES (?, ?, ?)",
+                "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
                 ("NO-GRADES-001", "No Grades Example", "Grade 8"),
             )
             student_id = connection.execute(
@@ -263,6 +263,8 @@ class ReportCardTests(unittest.TestCase):
         connection.row_factory = sqlite3.Row
         try:
             connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("CREATE TABLE schools (id INTEGER PRIMARY KEY)")
+            connection.execute("INSERT INTO schools (id) VALUES (1)")
             connection.execute("CREATE TABLE users (id INTEGER PRIMARY KEY)")
             connection.execute("CREATE TABLE students (id INTEGER PRIMARY KEY)")
             connection.execute(

@@ -1,6 +1,6 @@
-# CMHS Digital Campus — Version 0.2 Development Preview
+# CMHS Digital Campus — Version 0.3 Development Preview
 
-CMHS Digital Campus is a Flask-based school-portal demonstration built with Flask, Flask-Login, SQLite, Flask-WTF, and Bootstrap. This branch contains the Version 0.2 development preview; the production deployment remains separate until the pull request is reviewed, merged, and deployed.
+CMHS Digital Campus is a Flask-based school-portal demonstration built with Flask, Flask-Login, SQLite, Flask-WTF, and Bootstrap. This branch continues the existing Version 0.2 work and adds Version 0.3 multi-school security foundations. Version 0.3 remains a development preview—not a production release—until the complete tenant-security audit, migration and recovery checks, browser/print verification, durable storage, and staging release gates pass. The current live Render service remains on `main`.
 
 ## What is included
 
@@ -11,6 +11,7 @@ CMHS Digital Campus is a Flask-based school-portal demonstration built with Flas
 - Search across visible student records.
 - CSRF protection on forms and POST-only sign-out.
 - Startup creation/migration of core database tables, including users, students, grades, attendance, and audit events.
+- Version 0.3 school-ownership schema foundation, same-school academic/report joins, and automated two-school negative-access regression tests (still under security review).
 - Staff access requests and Super Administrator approval workflow.
 - Grade entry and review with score validation, academic-year/term separation, and duplicate prevention.
 - Staff report-card previews with subject totals and percentages, role-restricted publish/unpublish actions, and student access to their own published report cards when a verified student account link exists.
