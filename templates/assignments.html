@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Homework & Assignments | CMHS Digital Campus{% endblock %}
+{% block content %}
+<section class="rounded-4 p-4 p-md-5 mb-4 text-white" style="background:linear-gradient(120deg,#102a43,#164e78 65%,#1769aa);">
+    <p class="eyebrow mb-2" style="color:#8ce7df;">CMHS DIGITAL CAMPUS · LEARNING</p>
+    <h1 class="display-6 fw-bold mb-2">Homework & Assignments</h1>
+    <p class="mb-0" style="color:#e1edf7;">Publish class work, submit responses, and review teacher feedback.</p>
+</section>
+{% if can_create %}
+<section class="surface-card p-4 p-md-5 mb-4 no-print">
+    <h2 class="h4 fw-bold mb-3">Publish a homework assignment</h2>
+    <form method="POST" action="{{ url_for('assignments') }}" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="create">
+        <div class="col-12 col-md-4"><label class="form-label" for="class_level">Class</label><select class="form-select" id="class_level" name="class_level" required>{% for level in class_levels %}<option value="{{ level }}">{{ level }}</option>{% endfor %}</select></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="subject">Subject</label><input class="form-control" id="subject" name="subject" maxlength="80" required></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="due_date">Due date</label><input class="form-control" type="date" id="due_date" name="due_date" min="{{ today }}" required></div>
+        <div class="col-12"><label class="form-label" for="title">Assignment title</label><input class="form-control" id="title" name="title" maxlength="140" required></div>
+        <div class="col-12"><label class="form-label" for="instructions">Instructions</label><textarea class="form-control" id="instructions" name="instructions" rows="4" maxlength="10000" required></textarea></div>
+        <div class="col-12"><button class="btn btn-primary px-4" type="submit">Publish Assignment</button></div>
+    </form>
+</section>
+{% endif %}
+<section class="surface-card p-4 p-md-5 mb-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3"><div><p class="eyebrow text-primary mb-1">{% if role == 'student' %}Student workspace{% else %}Staff workspace{% endif %}</p><h2 class="h4 fw-bold mb-0">{% if role == 'student' %}Assignments for your class{% else %}Published assignments{% endif %}</h2></div><button type="button" class="btn btn-outline-primary no-print" onclick="window.print()">Print</button></div>
+    {% if assignments %}<div class="row g-3">
+    {% for assignment in assignments %}
+        <div class="col-12"><article class="border rounded-4 p-3 p-md-4">
+            <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-2"><div><span class="badge text-bg-primary mb-2">{{ assignment.class_level }} · {{ assignment.subject }}</span><h3 class="h5 fw-bold mb-1">{{ assignment.title }}</h3><p class="small text-secondary mb-2">Teacher: {{ assignment.teacher_name or assignment.teacher_username }} · Due: {{ assignment.due_date }}</p></div>{% if assignment.due_date < today %}<span class="badge text-bg-danger align-self-start">Past due</span>{% else %}<span class="badge text-bg-success align-self-start">Open</span>{% endif %}</div>
+            <p class="mb-3" style="white-space:pre-wrap;">{{ assignment.instructions }}</p>
+            {% if role == 'student' %}
+                {% if assignment.submission_id %}<div class="rounded-3 p-3 mb-3" style="background:#f3f6fb;"><p class="small text-secondary mb-1">Submitted {{ assignment.submitted_at }}</p><p style="white-space:pre-wrap;">{{ assignment.response_text }}</p>{% if assignment.score is not none %}<p class="fw-bold mb-1">Score: {{ assignment.score }}/100</p><p class="mb-0">Teacher feedback: {{ assignment.feedback or 'No written feedback.' }}</p>{% else %}<span class="badge text-bg-warning">Awaiting marking</span>{% endif %}</div>{% endif %}
+                {% if assignment.due_date >= today %}<form method="POST" action="{{ url_for('assignments') }}" class="no-print"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="submit"><input type="hidden" name="assignment_id" value="{{ assignment.id }}"><label class="form-label" for="response-{{ assignment.id }}">{% if assignment.submission_id %}Update your response{% else %}Your response{% endif %}</label><textarea class="form-control mb-2" id="response-{{ assignment.id }}" name="response_text" rows="4" maxlength="10000" required>{{ assignment.response_text or '' }}</textarea><button class="btn btn-primary" type="submit">{% if assignment.submission_id %}Update Submission{% else %}Submit Homework{% endif %}</button></form>{% endif %}
+            {% endif %}
+        </article></div>
+    {% endfor %}</div>
+    {% else %}<div class="text-center py-5"><div class="fs-1 mb-3">📝</div><h3 class="h5 fw-bold">No assignments to show</h3><p class="text-secondary mb-0">{% if role == 'student' %}No published homework is available for your linked class yet.{% else %}Publish an assignment above to get started.{% endif %}</p></div>{% endif %}
+</section>
+{% if can_grade and submissions %}
+<section class="surface-card p-4 p-md-5 mb-4"><h2 class="h4 fw-bold mb-3">Student submissions & marking</h2><div class="row g-3">
+{% for submission in submissions %}<div class="col-12"><article class="border rounded-4 p-3 p-md-4"><div class="d-flex flex-wrap justify-content-between gap-2"><div><h3 class="h6 fw-bold mb-1">{{ submission.student_name }} · {{ submission.class_level }}</h3><p class="small text-secondary mb-2">{{ submission.assignment_title }} · Submitted {{ submission.submitted_at }}</p></div>{% if submission.score is not none %}<span class="badge text-bg-success">Marked: {{ submission.score }}/100</span>{% else %}<span class="badge text-bg-warning">Awaiting marking</span>{% endif %}</div><div class="rounded-3 p-3 mb-3" style="background:#f3f6fb;white-space:pre-wrap;">{{ submission.response_text }}</div><form method="POST" action="{{ url_for('assignments') }}" class="row g-3 no-print"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="grade"><input type="hidden" name="submission_id" value="{{ submission.submission_id }}"><div class="col-12 col-md-3"><label class="form-label" for="score-{{ submission.submission_id }}">Score / 100</label><input class="form-control" type="number" min="0" max="100" step="0.5" id="score-{{ submission.submission_id }}" name="score" value="{{ submission.score if submission.score is not none else '' }}" required></div><div class="col-12 col-md-9"><label class="form-label" for="feedback-{{ submission.submission_id }}">Feedback</label><input class="form-control" id="feedback-{{ submission.submission_id }}" name="feedback" maxlength="2000" value="{{ submission.feedback or '' }}"></div><div class="col-12"><button class="btn btn-primary" type="submit">Save Mark & Feedback</button></div></form></article></div>{% endfor %}</div></section>
+{% endif %}
+{% endblock %}
