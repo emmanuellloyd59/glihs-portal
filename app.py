@@ -2568,6 +2568,8 @@ from homework import register_homework_routes
 register_homework_routes(globals())
 from staff_attendance import register_staff_attendance_routes
 register_staff_attendance_routes(globals())
+from school_performance import register_school_performance_routes
+register_school_performance_routes(globals())
 
 
 if __name__ == "__main__":
