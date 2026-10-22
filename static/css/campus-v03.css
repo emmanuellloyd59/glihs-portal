@@ -143,3 +143,17 @@ section.rounded-4.text-white.p-4.p-md-5.mb-4 .eyebrow { color: #f3d56f !importan
   .site-navbar { position: static; }
   .surface-card { box-shadow: none !important; border-top-color: #bbb !important; }
 }
+/* Advanced CMHS registration, finance and performance interfaces */
+.student-registration-page .registration-intro,.performance-hero{color:#fff;background:linear-gradient(125deg,#171b32,#252b49 62%,#3b3548);border:1px solid rgba(213,165,30,.35);border-bottom:4px solid var(--campus-gold);box-shadow:0 18px 42px rgba(23,27,50,.14)}
+.student-registration-page .registration-intro .eyebrow,.performance-hero .eyebrow{color:#f3d56f}
+.student-registration-page .registration-section{padding:clamp(1rem,2.5vw,1.6rem);border:1px solid var(--campus-border);border-radius:1rem;background:linear-gradient(145deg,#fff,#fbfcff)}
+.student-registration-page .section-icon{width:2.65rem;height:2.65rem;display:inline-grid;place-items:center;flex:0 0 auto;border-radius:.85rem;background:#f7efd4;font-size:1.25rem}
+.student-registration-page .form-label{display:block;margin-bottom:.45rem}.student-registration-page .form-text{color:#69748a;font-size:.82rem}.student-registration-page .required-mark{color:#a52b36}.student-registration-page .registration-aside{position:sticky;top:6.8rem}
+.finance-page .finance-summary-card,.performance-stat{height:100%;padding:1.15rem 1.25rem;border-radius:1rem;border:1px solid var(--campus-border);border-top:3px solid var(--campus-gold);background:linear-gradient(150deg,#fff,#fbfcff);box-shadow:0 9px 24px rgba(23,27,50,.055);min-width:0}
+.performance-stat{display:flex;flex-direction:column;gap:.25rem}.performance-stat>span{color:#657086;font-size:.85rem;font-weight:700}.performance-stat>strong{color:var(--campus-navy);font-size:clamp(1.35rem,3vw,2.05rem);line-height:1.2;overflow-wrap:anywhere}.performance-stat>small{color:#7a8395;font-size:.78rem}
+.performance-meter{width:100%;height:.5rem;overflow:hidden;background:#edf0f6;border-radius:999px;min-width:4rem}.performance-meter span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#d5a51e,#edce68)}
+.finance-page .finance-heading{color:#fff;padding:1.4rem 1.5rem;border-radius:1rem;background:linear-gradient(120deg,#171b32,#343047);border-bottom:4px solid var(--campus-gold)}
+.finance-page .finance-form,.finance-page .finance-table-wrap{border:1px solid var(--campus-border);border-radius:1rem;background:#fff;padding:clamp(1rem,2.5vw,1.6rem)}.finance-page .finance-table-wrap{padding:.5rem}
+.finance-status{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.2rem;padding:.8rem .3rem;border-radius:.8rem;text-align:center}.finance-status strong{font-size:clamp(1.25rem,3vw,1.7rem);line-height:1.2}.finance-status span{font-size:.78rem;font-weight:700}.finance-paid{background:#e9f7ef;color:#17663b}.finance-partial{background:#fff4d9;color:#805a0b}.finance-unpaid{background:#fff0f0;color:#9b2f36}
+@media(max-width:767.98px){.student-registration-page .registration-aside{position:static}.performance-hero{padding:1.3rem!important}.performance-stat{padding:.9rem;border-radius:.85rem}.finance-page .table>:not(caption)>*>*{padding:.65rem .55rem}}
+@media print{.performance-hero{color:#000!important;background:#fff!important;box-shadow:none!important;border:1px solid #aaa!important}.performance-stat{box-shadow:none!important}}
