@@ -341,6 +341,24 @@ def initialize_database():
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_account_user_id "
             "ON students(account_user_id) WHERE account_user_id IS NOT NULL"
         )
+        # Parent-to-child relationships are explicitly school-scoped and can be
+        # many-to-many (one parent may have multiple children; a child may have
+        # multiple verified guardians).
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS parent_student_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_user_id INTEGER NOT NULL REFERENCES users(id),
+                student_id INTEGER NOT NULL REFERENCES students(id),
+                school_id INTEGER NOT NULL REFERENCES schools(id),
+                created_by INTEGER REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(parent_user_id, student_id)
+            )
+        """)
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_parent_student_links_school "
+            "ON parent_student_links(school_id, parent_user_id, student_id)"
+        )
         student_columns = {row["name"] for row in connection.execute("PRAGMA table_info(students)").fetchall()}
         for column_name, column_type in (
             ("enrollment_date", "TEXT"),
@@ -895,6 +913,79 @@ def admin_users():
         target_id = request.form.get("user_id", "").strip()
         connection = get_db_connection()
         try:
+            # Account creation is handled before loading an existing target account.
+            if action == "create_account":
+                username = request.form.get("new_username", "").strip()
+                full_name = request.form.get("new_full_name", "").strip()
+                role = request.form.get("new_role", "").strip()
+                password = request.form.get("new_password", "")
+                school_text = request.form.get("school_id", "").strip()
+                linked_student_text = request.form.get("linked_student_id", "").strip()
+                if (not username or len(username) > 64
+                    or not username.replace("_", "").replace("-", "").isalnum()
+                    or not full_name or len(full_name) > 120
+                    or role not in {"student", "parent"}
+                    or len(password) < 12
+                    or not school_text.isdigit()):
+                    flash("Enter a valid name, username, school, role, and temporary password of at least 12 characters.", "danger")
+                    return redirect(url_for("admin_users"))
+                school = connection.execute(
+                    "SELECT id FROM schools WHERE id = ? AND status = 'active'", (int(school_text),)
+                ).fetchone()
+                if not school:
+                    flash("Choose an active school.", "danger")
+                    return redirect(url_for("admin_users"))
+                student = None
+                if role in {"student", "parent"}:
+                    if not linked_student_text.isdigit():
+                        flash("Select the verified student record for this account.", "danger")
+                        return redirect(url_for("admin_users"))
+                    student = connection.execute(
+                        "SELECT id, account_user_id FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
+                        (int(linked_student_text), int(school_text)),
+                    ).fetchone()
+                    if not student:
+                        flash("The selected student is not active in that school.", "danger")
+                        return redirect(url_for("admin_users"))
+                if role == "student" and student and student["account_user_id"] is not None:
+                    flash("That student already has a login account.", "danger")
+                    return redirect(url_for("admin_users"))
+                try:
+                    cursor = connection.execute(
+                        """INSERT INTO users
+                           (username, full_name, password_hash, role, status, is_super_admin, school_id,
+                            approved_by, approved_at)
+                           VALUES (?, ?, ?, ?, 'active', 0, ?, ?, CURRENT_TIMESTAMP)""",
+                        (username, full_name, generate_password_hash(password), role, int(school_text), current_user.id),
+                    )
+                    new_user_id = cursor.lastrowid
+                    if role == "student":
+                        connection.execute(
+                            "UPDATE students SET account_user_id = ? WHERE id = ? AND school_id = ? AND account_user_id IS NULL",
+                            (new_user_id, student["id"], int(school_text)),
+                        )
+                        audit_action = "student_account_created"
+                    else:
+                        connection.execute(
+                            """INSERT INTO parent_student_links
+                               (parent_user_id, student_id, school_id, created_by)
+                               VALUES (?, ?, ?, ?)""",
+                            (new_user_id, student["id"], int(school_text), current_user.id),
+                        )
+                        audit_action = "parent_account_created_and_linked"
+                    connection.execute(
+                        """INSERT INTO audit_log
+                           (actor_user_id, action, target_username, details, school_id)
+                           VALUES (?, ?, ?, ?, ?)""",
+                        (current_user.id, audit_action, username, "Role: " + role, int(school_text)),
+                    )
+                    connection.commit()
+                    flash("Account created and linked to the verified student record. Give the temporary password privately and require the user to change it.", "success")
+                except sqlite3.IntegrityError:
+                    connection.rollback()
+                    flash("That username already exists, the student is already linked, or the account could not be created.", "danger")
+                return redirect(url_for("admin_users"))
+
             target = connection.execute(
                 "SELECT id, username, role, status, is_super_admin, school_id FROM users WHERE id = ?",
                 (target_id,),
@@ -930,6 +1021,54 @@ def admin_users():
                     )
                     connection.commit()
                     flash("Account approved and activated. Share the temporary password securely.", "success")
+            elif action == "unlink_parent":
+                if target["role"] != "parent":
+                    flash("Only parent accounts can be unlinked from a student.", "danger")
+                else:
+                    student_id = request.form.get("student_id", "").strip()
+                    deleted = connection.execute(
+                        """DELETE FROM parent_student_links
+                           WHERE parent_user_id = ? AND student_id = ? AND school_id = ?""",
+                        (target_id_int, student_id, target["school_id"]),
+                    ).rowcount
+                    if deleted:
+                        connection.execute(
+                            """INSERT INTO audit_log
+                               (actor_user_id, action, target_username, details, school_id)
+                               VALUES (?, 'parent_student_unlinked', ?, ?, ?)""",
+                            (current_user.id, target_username, "Student record ID: " + student_id, target["school_id"]),
+                        )
+                        connection.commit()
+                        flash("Parent account unlinked from that student. The student record remains unchanged.", "success")
+                    else:
+                        flash("No matching parent-child link was found in this school.", "info")
+            elif action == "delete_account":
+                if target["is_super_admin"] or target_id_int == current_user.id:
+                    flash("You cannot delete your own account or a Super Administrator account here.", "danger")
+                else:
+                    # Safe deletion means removing login access and relationships while
+                    # retaining the user row for audit/financial foreign-key integrity.
+                    connection.execute(
+                        "UPDATE students SET account_user_id = NULL WHERE account_user_id = ? AND school_id = ?",
+                        (target_id_int, target["school_id"]),
+                    )
+                    connection.execute(
+                        "DELETE FROM parent_student_links WHERE parent_user_id = ? AND school_id = ?",
+                        (target_id_int, target["school_id"]),
+                    )
+                    tombstone = "deactivated-" + str(target_id_int) + "-" + secrets.token_hex(4)
+                    connection.execute(
+                        "UPDATE users SET username = ?, full_name = 'Deactivated account', password_hash = ?, status = 'suspended' WHERE id = ? AND is_super_admin = 0",
+                        (tombstone, generate_password_hash(secrets.token_urlsafe(48)), target_id_int),
+                    )
+                    connection.execute(
+                        """INSERT INTO audit_log
+                           (actor_user_id, action, target_username, details, school_id)
+                           VALUES (?, 'account_deactivated', ?, ?, ?)""",
+                        (current_user.id, target_username, "Login disabled; school records and audit references retained.", target["school_id"]),
+                    )
+                    connection.commit()
+                    flash("Account access removed. The login is disabled and linked school records are preserved for audit and retention.", "success")
             elif action in ("suspend", "reactivate"):
                 if target["is_super_admin"]:
                     flash("Super Administrator accounts cannot be suspended or reactivated from this page.", "danger")
@@ -1045,6 +1184,17 @@ def admin_users():
                      u.username COLLATE NOCASE
             """
         ).fetchall()
+        parent_links = connection.execute(
+            """SELECT l.parent_user_id, l.student_id, l.school_id, s.full_name AS student_name,
+                      s.admission_number, u.username AS parent_username
+               FROM parent_student_links l
+               JOIN users u ON u.id = l.parent_user_id AND u.school_id = l.school_id
+               JOIN students s ON s.id = l.student_id AND s.school_id = l.school_id
+               ORDER BY u.username COLLATE NOCASE, s.full_name COLLATE NOCASE"""
+        ).fetchall()
+        schools = connection.execute(
+            "SELECT id, name FROM schools WHERE status = 'active' ORDER BY name COLLATE NOCASE"
+        ).fetchall()
         available_students = connection.execute(
             """SELECT id, full_name, admission_number, class_level, account_user_id
                FROM students WHERE status = 'active' ORDER BY class_level, full_name"""
@@ -1063,6 +1213,7 @@ def admin_users():
     return render_template(
         "admin_users.html", users=users, roles=STAFF_ROLES,
         available_students=available_students, audit_entries=audit_entries,
+        parent_links=parent_links, schools=schools,
     )
 
 
