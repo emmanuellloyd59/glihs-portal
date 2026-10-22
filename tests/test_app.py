@@ -59,6 +59,10 @@ class PortalTestSupport:
             "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'registrar', 1)",
             ("registrar_demo", generate_password_hash("test-registrar-password")),
         )
+        connection.execute(
+            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'principal', 1)",
+            ("principal_demo", generate_password_hash("test-principal-password")),
+        )
         connection.commit()
         connection.close()
         self.client.post("/logout")  # Clear a prior authenticated test session if any.
@@ -823,7 +827,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         finally:
             connection.close()
 
-        self.login_as("super_demo", "test-super-password")
+        self.login_as("principal_demo", "test-principal-password")
         finance_page = self.client.get("/student-finances?academic_year=2026-2027")
         self.assertEqual(finance_page.status_code, 200)
         self.assertNotIn(b"Finance School Two Student", finance_page.data)
