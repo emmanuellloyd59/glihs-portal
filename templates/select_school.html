@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Select School Workspace | CMHS Digital Campus{% endblock %}
+{% block content %}
+<section class="surface-card p-4 p-md-5 mx-auto" style="max-width:760px;">
+    <p class="eyebrow text-primary mb-2">Platform administration</p>
+    <h1 class="h2 fw-bold mb-3">Select a School Workspace</h1>
+    <p class="text-secondary">Choose an active school before opening school records, learning materials, announcements, or finance. Your selection is limited to this signed-in session, and the server checks that the school remains active on every protected request.</p>
+    {% if schools %}
+    <form method="POST" class="mt-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="form-label fw-semibold" for="school_id">Active school</label>
+        <select class="form-select mb-3" id="school_id" name="school_id" required>
+            <option value="">Choose a school…</option>
+            {% for school in schools %}
+            <option value="{{ school.id }}" {% if active_school_id == school.id %}selected{% endif %}>{{ school.name }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-primary" type="submit">Enter School Workspace →</button>
+        <a class="btn btn-outline-secondary ms-2" href="{{ url_for('dashboard') }}">Cancel</a>
+    </form>
+    {% else %}
+    <div class="alert alert-warning mt-4 mb-0">No active schools are available. Activate or create a school before opening tenant-scoped modules.</div>
+    {% endif %}
+</section>
+{% endblock %}

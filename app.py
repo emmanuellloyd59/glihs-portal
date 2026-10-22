@@ -553,7 +553,22 @@ def require_school_context():
     tenant-scoped routes.
     """
     school_id = getattr(current_user, "school_id", None)
-    if not current_user.is_authenticated or school_id is None:
+    if not current_user.is_authenticated:
+        abort(403)
+
+    # Platform super-admins have no permanent tenant assignment. They must
+    # explicitly select an active school; the selection is session-scoped and
+    # revalidated against the database on every protected request.
+    if (
+        current_user.role == "super_admin"
+        and current_user.is_super_admin
+        and school_id is None
+    ):
+        selected_school_id = session.get("active_school_id")
+        if not isinstance(selected_school_id, int) or isinstance(selected_school_id, bool):
+            abort(403)
+        school_id = selected_school_id
+    if school_id is None:
         abort(403)
 
     connection = get_db_connection()
@@ -720,10 +735,55 @@ def dashboard():
     )
 
 
+@app.route("/admin/select-school", methods=["GET", "POST"])
+@login_required
+def select_school_context():
+    """Let platform super-admins explicitly enter an active school's workspace."""
+    if (
+        current_user.role != "super_admin"
+        or not current_user.is_super_admin
+        or current_user.school_id is not None
+    ):
+        abort(403)
+
+    connection = get_db_connection()
+    try:
+        schools = connection.execute(
+            "SELECT id, name, slug FROM schools WHERE status='active' ORDER BY name COLLATE NOCASE"
+        ).fetchall()
+        if request.method == "POST":
+            selected = request.form.get("school_id", "").strip()
+            if not selected.isdigit():
+                flash("Choose an active school.", "danger")
+                return render_template(
+                    "select_school.html", schools=schools,
+                    active_school_id=session.get("active_school_id")
+                )
+            school = connection.execute(
+                "SELECT id FROM schools WHERE id=? AND status='active'", (int(selected),)
+            ).fetchone()
+            if school is None:
+                flash("That school is not active. Choose an active school.", "danger")
+                return render_template(
+                    "select_school.html", schools=schools,
+                    active_school_id=session.get("active_school_id")
+                )
+            session["active_school_id"] = int(school["id"])
+            flash("School workspace selected. School records remain scoped to this school.", "success")
+            return redirect(url_for("dashboard"))
+        return render_template(
+            "select_school.html", schools=schools,
+            active_school_id=session.get("active_school_id")
+        )
+    finally:
+        connection.close()
+
+
 @app.route("/logout", methods=["POST"])
 @login_required
 def logout():
     write_audit(current_user.id, "logout", current_user.username)
+    session.pop("active_school_id", None)
     logout_user()
     return redirect(url_for("index"))
 
