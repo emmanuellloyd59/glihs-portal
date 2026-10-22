@@ -93,6 +93,7 @@
                         <button class="btn btn-outline-warning btn-sm" name="action" value="unlink_parent_student" type="submit">Unlink {{ child.full_name }}</button>
                     </form>
                     {% endfor %}
+                    {% else %}
                     <form method="POST" class="d-flex flex-column gap-2 mb-2">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" value="{{ user.id }}">
                         <label class="small fw-semibold" for="role-{{ user.id }}">Change role</label>
