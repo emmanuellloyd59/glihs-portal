@@ -2,6 +2,9 @@ import os
 import secrets
 import sqlite3
 from pathlib import Path
+import uuid
+from werkzeug.utils import secure_filename
+from flask import send_file
 from datetime import datetime, timedelta, timezone
 
 from flask import Flask, render_template, redirect, url_for, request, flash, abort, session, jsonify
@@ -45,7 +48,7 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
 app.config["SESSION_REFRESH_EACH_REQUEST"] = True
 # School records can contain sensitive information; do not let browsers or
 # intermediary caches retain rendered pages, and cap request bodies to limit abuse.
-app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024
 
 CSRFProtect(app)
 login_manager = LoginManager()
@@ -1606,6 +1609,333 @@ def student_finances():
         connection.close()
     return render_template("student_finances.html", students=students, records=records,
                            academic_year=academic_year, summary=summary)
+
+
+# --------------------------------------------------
+# VERSION 0.3 SCHOOL CONTENT MODULES
+# --------------------------------------------------
+RESOURCE_DIR = INSTANCE_DIR / "learning_materials"
+RESOURCE_DIR.mkdir(parents=True, exist_ok=True)
+ALLOWED_RESOURCE_EXTENSIONS = {".pdf", ".txt", ".png", ".jpg", ".jpeg"}
+CONTENT_PUBLISH_ROLES = {"super_admin", "principal", "academic_admin", "registrar", "teacher"}
+CONTENT_MANAGE_ROLES = {"super_admin", "principal", "academic_admin", "registrar"}
+
+def ensure_content_tables(connection):
+    """Create tenant-scoped content tables without altering existing school data."""
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS learning_materials (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL REFERENCES schools(id),
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            class_level TEXT NOT NULL,
+            stored_name TEXT NOT NULL,
+            original_name TEXT NOT NULL,
+            uploaded_by INTEGER NOT NULL REFERENCES users(id),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1))
+        )
+    """)
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS school_announcements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL REFERENCES schools(id),
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            audience TEXT NOT NULL CHECK (audience IN ('public','students','staff','all')),
+            status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('published','archived')),
+            created_by INTEGER NOT NULL REFERENCES users(id),
+            updated_by INTEGER NOT NULL REFERENCES users(id),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS finance_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_id INTEGER NOT NULL REFERENCES schools(id),
+            student_id INTEGER NOT NULL,
+            academic_year TEXT NOT NULL,
+            amount REAL NOT NULL CHECK (amount > 0),
+            method TEXT NOT NULL CHECK (method IN ('cash','bank_transfer','mobile_money','other')),
+            reference TEXT,
+            receipt_number TEXT NOT NULL UNIQUE,
+            received_by INTEGER NOT NULL REFERENCES users(id),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(student_id) REFERENCES students(id)
+        )
+    """)
+    connection.commit()
+
+def can_view_material(role, class_level, archived=False):
+    if archived:
+        return role in CONTENT_MANAGE_ROLES
+    if role in CONTENT_PUBLISH_ROLES:
+        return True
+    if role == "student":
+        # Until student accounts have a verified enrollment link, only school-wide
+        # materials are exposed; never trust a class supplied by the browser.
+        return class_level.lower() in {"all classes", "school-wide"}
+    return False
+
+@app.route("/learning-materials", methods=["GET", "POST"])
+@login_required
+def learning_materials():
+    school_id = require_school_context()
+    role = current_user.role
+    connection = get_db_connection()
+    try:
+        ensure_content_tables(connection)
+        if request.method == "POST":
+            if role not in CONTENT_PUBLISH_ROLES:
+                abort(403)
+            upload = request.files.get("resource_file")
+            title = request.form.get("title", "").strip()
+            description = request.form.get("description", "").strip()
+            class_level = request.form.get("class_level", "").strip()
+            original = secure_filename(upload.filename or "") if upload else ""
+            suffix = Path(original).suffix.lower()
+            if (not title or len(title) > 120 or len(description) > 500
+                or not class_level or len(class_level) > 60 or not upload
+                or not original or suffix not in ALLOWED_RESOURCE_EXTENSIONS):
+                flash("Enter a title and class, and upload a PDF, TXT, PNG or JPG file.", "danger")
+                return redirect(url_for("learning_materials"))
+            # Store under a random server-generated name; never use user paths.
+            stored_name = uuid.uuid4().hex + suffix
+            target = RESOURCE_DIR / stored_name
+            upload.save(target)
+            connection.execute(
+                """INSERT INTO learning_materials
+                   (school_id,title,description,class_level,stored_name,original_name,uploaded_by)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (school_id, title, description, class_level, stored_name, original,
+                 int(current_user.id)),
+            )
+            connection.commit()
+            write_audit(current_user.id, "learning_material_uploaded", original,
+                        "class=" + class_level)
+            flash("Learning material uploaded.", "success")
+            return redirect(url_for("learning_materials"))
+        rows = connection.execute(
+            """SELECT id,title,description,class_level,original_name,created_at,archived
+               FROM learning_materials WHERE school_id = ?
+               ORDER BY archived, created_at DESC, id DESC""", (school_id,)
+        ).fetchall()
+        visible = [row for row in rows if can_view_material(role, row["class_level"], bool(row["archived"]))]
+    finally:
+        connection.close()
+    return render_template("learning_materials.html", materials=visible,
+                           can_upload=role in CONTENT_PUBLISH_ROLES,
+                           can_manage=role in CONTENT_MANAGE_ROLES)
+
+@app.route("/learning-materials/<int:material_id>/download")
+@login_required
+def download_learning_material(material_id):
+    school_id = require_school_context()
+    connection = get_db_connection()
+    try:
+        ensure_content_tables(connection)
+        material = connection.execute(
+            "SELECT * FROM learning_materials WHERE id=? AND school_id=?",
+            (material_id, school_id),
+        ).fetchone()
+        if material is None or not can_view_material(
+            current_user.role, material["class_level"], bool(material["archived"])
+        ):
+            abort(404)
+        path = RESOURCE_DIR / material["stored_name"]
+        if not path.is_file() or path.parent.resolve() != RESOURCE_DIR.resolve():
+            abort(404)
+        return send_file(path, as_attachment=True,
+                         download_name=material["original_name"],
+                         mimetype="application/octet-stream", conditional=True)
+    finally:
+        connection.close()
+
+@app.route("/learning-materials/<int:material_id>/archive", methods=["POST"])
+@login_required
+def archive_learning_material(material_id):
+    if current_user.role not in CONTENT_MANAGE_ROLES:
+        abort(403)
+    school_id = require_school_context()
+    connection = get_db_connection()
+    try:
+        ensure_content_tables(connection)
+        result = connection.execute(
+            "UPDATE learning_materials SET archived=1 WHERE id=? AND school_id=?",
+            (material_id, school_id),
+        )
+        connection.commit()
+        if result.rowcount != 1:
+            abort(404)
+    finally:
+        connection.close()
+    write_audit(current_user.id, "learning_material_archived", str(material_id))
+    flash("Learning material archived.", "success")
+    return redirect(url_for("learning_materials"))
+
+@app.route("/announcements", methods=["GET", "POST"])
+@login_required
+def announcements():
+    school_id = require_school_context()
+    role = current_user.role
+    connection = get_db_connection()
+    try:
+        ensure_content_tables(connection)
+        if request.method == "POST":
+            if role not in CONTENT_PUBLISH_ROLES:
+                abort(403)
+            title = request.form.get("title", "").strip()
+            body = request.form.get("body", "").strip()
+            audience = request.form.get("audience", "all").strip()
+            edit_id = request.form.get("announcement_id", "").strip()
+            if not title or len(title) > 140 or not body or len(body) > 5000 or audience not in {"public","students","staff","all"}:
+                flash("Check the announcement title, message length and audience.", "danger")
+                return redirect(url_for("announcements"))
+            if edit_id:
+                if role not in CONTENT_MANAGE_ROLES or not edit_id.isdigit():
+                    abort(403)
+                result = connection.execute(
+                    """UPDATE school_announcements SET title=?,body=?,audience=?,
+                       updated_by=?,updated_at=CURRENT_TIMESTAMP
+                       WHERE id=? AND school_id=? AND status='published'""",
+                    (title, body, audience, int(current_user.id), int(edit_id), school_id),
+                )
+                if result.rowcount != 1:
+                    abort(404)
+                action = "announcement_updated"
+            else:
+                connection.execute(
+                    """INSERT INTO school_announcements
+                       (school_id,title,body,audience,created_by,updated_by)
+                       VALUES (?,?,?,?,?,?)""",
+                    (school_id, title, body, audience, int(current_user.id), int(current_user.id)),
+                )
+                action = "announcement_published"
+            connection.commit()
+            write_audit(current_user.id, action, title)
+            flash("Announcement saved.", "success")
+            return redirect(url_for("announcements"))
+        if role in CONTENT_MANAGE_ROLES:
+            rows = connection.execute(
+                """SELECT * FROM school_announcements WHERE school_id=?
+                   ORDER BY CASE status WHEN 'published' THEN 0 ELSE 1 END, updated_at DESC""",
+                (school_id,),
+            ).fetchall()
+        else:
+            allowed = ("students", "all") if role == "student" else ("staff", "all")
+            rows = connection.execute(
+                """SELECT * FROM school_announcements WHERE school_id=? AND status='published'
+                   AND audience IN (?,?) ORDER BY updated_at DESC""",
+                (school_id, *allowed),
+            ).fetchall()
+    finally:
+        connection.close()
+    return render_template("announcements.html", announcements=rows,
+                           can_publish=role in CONTENT_PUBLISH_ROLES,
+                           can_manage=role in CONTENT_MANAGE_ROLES)
+
+@app.route("/announcements/<int:announcement_id>/archive", methods=["POST"])
+@login_required
+def archive_announcement(announcement_id):
+    if current_user.role not in CONTENT_MANAGE_ROLES:
+        abort(403)
+    school_id = require_school_context()
+    connection = get_db_connection()
+    try:
+        ensure_content_tables(connection)
+        result = connection.execute(
+            """UPDATE school_announcements SET status='archived',updated_by=?,
+               updated_at=CURRENT_TIMESTAMP WHERE id=? AND school_id=? AND status='published'""",
+            (int(current_user.id), announcement_id, school_id),
+        )
+        connection.commit()
+        if result.rowcount != 1:
+            abort(404)
+    finally:
+        connection.close()
+    write_audit(current_user.id, "announcement_archived", str(announcement_id))
+    flash("Announcement archived.", "success")
+    return redirect(url_for("announcements"))
+
+@app.route("/finance/payments", methods=["GET", "POST"])
+@login_required
+def finance_payments():
+    if current_user.role not in {"super_admin", "principal", "registrar", "finance_admin"}:
+        abort(403)
+    school_id = require_school_context()
+    connection = get_db_connection()
+    try:
+        ensure_content_tables(connection)
+        if request.method == "POST":
+            student_id = request.form.get("student_id", "").strip()
+            academic_year = request.form.get("academic_year", "").strip()
+            amount_text = request.form.get("amount", "").strip()
+            method = request.form.get("method", "").strip()
+            reference = request.form.get("reference", "").strip()[:100]
+            valid_year = (len(academic_year) == 9 and academic_year[4] == "-"
+                          and academic_year[:4].isdigit() and academic_year[5:].isdigit()
+                          and int(academic_year[5:]) == int(academic_year[:4]) + 1)
+            student = connection.execute(
+                "SELECT id,admission_number FROM students WHERE id=? AND school_id=? AND status='active'",
+                (student_id, school_id),
+            ).fetchone()
+            try:
+                amount = float(amount_text)
+                if not student or not valid_year or not (0 < amount <= 100000000) or method not in {"cash","bank_transfer","mobile_money","other"}:
+                    raise ValueError
+            except (ValueError, TypeError):
+                flash("Check the student, academic year, payment amount and payment method.", "danger")
+                return redirect(url_for("finance_payments"))
+            finance = connection.execute(
+                "SELECT total_fee,amount_paid FROM student_finances WHERE student_id=? AND school_id=? AND academic_year=?",
+                (student_id, school_id, academic_year),
+            ).fetchone()
+            if not finance:
+                flash("Set up the student's fee record before recording a payment.", "danger")
+                return redirect(url_for("student_finances", academic_year=academic_year))
+            if amount > float(finance["total_fee"]) - float(finance["amount_paid"]) + 0.00001:
+                flash("Payment exceeds the outstanding balance. Reconcile the fee record first.", "danger")
+                return redirect(url_for("finance_payments"))
+            receipt = "RCPT-" + datetime.now(timezone.utc).strftime("%Y%m%d") + "-" + uuid.uuid4().hex[:10].upper()
+            connection.execute(
+                """INSERT INTO finance_payments
+                   (school_id,student_id,academic_year,amount,method,reference,receipt_number,received_by)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (school_id, student_id, academic_year, amount, method, reference or None, receipt, int(current_user.id)),
+            )
+            connection.execute(
+                """UPDATE student_finances SET amount_paid=amount_paid+?,updated_by=?,
+                   updated_at=CURRENT_TIMESTAMP WHERE student_id=? AND school_id=? AND academic_year=?""",
+                (amount, int(current_user.id), student_id, school_id, academic_year),
+            )
+            connection.commit()
+            write_audit(current_user.id, "finance_payment_recorded", receipt,
+                        f"student={student['admission_number']}; amount={amount:.2f}; method={method}")
+            flash("Payment recorded. Receipt number: " + receipt, "success")
+            return redirect(url_for("finance_payments", receipt=receipt))
+        students = connection.execute(
+            "SELECT id,admission_number,full_name,class_level FROM students WHERE school_id=? AND status='active' ORDER BY class_level,full_name",
+            (school_id,),
+        ).fetchall()
+        payments = connection.execute(
+            """SELECT p.receipt_number,p.amount,p.method,p.reference,p.academic_year,p.created_at,
+                      s.full_name,s.admission_number,s.class_level
+               FROM finance_payments p JOIN students s ON s.id=p.student_id AND s.school_id=p.school_id
+               WHERE p.school_id=? ORDER BY p.id DESC LIMIT 100""", (school_id,)
+        ).fetchall()
+        receipt = request.args.get("receipt", "").strip()
+        receipt_record = connection.execute(
+            """SELECT p.*,s.full_name,s.admission_number,s.class_level
+               FROM finance_payments p JOIN students s ON s.id=p.student_id AND s.school_id=p.school_id
+               WHERE p.school_id=? AND p.receipt_number=?""", (school_id, receipt)
+        ).fetchone() if receipt else None
+    finally:
+        connection.close()
+    return render_template("finance_payments.html", students=students, payments=payments,
+                           receipt=receipt_record,
+                           current_year=f"{datetime.now().year}-{datetime.now().year + 1}")
+
 
 
 if __name__ == "__main__":
