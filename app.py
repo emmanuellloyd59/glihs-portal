@@ -1,4 +1,5 @@
 import os
+import csv
 import secrets
 import sqlite3
 from pathlib import Path
@@ -561,6 +562,73 @@ def initialize_database():
 
 
 initialize_database()
+
+
+def seed_demo_students_if_enabled():
+    """Load the bundled fictional cohort only into the explicitly designated demo school."""
+    if os.environ.get("ENABLE_DEMO_STUDENT_SEED", "").strip() != "1":
+        return
+    target_slug = os.environ.get("DEMO_STUDENT_SCHOOL_SLUG", "").strip()
+    # Hard limit: never allow this opt-in mechanism to seed another tenant.
+    if target_slug != "legacy-demo-campus":
+        raise RuntimeError(
+            "Demo student seeding is restricted to school slug 'legacy-demo-campus'."
+        )
+
+    csv_path = BASE_DIR / "data" / "demo_students_k2_grade12.csv"
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        records = list(csv.DictReader(handle))
+    if len(records) != 250:
+        raise RuntimeError(f"Expected 250 demo students; found {len(records)}.")
+
+    valid_levels = {"K2", "K3", "K4", *(f"Grade {i}" for i in range(1, 13))}
+    for row in records:
+        if (not row.get("admission_number", "").startswith("DEMO-K12-")
+                or row.get("class_level") not in valid_levels
+                or row.get("status") != "active"
+                or not row.get("full_name", "").strip()):
+            raise RuntimeError("Demo student CSV failed validation; no records were seeded.")
+
+    connection = get_db_connection()
+    try:
+        school = connection.execute(
+            "SELECT id FROM schools WHERE slug=? AND status='active'",
+            (target_slug,),
+        ).fetchone()
+        if not school:
+            raise RuntimeError("The designated demo school is not active; no records were seeded.")
+
+        existing = connection.execute(
+            "SELECT COUNT(*) FROM students WHERE school_id=? AND admission_number LIKE 'DEMO-K12-%'",
+            (school["id"],),
+        ).fetchone()[0]
+        if existing == 250:
+            return
+        if existing:
+            raise RuntimeError(
+                f"Found {existing} DEMO-K12 records; refusing partial or duplicate seed."
+            )
+
+        connection.execute("BEGIN IMMEDIATE")
+        connection.executemany(
+            """INSERT INTO students
+               (admission_number, full_name, class_level, status, school_id)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                (row["admission_number"], row["full_name"], row["class_level"],
+                 row["status"], school["id"])
+                for row in records
+            ],
+        )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+seed_demo_students_if_enabled()
 
 
 def write_audit(actor_user_id, action, target_username=None, details=None):
