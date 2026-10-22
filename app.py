@@ -561,6 +561,26 @@ def initialize_database():
                     """,
                     (initial_username, initial_username, generate_password_hash(initial_password)),
                 )
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS class_timetable (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                school_id INTEGER NOT NULL REFERENCES schools(id),
+                class_level TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                teacher_id INTEGER NOT NULL REFERENCES users(id),
+                weekday TEXT NOT NULL CHECK (weekday IN ('Monday','Tuesday','Wednesday','Thursday','Friday','Saturday')),
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                room TEXT NOT NULL DEFAULT '',
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CHECK (start_time < end_time)
+            )
+        """)
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_timetable_school_day_time "
+            "ON class_timetable(school_id, weekday, start_time, end_time)"
+        )
         connection.commit()
         connection.execute("PRAGMA foreign_keys = ON")
     finally:
@@ -1493,7 +1513,147 @@ def academics():
 
 
 # --------------------------------------------------
-# 6. REPORT CARDS
+# 6. CLASS TIMETABLE
+# --------------------------------------------------
+
+TIMETABLE_VIEW_ROLES = {
+    "super_admin", "school_admin", "principal", "vice_principal",
+    "academic_admin", "registrar", "teacher",
+}
+TIMETABLE_MANAGE_ROLES = {
+    "super_admin", "school_admin", "principal", "vice_principal",
+    "academic_admin",
+}
+TIMETABLE_DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+TIMETABLE_CLASS_LEVELS = ("K2", "K3", "K4", *(f"Grade {i}" for i in range(1, 13)))
+
+
+@app.route("/timetable", methods=["GET", "POST"])
+@login_required
+def timetable():
+    """View and manage a school's timetable without crossing tenant boundaries."""
+    if current_user.role not in TIMETABLE_VIEW_ROLES:
+        abort(403)
+    school_id = require_school_context()
+    can_manage = current_user.role in TIMETABLE_MANAGE_ROLES
+    connection = get_db_connection()
+    try:
+        if request.method == "POST":
+            if not can_manage:
+                abort(403)
+            action = request.form.get("action", "create").strip()
+            if action == "delete":
+                schedule_id = request.form.get("schedule_id", "").strip()
+                if not schedule_id.isdigit():
+                    flash("Choose a valid timetable entry to remove.", "danger")
+                    return redirect(url_for("timetable"))
+                cursor = connection.execute(
+                    "DELETE FROM class_timetable WHERE id = ? AND school_id = ?",
+                    (int(schedule_id), school_id),
+                )
+                connection.commit()
+                if cursor.rowcount:
+                    write_audit(current_user.id, "timetable_entry_deleted", details=f"entry_id={int(schedule_id)}")
+                    flash("Timetable entry removed.", "success")
+                else:
+                    flash("That timetable entry was not found in this school.", "danger")
+                return redirect(url_for("timetable"))
+
+            class_level = request.form.get("class_level", "").strip()
+            subject = request.form.get("subject", "").strip()
+            teacher_text = request.form.get("teacher_id", "").strip()
+            weekday = request.form.get("weekday", "").strip()
+            start_time = request.form.get("start_time", "").strip()
+            end_time = request.form.get("end_time", "").strip()
+            room = request.form.get("room", "").strip()
+
+            def valid_time(value):
+                return (
+                    len(value) == 5 and value[2] == ":" and value[:2].isdigit()
+                    and value[3:].isdigit() and 0 <= int(value[:2]) <= 23
+                    and 0 <= int(value[3:]) <= 59
+                )
+
+            if (
+                class_level not in TIMETABLE_CLASS_LEVELS
+                or not subject or len(subject) > 80
+                or not teacher_text.isdigit()
+                or weekday not in TIMETABLE_DAYS
+                or not valid_time(start_time) or not valid_time(end_time)
+                or start_time >= end_time or len(room) > 80
+            ):
+                flash("Check the class, subject, teacher, day, times and room. End time must be after start time.", "danger")
+                return redirect(url_for("timetable"))
+
+            teacher = connection.execute(
+                """SELECT id FROM users
+                   WHERE id = ? AND school_id = ? AND role = 'teacher' AND status = 'active'""",
+                (int(teacher_text), school_id),
+            ).fetchone()
+            if teacher is None:
+                flash("Choose an active teacher assigned to this school.", "danger")
+                return redirect(url_for("timetable"))
+
+            conflict = connection.execute(
+                """SELECT id FROM class_timetable
+                   WHERE school_id = ? AND weekday = ?
+                     AND start_time < ? AND end_time > ?
+                     AND (class_level = ? OR teacher_id = ?
+                          OR (? <> '' AND room <> '' AND lower(room) = lower(?)))
+                   LIMIT 1""",
+                (school_id, weekday, end_time, start_time, class_level,
+                 int(teacher_text), room, room),
+            ).fetchone()
+            if conflict:
+                flash("Schedule conflict: this class, teacher or room already has an overlapping lesson.", "danger")
+                return redirect(url_for("timetable"))
+
+            connection.execute(
+                """INSERT INTO class_timetable
+                   (school_id, class_level, subject, teacher_id, weekday,
+                    start_time, end_time, room, created_by)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (school_id, class_level, subject, int(teacher_text), weekday,
+                 start_time, end_time, room, int(current_user.id)),
+            )
+            connection.commit()
+            write_audit(
+                current_user.id, "timetable_entry_created",
+                details=f"class={class_level}; day={weekday}; time={start_time}-{end_time}",
+            )
+            flash("Class timetable entry saved.", "success")
+            return redirect(url_for("timetable"))
+
+        entries = connection.execute(
+            """SELECT t.id, t.class_level, t.subject, t.weekday, t.start_time,
+                      t.end_time, t.room, u.full_name AS teacher_name, u.username AS teacher_username
+               FROM class_timetable t
+               JOIN users u ON u.id = t.teacher_id AND u.school_id = t.school_id
+               WHERE t.school_id = ?
+               ORDER BY CASE t.weekday
+                    WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2 WHEN 'Wednesday' THEN 3
+                    WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 ELSE 6 END,
+                    t.start_time, t.class_level""",
+            (school_id,),
+        ).fetchall()
+        teachers = []
+        if can_manage:
+            teachers = connection.execute(
+                """SELECT id, username, full_name FROM users
+                   WHERE school_id = ? AND role = 'teacher' AND status = 'active'
+                   ORDER BY full_name COLLATE NOCASE, username COLLATE NOCASE""",
+                (school_id,),
+            ).fetchall()
+    finally:
+        connection.close()
+    return render_template(
+        "timetable.html", entries=entries, teachers=teachers, can_manage=can_manage,
+        days=TIMETABLE_DAYS, class_levels=TIMETABLE_CLASS_LEVELS,
+    )
+
+
+# --------------------------------------------------
+# 7. REPORT CARDS
 # --------------------------------------------------
 
 REPORT_CARD_VIEW_ROLES = {
