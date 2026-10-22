@@ -31,8 +31,10 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
 
     def setUp(self):
         connection = portal.get_db_connection()
+        connection.execute("DELETE FROM parent_student_links")
         for table in ("grades", "attendance", "report_cards", "student_finances", "audit_log", "students", "users"):
             connection.execute(f"DELETE FROM {table}")
+        connection.execute("DELETE FROM schools WHERE id != 1")
         accounts = [
             ("teacher_route_test", "teacher"),
             ("student_route_test", "student"),
@@ -148,6 +150,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             connection.close()
 
         self.login_as("super_route_test")
+        self.client.post("/admin/select-school", data={"school_id": "1"})
         response = self.client.post("/admin/users", data={
             "action": "link_student",
             "user_id": str(target_user_id),
@@ -240,6 +243,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             connection.close()
 
         self.login_as("super_route_test")
+        self.client.post("/admin/select-school", data={"school_id": "1"})
         response = self.client.post("/admin/users", data={
             "action": "approve",
             "user_id": str(pending_id),
@@ -328,6 +332,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         connection.commit()
         connection.close()
         self.login_as("super_route_test")
+        self.client.post("/admin/select-school", data={"school_id": "1"})
         response = self.client.post("/admin/users", data={
             "action": "link_student", "user_id": str(account_id), "student_id": str(student_id),
         }, follow_redirects=True)
@@ -391,6 +396,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
 
         student_user_id = self._id_for("users", "username", "student_route_test")
         self.login_as("super_route_test")
+        self.client.post("/admin/select-school", data={"school_id": "1"})
         link_response = self.client.post("/admin/users", data={
             "action": "link_student", "user_id": str(student_user_id), "student_id": str(own_id),
             "verify_identity": "yes",
@@ -692,6 +698,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             connection.close()
 
         self.login_as("super_route_test")
+        self.client.post("/admin/select-school", data={"school_id": "1"})
         response = self.client.post("/admin/users", data={
             "action": "link_student",
             "user_id": str(student_account_a_id),
