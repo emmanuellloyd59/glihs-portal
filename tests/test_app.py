@@ -38,7 +38,7 @@ class PortalTestSupport:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
         }
-        for table_name in ("parent_student_links", "finance_payments", "school_announcements", "learning_materials"):
+        for table_name in ("parent_student_links", "finance_payments", "school_announcements", "learning_materials", "class_timetable"):
             if table_name in existing_tables:
                 connection.execute("DELETE FROM " + table_name)
         connection.execute("DELETE FROM grades")
@@ -1457,6 +1457,12 @@ class StudentParentAccountLifecycleTests(PortalTestSupport, unittest.TestCase):
 
 
 class TimetableTests(PortalTestSupport, unittest.TestCase):
+    def tearDown(self):
+        connection = portal.get_db_connection()
+        connection.execute("DELETE FROM class_timetable")
+        connection.commit()
+        connection.close()
+
     def setUp(self):
         super().setUp()
         connection = portal.get_db_connection()
