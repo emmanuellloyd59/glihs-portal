@@ -42,7 +42,7 @@ class StudentProfileTests(PortalTestSupport, unittest.TestCase):
 
     def test_registrar_can_update_class_and_contact_details(self):
         student_id = self.create_student()
-        self.login_as("super_demo", "test-super-password")
+        self.login_as("registrar_demo", "test-registrar-password")
         response = self.client.post(f"/students/{student_id}/edit", data={
             "full_name": "Alex Fiction",
             "class_level": "Grade 8",
