@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Parent / Guardian Portal | GLIHS Portal{% endblock %}
+{% block content %}
+<section class="rounded-4 text-white p-4 p-md-5 mb-4" style="background:linear-gradient(120deg,#102a43,#164e78 65%,#1769aa);">
+    <p class="eyebrow mb-2" style="color:#8ce7df;">FAMILY WORKSPACE</p>
+    <h1 class="display-6 fw-bold mb-2">Parent / Guardian Portal</h1>
+    <p class="mb-0" style="color:#e1edf7;">Only verified children linked to your account are shown here.</p>
+</section>
+{% if not children %}
+<div class="alert alert-warning rounded-4"><strong>No child is linked to your account yet.</strong> Contact the school administrator to verify your identity and link your account to your child. You cannot view student records until that is done.</div>
+{% else %}
+<section class="surface-card p-3 p-md-4 mb-4">
+    <h2 class="h4 fw-bold">My children</h2>
+    <div class="row g-3">
+    {% for child in children %}
+        <div class="col-12 col-md-6"><article class="border rounded-4 p-3 h-100">
+            <h3 class="h5 fw-bold">{{ child.full_name }}</h3>
+            <p class="mb-1">Admission number: {{ child.admission_number }}</p>
+            <p class="mb-0">Class: {{ child.class_level }}</p>
+        </article></div>
+    {% endfor %}
+    </div>
+</section>
+<section class="surface-card p-3 p-md-4 mb-4">
+    <h2 class="h4 fw-bold">Published report cards</h2>
+    {% if report_rows %}
+    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Student</th><th>Academic year</th><th>Term</th><th>Subject</th><th>Assessment</th><th>Score</th></tr></thead><tbody>
+    {% for row in report_rows %}<tr><td>{{ row.full_name }}</td><td>{{ row.academic_year }}</td><td>{{ row.term }}</td><td>{{ row.subject }}</td><td>{{ row.assessment }}</td><td>{{ row.score }} / {{ row.max_score }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% else %}<p class="text-secondary mb-0">No published report-card results are available for your linked children.</p>{% endif %}
+</section>
+<section class="surface-card p-3 p-md-4 mb-4">
+    <h2 class="h4 fw-bold">Attendance</h2>
+    {% if attendance_rows %}
+    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Student</th><th>Date</th><th>Status</th></tr></thead><tbody>
+    {% for row in attendance_rows %}<tr><td>{{ row.full_name }}</td><td>{{ row.attendance_date }}</td><td class="text-capitalize">{{ row.status }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% else %}<p class="text-secondary mb-0">No attendance entries are available yet.</p>{% endif %}
+</section>
+<section class="surface-card p-3 p-md-4 mb-4">
+    <h2 class="h4 fw-bold">School fees</h2>
+    {% if finance_rows %}
+    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Student</th><th>Academic year</th><th>Total fee</th><th>Paid</th><th>Balance</th></tr></thead><tbody>
+    {% for row in finance_rows %}<tr><td>{{ row.full_name }}</td><td>{{ row.academic_year }}</td><td>{{ "%.2f"|format(row.total_fee) }}</td><td>{{ "%.2f"|format(row.amount_paid) }}</td><td>{{ "%.2f"|format(row.balance) }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% else %}<p class="text-secondary mb-0">No fee summary has been recorded for the current academic year.</p>{% endif %}
+</section>
+{% endif %}
+<div class="d-flex flex-wrap gap-2"><a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">← Dashboard</a><a href="{{ url_for('announcements') }}" class="btn btn-outline-primary">School announcements</a><a href="{{ url_for('learning_materials') }}" class="btn btn-outline-primary">Learning materials</a></div>
+{% endblock %}
