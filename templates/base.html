@@ -32,7 +32,7 @@
         @media print {
             @page { size: A4; margin: 12mm; }
             body { min-height: 0; display: block; background: #fff !important; color: #000 !important; }
-            .demo-ribbon, .site-navbar, footer, .no-print, .alert, form, .btn, .navbar-toggler { display: none !important; }
+            .release-notice, .site-navbar, footer, .no-print, .alert, form, .btn, .navbar-toggler { display: none !important; }
             main.page-shell { width: 100%; max-width: none; margin: 0; padding: 0 !important; }
             .surface-card { border: 1px solid #d6dbe1 !important; border-radius: 0 !important; box-shadow: none !important; break-inside: avoid; }
             .table-responsive { overflow: visible !important; }
@@ -47,7 +47,7 @@
     {% block head %}{% endblock %}
 </head>
 <body>
-    <div class="demo-ribbon py-2 text-center px-3"><strong>DEVELOPMENT PREVIEW</strong> · Production readiness checks are still required before using real student records.</div>
+    <div class="release-notice py-2 text-center px-3"><strong>DEVELOPMENT PREVIEW</strong> · Production readiness checks are still required before using real student records.</div>
     <nav class="navbar navbar-expand-lg navbar-dark site-navbar shadow-sm">
         <div class="container">
             <a class="navbar-brand" href="{{ url_for('index') }}"><span class="brand-mark" aria-hidden="true">G</span><span>GLIHS Portal</span></a>
