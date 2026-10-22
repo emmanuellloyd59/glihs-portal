@@ -1375,6 +1375,7 @@ class StudentParentAccountLifecycleTests(PortalTestSupport, unittest.TestCase):
             "new_password": "temporary-password-123",
             "school_id": "1",
             "linked_student_id": str(student_id),
+            "verify_identity": "yes",
         }, follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         connection = portal.get_db_connection()

@@ -1101,6 +1101,9 @@ def admin_users():
                     if not student:
                         flash("The selected student is not active in that school.", "danger")
                         return redirect(url_for("admin_users"))
+                if role == "parent" and request.form.get("verify_identity") != "yes":
+                    flash("Confirm that the guardian's identity and relationship to the student have been verified against school records.", "danger")
+                    return redirect(url_for("admin_users"))
                 if role == "student" and student and student["account_user_id"] is not None:
                     flash("That student already has a login account.", "danger")
                     return redirect(url_for("admin_users"))

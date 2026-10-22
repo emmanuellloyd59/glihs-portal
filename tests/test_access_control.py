@@ -31,6 +31,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
 
     def setUp(self):
         connection = portal.get_db_connection()
+        connection.execute("DELETE FROM parent_student_links")
         for table in ("grades", "attendance", "report_cards", "student_finances", "audit_log", "students", "users"):
             connection.execute(f"DELETE FROM {table}")
         accounts = [
@@ -60,6 +61,68 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             data={"username": username, "password": "test-password-for-route"},
             follow_redirects=True,
         )
+
+    def test_parent_account_creation_requires_identity_verification(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, status, school_id)
+                   VALUES ('PRIV-VERIFY-001', 'Verification Test Child', 'Grade 4', 'active', 1)"""
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        self.login_as("super_route_test")
+        response = self.client.post("/admin/users", data={
+            "action": "create_account",
+            "new_username": "parent_unverified_test",
+            "new_full_name": "Fictional Parent",
+            "new_role": "parent",
+            "new_password": "temporary-test-password-123",
+            "school_id": "1",
+            "linked_student_id": "1",
+        }, follow_redirects=True)
+        connection = portal.get_db_connection()
+        try:
+            account = connection.execute(
+                "SELECT id FROM users WHERE username = ?", ("parent_unverified_test",)
+            ).fetchone()
+            self.assertIsNone(account, "An unverified parent account must not be created.")
+        finally:
+            connection.close()
+        self.assertIn(b"relationship", response.data.lower())
+
+    def test_parent_can_view_only_explicitly_linked_child(self):
+        connection = portal.get_db_connection()
+        try:
+            parent_id = connection.execute(
+                """INSERT INTO users (username, password_hash, role, status, school_id)
+                   VALUES (?, ?, 'parent', 'active', 1)""",
+                ("parent_privacy_test", generate_password_hash("test-password-for-route")),
+            ).lastrowid
+            linked_id = connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, status, school_id)
+                   VALUES ('PRIV-LINKED-001', 'Linked Fictional Child', 'Grade 4', 'active', 1)"""
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, status, school_id)
+                   VALUES ('PRIV-OTHER-001', 'Unlinked Fictional Child', 'Grade 4', 'active', 1)"""
+            )
+            creator = connection.execute(
+                "SELECT id FROM users WHERE username = ?", ("super_route_test",)
+            ).fetchone()
+            connection.execute(
+                """INSERT INTO parent_student_links (parent_user_id, student_id, school_id, created_by)
+                   VALUES (?, ?, 1, ?)""", (parent_id, linked_id, creator["id"])
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        self.login_as("parent_privacy_test")
+        response = self.client.get("/parent/children")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Linked Fictional Child", response.data)
+        self.assertNotIn(b"Unlinked Fictional Child", response.data)
 
     def test_inconsistent_super_admin_flag_cannot_grant_platform_access(self):
         connection = portal.get_db_connection()
