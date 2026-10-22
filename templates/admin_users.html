@@ -15,7 +15,7 @@
 {% block content %}
 <section class="admin-hero text-white rounded-4 p-4 p-md-5 mb-4">
     <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3">
-        <div><p class="eyebrow mb-2" style="color:#8ce7df;">RESTRICTED WORKSPACE</p><h1 class="display-6 fw-bold mb-2">Administrator Management</h1><p class="mb-0" style="color:#e1edf7;">Review staff access requests, manage roles and protect school accounts.</p></div>
+        <div><p class="eyebrow mb-2" style="color:#8ce7df;">RESTRICTED WORKSPACE</p><h1 class="display-6 fw-bold mb-2">Administrator Management</h1><p class="mb-0" style="color:#e1edf7;">Review staff, student and parent access requests; link each family account to verified school records.</p></div>
         <span class="badge rounded-pill text-bg-light px-3 py-2">Super Administrator</span>
     </div>
 </section>
@@ -29,7 +29,7 @@
     <div class="col-12 col-md-4"><div class="metric-card"><div class="small text-secondary mb-1">Suspended accounts</div><div class="metric-number">{{ suspended_count }}</div><div class="small text-secondary">Sign-in blocked</div></div></div>
 </div>
 <section class="surface-card p-3 p-md-4 mb-4">
-    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3"><div><p class="eyebrow text-primary mb-1">Account directory</p><h2 class="h4 fw-bold mb-1">Staff accounts and requests</h2><p class="text-secondary small mb-0">Requests cannot sign in until you approve them and set a temporary password.</p></div><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('request_staff_access') }}" target="_blank" rel="noopener">Open request form ↗</a></div>
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3"><div><p class="eyebrow text-primary mb-1">Account directory</p><h2 class="h4 fw-bold mb-1">Accounts and access requests</h2><p class="text-secondary small mb-0">Requests cannot sign in until you approve them and set a temporary password.</p></div><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('request_staff_access') }}" target="_blank" rel="noopener">Open request form ↗</a></div>
     {% if users %}
     <div class="table-responsive"><table class="table align-middle mb-0">
         <thead><tr><th scope="col">Account</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col" style="min-width:300px;">Action</th></tr></thead>
@@ -67,7 +67,32 @@
                         <button class="btn btn-outline-primary btn-sm" name="action" value="link_student" type="submit">Save verified student link</button>
                     </form>
                     {% if user.linked_student_id %}<form method="POST" class="mb-2"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" value="{{ user.id }}"><button class="btn btn-outline-warning btn-sm" name="action" value="unlink_student" type="submit">Unlink student record</button></form>{% endif %}
-                    {% else %}
+                    {% elif user.role == 'parent' %}
+                    <div class="small mb-2">
+                        {% set linked_children = parent_links_by_user.get(user.id, []) %}
+                        {% if linked_children %}
+                        <span class="text-success fw-semibold">Linked children: {{ linked_children|length }}</span>
+                        <ul class="small ps-3 mt-1">{% for child in linked_children %}<li>{{ child.full_name }} — {{ child.admission_number }} ({{ child.class_level }})</li>{% endfor %}</ul>
+                        {% else %}<span class="text-warning fw-semibold">No child record linked</span>{% endif %}
+                    </div>
+                    <form method="POST" class="d-flex flex-column gap-2 mb-2">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" value="{{ user.id }}">
+                        <label class="small fw-semibold" for="parent-child-{{ user.id }}">Verified child record</label>
+                        <select class="form-select form-select-sm" id="parent-child-{{ user.id }}" name="student_id" required>
+                            <option value="">Choose a child in this school</option>
+                            {% for s in available_students %}
+                            <option value="{{ s.id }}">{{ s.full_name }} — {{ s.admission_number }} ({{ s.class_level }})</option>
+                            {% endfor %}
+                        </select>
+                        <label class="form-check small"><input class="form-check-input" type="checkbox" name="verify_identity" value="yes" required> I verified this guardian's identity and relationship to the child.</label>
+                        <button class="btn btn-outline-primary btn-sm" name="action" value="link_parent_student" type="submit">Link parent to child</button>
+                    </form>
+                    {% for child in parent_links_by_user.get(user.id, []) %}
+                    <form method="POST" class="mb-2">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" value="{{ user.id }}"><input type="hidden" name="student_id" value="{{ child.student_id }}">
+                        <button class="btn btn-outline-warning btn-sm" name="action" value="unlink_parent_student" type="submit">Unlink {{ child.full_name }}</button>
+                    </form>
+                    {% endfor %}
                     <form method="POST" class="d-flex flex-column gap-2 mb-2">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" value="{{ user.id }}">
                         <label class="small fw-semibold" for="role-{{ user.id }}">Change role</label>
@@ -84,7 +109,7 @@
         </tbody>
     </table></div>
     {% else %}
-    <div class="text-center py-5"><div class="fs-1 mb-2">🛡️</div><h3 class="h5 fw-bold">No staff accounts yet</h3><p class="text-secondary mb-0">Staff access requests will appear here after submission.</p></div>
+    <div class="text-center py-5"><div class="fs-1 mb-2">🛡️</div><h3 class="h5 fw-bold">No staff accounts yet</h3><p class="text-secondary mb-0">Staff, student and parent access requests will appear here after submission.</p></div>
     {% endif %}
 </section>
 <section class="surface-card p-3 p-md-4 mb-4">
