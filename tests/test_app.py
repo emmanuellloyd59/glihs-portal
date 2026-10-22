@@ -38,7 +38,7 @@ class PortalTestSupport:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
         }
-        for table_name in ("parent_student_links", "finance_payments", "school_announcements", "learning_materials", "class_timetable"):
+        for table_name in ("homework_submissions", "homework_assignments", "parent_student_links", "finance_payments", "school_announcements", "learning_materials", "class_timetable"):
             if table_name in existing_tables:
                 connection.execute("DELETE FROM " + table_name)
         connection.execute("DELETE FROM grades")
@@ -1454,6 +1454,112 @@ class StudentParentAccountLifecycleTests(PortalTestSupport, unittest.TestCase):
         finally:
             connection.close()
 
+
+
+class HomeworkAssignmentTests(PortalTestSupport, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        connection = portal.get_db_connection()
+        connection.execute(
+            """INSERT INTO users (username, full_name, password_hash, role, status, school_id)
+               VALUES ('homework_admin', 'Homework Admin', ?, 'school_admin', 'active', 1)""",
+            (generate_password_hash("test-homework-admin-password"),),
+        )
+        student_id = connection.execute(
+            """INSERT INTO students
+               (admission_number, full_name, class_level, status, school_id)
+               VALUES ('HOMEWORK-STU-001', 'Fictional Homework Student', 'Grade 7', 'active', 1)"""
+        ).lastrowid
+        student_user_id = connection.execute("SELECT id FROM users WHERE username='student_demo'").fetchone()["id"]
+        connection.execute("UPDATE students SET account_user_id=? WHERE id=?", (student_user_id, student_id))
+        connection.commit()
+        connection.close()
+        self.student_id = student_id
+
+    def _create_assignment(self, **overrides):
+        data = {"action":"create","class_level":"Grade 7","subject":"Mathematics",
+                "title":"Fractions Practice","instructions":"Complete questions 1-10.",
+                "due_date":"2099-10-30"}
+        data.update(overrides)
+        return self.client.post("/assignments", data=data, follow_redirects=True)
+
+    def _assignment_id(self, title):
+        connection = portal.get_db_connection()
+        row = connection.execute("SELECT id FROM homework_assignments WHERE title=?", (title,)).fetchone()
+        connection.close()
+        return row["id"]
+
+    def test_teacher_can_publish_assignment(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self._create_assignment()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Homework assignment published.", response.data)
+        self.assertIn(b"Fractions Practice", response.data)
+
+    def test_student_only_sees_linked_class_and_can_submit(self):
+        self.login_as("principal_demo", "test-principal-password")
+        self._create_assignment()
+        self._create_assignment(title="Other Class Work", class_level="Grade 8")
+        self.client.post("/logout")
+        self.login_as("student_demo", "test-student-password")
+        page = self.client.get("/assignments")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b"Fractions Practice", page.data)
+        self.assertNotIn(b"Other Class Work", page.data)
+        assignment_id = self._assignment_id("Fractions Practice")
+        response = self.client.post("/assignments", data={
+            "action":"submit","assignment_id":str(assignment_id),
+            "response_text":"My worked answers are 1/2 and 3/4."
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Your homework has been submitted.", response.data)
+        connection = portal.get_db_connection()
+        row = connection.execute("SELECT response_text,school_id FROM homework_submissions WHERE assignment_id=? AND student_id=?",
+                                  (assignment_id,self.student_id)).fetchone()
+        connection.close()
+        self.assertEqual(row["response_text"],"My worked answers are 1/2 and 3/4.")
+        self.assertEqual(row["school_id"],1)
+
+    def test_teacher_can_mark_submission_with_feedback(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        self._create_assignment()
+        assignment_id = self._assignment_id("Fractions Practice")
+        connection = portal.get_db_connection()
+        connection.execute("""INSERT INTO homework_submissions
+            (school_id,assignment_id,student_id,response_text) VALUES (1,?,?,'Sample answer')""",
+            (assignment_id,self.student_id))
+        submission_id = connection.execute("SELECT id FROM homework_submissions WHERE assignment_id=?",
+                                           (assignment_id,)).fetchone()["id"]
+        connection.commit()
+        connection.close()
+        response = self.client.post("/assignments", data={
+            "action":"grade","submission_id":str(submission_id),"score":"95","feedback":"Good work."
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code,200)
+        self.assertIn(b"Homework marked and feedback saved.",response.data)
+        connection = portal.get_db_connection()
+        row = connection.execute("SELECT score,feedback FROM homework_submissions WHERE id=?",(submission_id,)).fetchone()
+        connection.close()
+        self.assertEqual(row["score"],95)
+        self.assertEqual(row["feedback"],"Good work.")
+
+    def test_student_cannot_create_or_mark_assignments(self):
+        self.login_as("student_demo","test-student-password")
+        self.assertEqual(self._create_assignment().status_code,403)
+        self.assertEqual(self.client.post("/assignments",data={
+            "action":"grade","submission_id":"1","score":"100"
+        }).status_code,403)
+
+    def test_student_cannot_submit_for_another_class(self):
+        self.login_as("principal_demo","test-principal-password")
+        self._create_assignment(class_level="Grade 8")
+        assignment_id = self._assignment_id("Fractions Practice")
+        self.client.post("/logout")
+        self.login_as("student_demo","test-student-password")
+        response = self.client.post("/assignments",data={
+            "action":"submit","assignment_id":str(assignment_id),"response_text":"Unauthorized"
+        })
+        self.assertEqual(response.status_code,404)
 
 
 class TimetableTests(PortalTestSupport, unittest.TestCase):
