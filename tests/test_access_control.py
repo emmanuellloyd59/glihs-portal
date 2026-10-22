@@ -643,7 +643,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         finally:
             connection.close()
 
-        self.login_as("finance_route_test")
+        self.login_as("principal_route_test")
         response = self.client.post("/report-cards", data={
             "action": "publish", "student_id": str(student_b_id),
             "academic_year": "2026-2027", "term": "Term 1",
