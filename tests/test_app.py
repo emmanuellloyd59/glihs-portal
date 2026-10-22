@@ -82,6 +82,8 @@ class PortalTestSupport:
         connection.commit()
         connection.close()
         self.client.post("/logout")  # Clear a prior authenticated test session if any.
+        with self.client.session_transaction() as session:
+            session.clear()
 
     def login_as(self, username, password):
         return self.client.post(
