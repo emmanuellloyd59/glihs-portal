@@ -1,5 +1,6 @@
 """Regression tests for expanded student profiles and edit permissions."""
 import unittest
+from unittest.mock import patch
 from test_app import PortalTestSupport
 import app as portal
 
@@ -33,6 +34,26 @@ class StudentProfileTests(PortalTestSupport, unittest.TestCase):
         self.assertIn(b"2026-09-01", response.data)
         self.assertIn(b"Financial information is restricted", response.data)
         self.assertNotIn(b"Current Academic-Year Fees", response.data)
+
+    def test_teacher_template_context_does_not_receive_private_profile_fields(self):
+        student_id = self.create_student()
+        self.login_as("teacher_demo", "test-teacher-password")
+        captured = {}
+
+        def capture_template(template_name, **context):
+            captured.update(context)
+            return portal.app.response_class("captured template context")
+
+        with patch.object(portal, "render_template", side_effect=capture_template):
+            response = self.client.get(f"/students/{student_id}")
+
+        self.assertEqual(response.status_code, 200)
+        student = captured["student"]
+        for field in (
+            "date_of_birth", "previous_school", "guardian_name", "guardian_phone",
+            "emergency_contact_name", "emergency_contact_phone", "record_notes",
+        ):
+            self.assertIsNone(student[field], f"teacher context unexpectedly contains {field}")
 
     def test_teacher_cannot_edit_student_record(self):
         student_id = self.create_student()
