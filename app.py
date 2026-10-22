@@ -571,14 +571,13 @@ initialize_database()
 
 
 def seed_demo_students_if_enabled():
-    """Load the bundled fictional cohort only into the explicitly designated demo school."""
+    """Load fictional student and financial data only into the dedicated demo school."""
     if os.environ.get("ENABLE_DEMO_STUDENT_SEED", "").strip() != "1":
         return
     target_slug = os.environ.get("DEMO_STUDENT_SCHOOL_SLUG", "").strip()
-    # Hard limit: never allow this opt-in mechanism to seed another tenant.
     if target_slug != "legacy-demo-campus":
         raise RuntimeError(
-            "Demo student seeding is restricted to school slug 'legacy-demo-campus'."
+            "Demo data seeding is restricted to school slug 'legacy-demo-campus'."
         )
 
     csv_path = BASE_DIR / "data" / "demo_students_k2_grade12.csv"
@@ -602,30 +601,91 @@ def seed_demo_students_if_enabled():
             (target_slug,),
         ).fetchone()
         if not school:
-            raise RuntimeError("The designated demo school is not active; no records were seeded.")
+            raise RuntimeError("The designated demo school is not active; no demo data was seeded.")
+        school_id = school["id"]
 
         existing = connection.execute(
             "SELECT COUNT(*) FROM students WHERE school_id=? AND admission_number LIKE 'DEMO-K12-%'",
-            (school["id"],),
+            (school_id,),
         ).fetchone()[0]
-        if existing == 250:
-            return
-        if existing:
+        if existing not in (0, 250):
             raise RuntimeError(
-                f"Found {existing} DEMO-K12 records; refusing partial or duplicate seed."
+                f"Found {existing} DEMO-K12 students; refusing partial or duplicate seed."
             )
 
+        # A real user ID is required by the finance table, but all notes identify
+        # these as fictional sample figures rather than actual payment receipts.
+        updater = connection.execute(
+            """SELECT id FROM users WHERE status='active'
+               ORDER BY CASE WHEN school_id=? THEN 0 ELSE 1 END, id LIMIT 1""",
+            (school_id,),
+        ).fetchone()
+
         connection.execute("BEGIN IMMEDIATE")
-        connection.executemany(
-            """INSERT INTO students
-               (admission_number, full_name, class_level, status, school_id)
-               VALUES (?, ?, ?, ?, ?)""",
-            [
-                (row["admission_number"], row["full_name"], row["class_level"],
-                 row["status"], school["id"])
-                for row in records
-            ],
-        )
+        if existing == 0:
+            connection.executemany(
+                """INSERT INTO students
+                   (admission_number, full_name, class_level, status, school_id)
+                   VALUES (?, ?, ?, ?, ?)""",
+                [
+                    (row["admission_number"], row["full_name"], row["class_level"],
+                     row["status"], school_id)
+                    for row in records
+                ],
+            )
+
+        # Give the fictional cohort varied registration dates and a readable
+        # date in the Student Records table. Only DEMO-K12 rows are touched.
+        demo_students = connection.execute(
+            """SELECT id, admission_number FROM students
+               WHERE school_id=? AND admission_number LIKE 'DEMO-K12-%'
+               ORDER BY admission_number""",
+            (school_id,),
+        ).fetchall()
+        for index, student in enumerate(demo_students):
+            registration_day = 5 + ((index * 7) % 23)
+            registration_month = 1 + ((index * 5) % 8)
+            registration_year = 2026
+            registered_on = f"{registration_year}-{registration_month:02d}-{registration_day:02d}"
+            connection.execute(
+                """UPDATE students SET enrollment_date=COALESCE(enrollment_date, ?),
+                   created_at=CASE WHEN admission_number LIKE 'DEMO-K12-%' THEN ? ELSE created_at END
+                   WHERE id=? AND school_id=?""",
+                (registered_on, registered_on + " 09:00:00", student["id"], school_id),
+            )
+
+        if updater:
+            academic_year = "2026-2027"
+            finance_count = connection.execute(
+                """SELECT COUNT(*) FROM student_finances
+                   WHERE school_id=? AND academic_year=? AND student_id IN
+                     (SELECT id FROM students WHERE school_id=? AND admission_number LIKE 'DEMO-K12-%')""",
+                (school_id, academic_year, school_id),
+            ).fetchone()[0]
+            if finance_count not in (0, 250):
+                raise RuntimeError(
+                    f"Found {finance_count} demo financial records; refusing a partial seed."
+                )
+            if finance_count == 0:
+                finance_rows = []
+                for index, student in enumerate(demo_students):
+                    if index % 5 == 0:
+                        amount_paid, note = 8000.00, "FICTIONAL DEMO DATA — shown as paid; not a real receipt."
+                    elif index % 5 in (1, 2):
+                        amount_paid = (1500.00, 3500.00, 5000.00, 6500.00)[index % 4]
+                        note = "FICTIONAL DEMO DATA — partial payment example; not a real receipt."
+                    else:
+                        amount_paid, note = 0.00, "FICTIONAL DEMO DATA — unpaid example; not a real account statement."
+                    finance_rows.append(
+                        (student["id"], academic_year, 8000.00, amount_paid, note,
+                         updater["id"], school_id)
+                    )
+                connection.executemany(
+                    """INSERT INTO student_finances
+                       (student_id, academic_year, total_fee, amount_paid, notes, updated_by, school_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    finance_rows,
+                )
         connection.commit()
     except Exception:
         connection.rollback()
