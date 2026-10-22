@@ -1364,7 +1364,7 @@ def student_detail(student_id):
         if student is None:
             abort(404)
         finance_summary = None
-        if current_user.role in {"principal", "registrar", "finance_admin"}:
+        if current_user.role in {"principal", "registrar"}:
             finance_summary = connection.execute(
                 """SELECT COALESCE(total_fee, 0) AS total_fee,
                           COALESCE(amount_paid, 0) AS amount_paid,
@@ -1528,7 +1528,7 @@ def list_students():
         connection.close()
     return render_template("students.html", students=students, classes=classes,
                            class_filter=class_filter, search_query=search_query,
-                           can_view_finances=current_user.role in {"super_admin", "principal", "registrar", "finance_admin"})
+                           can_view_finances=current_user.role in {"principal", "registrar"})
 
 
 @app.route("/student-finances", methods=["GET", "POST"])
