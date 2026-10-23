@@ -1171,6 +1171,20 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertIn(b"campus-v02.css?v=20261023-1", response.data)
         self.assertIn(b"campus-v03.css?v=20261023-1", response.data)
 
+    def test_finance_pages_render_advanced_finance_layout_hooks(self):
+        self.login_as("finance_demo", "test-finance-password")
+        payments = self.client.get("/finance/payments")
+        self.assertEqual(payments.status_code, 200)
+        self.assertIn(b'class="finance-page"', payments.data)
+        self.assertIn(b"Payments &amp; Receipts", payments.data)
+        self.assertIn(b"Record a payment", payments.data)
+        fees = self.client.get("/student-finances")
+        self.assertEqual(fees.status_code, 200)
+        self.assertIn(b'class="finance-page"', fees.data)
+        self.assertIn(b"finance-heading", fees.data)
+        self.assertIn(b"finance-form", fees.data)
+        self.assertIn(b"finance-table-wrap", fees.data)
+
     def test_registration_page_uses_responsive_registration_styles(self):
         self.login_as("teacher_demo", "test-teacher-password")
         response = self.client.get("/students/register")
