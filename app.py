@@ -1428,11 +1428,19 @@ def admin_users():
                     flash("This account has no linked student record.", "info")
             elif action == "change_role":
                 new_role = request.form.get("new_role", "").strip()
-                linked = connection.execute("SELECT 1 FROM students WHERE account_user_id = ?", (target_id_int,)).fetchone()
+                linked_student = connection.execute(
+                    "SELECT 1 FROM students WHERE account_user_id = ?", (target_id_int,)
+                ).fetchone()
+                linked_children = connection.execute(
+                    "SELECT 1 FROM parent_student_links WHERE parent_user_id = ? LIMIT 1",
+                    (target_id_int,),
+                ).fetchone()
                 if target["is_super_admin"] or new_role not in STAFF_ROLES:
                     flash("Super Administrator roles cannot be changed here.", "danger")
-                elif linked:
-                    flash("Unlink this student record before changing the account's role.", "danger")
+                elif new_role in {"student", "parent"}:
+                    flash("Student and parent roles must be assigned through the verified account-creation and linking workflow.", "danger")
+                elif linked_student or linked_children:
+                    flash("Remove the account's existing student or parent-child links before changing its role.", "danger")
                 else:
                     connection.execute("UPDATE users SET role = ? WHERE id = ?", (new_role, target_id_int))
                     connection.execute(
