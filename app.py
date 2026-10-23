@@ -2098,6 +2098,9 @@ def student_finances():
 
     connection = get_db_connection()
     try:
+        # This page can be the first finance module opened on a fresh install.
+        # Ensure the payment ledger exists before checking it below.
+        ensure_content_tables(connection)
         if request.method == "POST":
             # Serialize financial validation and writes so concurrent requests
             # cannot overwrite or spend the same balance based on stale reads.
