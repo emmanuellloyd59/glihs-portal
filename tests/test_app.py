@@ -122,7 +122,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
             "username": "teacher_demo", "password": "test-teacher-password"
         })
         self.assertEqual(blocked.status_code, 429)
-        self.assertIn(b"Please wait before trying again", blocked.data)
+        self.assertIn(b"Please wait briefly before trying again", blocked.data)
         connection = portal.get_db_connection()
         row = connection.execute(
             "SELECT failed_attempts,locked_until FROM login_attempt_limits WHERE username_key='teacher_demo'"
@@ -130,6 +130,14 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         connection.close()
         self.assertEqual(row["failed_attempts"], 5)
         self.assertGreater(row["locked_until"], __import__("time").time())
+
+    def test_login_cooldown_expires_without_a_long_account_lockout(self):
+        import time
+        now = time.time()
+        for offset in range(5):
+            portal.record_failed_login("teacher_demo", now=now + offset)
+        self.assertTrue(portal.login_is_rate_limited("teacher_demo", now=now + 4.5))
+        self.assertFalse(portal.login_is_rate_limited("teacher_demo", now=now + 7))
 
     def test_successful_login_clears_previous_failed_attempts(self):
         self.client.post("/login", data={"username": "teacher_demo", "password": "wrong"})
