@@ -75,6 +75,14 @@ class PortalTestSupport:
             "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'principal', 1)",
             ("principal_demo", generate_password_hash("test-principal-password")),
         )
+        connection.execute(
+            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'vice_principal', 1)",
+            ("vice_principal_demo", generate_password_hash("test-vice-principal-password")),
+        )
+        connection.execute(
+            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'academic_admin', 1)",
+            ("academic_admin_demo", generate_password_hash("test-academic-admin-password")),
+        )
         connection.commit()
         connection.close()
         self.client.post("/logout")  # Clear a prior authenticated test session if any.
@@ -1192,6 +1200,19 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertIn(b"class=\"surface-card registration-section", response.data)
         self.assertIn(b"class=\"col-12 col-lg-4 registration-aside", response.data)
         self.assertIn(b"class=\"section-icon\"", response.data)
+
+    def test_school_leadership_and_academic_admin_can_open_registration(self):
+        accounts = (
+            ("principal_demo", "test-principal-password"),
+            ("vice_principal_demo", "test-vice-principal-password"),
+            ("academic_admin_demo", "test-academic-admin-password"),
+        )
+        for username, password in accounts:
+            self.client.post("/logout")
+            self.login_as(username, password)
+            response = self.client.get("/students/register")
+            self.assertEqual(response.status_code, 200, username)
+            self.assertIn(b"Register Student", response.data, username)
 
     def test_learning_material_upload_is_school_scoped_and_student_class_restricted(self):
         self.login_as("principal_demo", "test-principal-password")
