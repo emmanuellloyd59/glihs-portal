@@ -8,6 +8,7 @@ from werkzeug.utils import secure_filename
 from flask import send_file
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+import time
 
 from flask import Flask, render_template, redirect, url_for, request, flash, abort, session, jsonify
 from flask_login import (
@@ -896,6 +897,94 @@ def feature_center():
 
 
 @app.route("/login", methods=["GET", "POST"])
+
+LOGIN_FAILURE_LIMIT = 5
+LOGIN_FAILURE_WINDOW_SECONDS = 15 * 60
+LOGIN_LOCKOUT_SECONDS = 15 * 60
+
+
+def login_is_rate_limited(username, now=None):
+    """Return whether this username is temporarily locked after failed logins.
+
+    State is stored in SQLite rather than process memory so it is shared by
+    workers using the same database. Use a generic login response either way.
+    """
+    now = time.time() if now is None else now
+    key = (username or "").strip().casefold()[:64]
+    if not key:
+        return False
+    connection = get_db_connection()
+    try:
+        connection.execute("""CREATE TABLE IF NOT EXISTS login_attempt_limits (
+            username_key TEXT PRIMARY KEY,
+            failed_attempts INTEGER NOT NULL DEFAULT 0,
+            window_started REAL NOT NULL,
+            locked_until REAL NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL
+        )""")
+        row = connection.execute(
+            "SELECT locked_until FROM login_attempt_limits WHERE username_key=?", (key,)
+        ).fetchone()
+        return bool(row and row["locked_until"] > now)
+    finally:
+        connection.close()
+
+
+def record_failed_login(username, now=None):
+    """Count failed logins and apply a 15-minute lock after five in 15 minutes."""
+    now = time.time() if now is None else now
+    key = (username or "").strip().casefold()[:64]
+    if not key:
+        return
+    connection = get_db_connection()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("""CREATE TABLE IF NOT EXISTS login_attempt_limits (
+            username_key TEXT PRIMARY KEY,
+            failed_attempts INTEGER NOT NULL DEFAULT 0,
+            window_started REAL NOT NULL,
+            locked_until REAL NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL
+        )""")
+        # Keep this small operational table bounded against random-username abuse.
+        connection.execute("DELETE FROM login_attempt_limits WHERE updated_at < ?", (now - 86400,))
+        row = connection.execute(
+            "SELECT failed_attempts,window_started,locked_until FROM login_attempt_limits WHERE username_key=?",
+            (key,),
+        ).fetchone()
+        if row and row["locked_until"] > now:
+            connection.commit()
+            return
+        if not row or now - row["window_started"] >= LOGIN_FAILURE_WINDOW_SECONDS:
+            attempts, started = 1, now
+        else:
+            attempts, started = row["failed_attempts"] + 1, row["window_started"]
+        locked_until = now + LOGIN_LOCKOUT_SECONDS if attempts >= LOGIN_FAILURE_LIMIT else 0
+        connection.execute("""INSERT INTO login_attempt_limits
+            (username_key,failed_attempts,window_started,locked_until,updated_at)
+            VALUES (?,?,?,?,?) ON CONFLICT(username_key) DO UPDATE SET
+            failed_attempts=excluded.failed_attempts,window_started=excluded.window_started,
+            locked_until=excluded.locked_until,updated_at=excluded.updated_at""",
+            (key, attempts, started, locked_until, now))
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def clear_failed_logins(username):
+    key = (username or "").strip().casefold()[:64]
+    if not key:
+        return
+    connection = get_db_connection()
+    try:
+        connection.execute("DELETE FROM login_attempt_limits WHERE username_key=?", (key,))
+        connection.commit()
+    finally:
+        connection.close()
+
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("dashboard"))
@@ -903,16 +992,24 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
-        if not username or not password:
-            flash("Please enter your username and password.")
+        if not username or not password or len(username) > 64 or len(password) > 1024:
+            flash("Invalid username or password.")
             return render_template("login.html")
+
+        if login_is_rate_limited(username):
+            # Do not reveal whether the account exists or is temporarily locked.
+            flash("Invalid username or password. Please wait before trying again.")
+            return render_template("login.html"), 429
 
         user = get_user_by_username(username)
         if user and check_password_hash(user.password_hash, password):
+            clear_failed_logins(username)
+            session.clear()
             session.permanent = True
             login_user(user)
             write_audit(user.id, "login_success", user.username)
             return redirect(url_for("dashboard"))
+        record_failed_login(username)
         write_audit(None, "login_failed", username[:64] or None)
         flash("Invalid username or password.")
 
