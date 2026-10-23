@@ -1040,5 +1040,38 @@ class StartupMigrationTests(unittest.TestCase):
                 portal.DATABASE = original_database
 
 
+
+    def test_school_a_staff_cannot_access_another_schools_student_detail_or_edit(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO schools (name, slug, status) VALUES (?, ?, 'active') "
+                "ON CONFLICT(slug) DO NOTHING",
+                ("Cross Tenant Test School B", "cross-tenant-idor-test-school-b"),
+            )
+            school_b_id = connection.execute(
+                "SELECT id FROM schools WHERE slug = ?",
+                ("cross-tenant-idor-test-school-b",),
+            ).fetchone()["id"]
+            student_b_id = connection.execute(
+                """INSERT INTO students
+                   (admission_number, full_name, class_level, status, school_id)
+                   VALUES ('TENANT-B-PRIVATE-001', 'Private School B Student', 'Grade 8', 'active', ?)""",
+                (school_b_id,),
+            ).lastrowid
+            connection.commit()
+        finally:
+            connection.close()
+
+        # Registrar belongs to School A (school_id=1); direct URL guessing must
+        # not expose or edit School B's student record.
+        self.login_as("registrar_route_test")
+        detail = self.client.get(f"/students/{student_b_id}")
+        edit = self.client.get(f"/students/{student_b_id}/edit")
+        self.assertEqual(detail.status_code, 404)
+        self.assertEqual(edit.status_code, 404)
+        self.assertNotIn(b"Private School B Student", detail.data)
+        self.assertNotIn(b"Private School B Student", edit.data)
+
 if __name__ == "__main__":
     unittest.main()
