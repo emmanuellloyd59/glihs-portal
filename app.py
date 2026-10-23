@@ -2122,8 +2122,8 @@ def student_finances():
                 paid_decimal = Decimal(paid_text)
                 if (
                     not total_decimal.is_finite() or not paid_decimal.is_finite()
-                    or total_decimal != total_decimal.quantize(Decimal("0.01"))
-                    or paid_decimal != paid_decimal.quantize(Decimal("0.01"))
+                    or total_decimal.as_tuple().exponent < -2
+                    or paid_decimal.as_tuple().exponent < -2
                 ):
                     raise ValueError
                 total_cents = int(total_decimal * 100)
@@ -2483,7 +2483,7 @@ def finance_payments():
             ).fetchone()
             try:
                 amount_decimal = Decimal(amount_text)
-                if not amount_decimal.is_finite() or amount_decimal != amount_decimal.quantize(Decimal("0.01")):
+                if not amount_decimal.is_finite() or amount_decimal.as_tuple().exponent < -2:
                     raise ValueError
                 amount_cents = int(amount_decimal * 100)
                 if not student or not valid_year or not (0 < amount_cents <= 10000000000) or method not in {"cash","bank_transfer","mobile_money","other"}:
