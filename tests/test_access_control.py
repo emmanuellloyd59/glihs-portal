@@ -159,6 +159,89 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         response = self.login_as("role_only_super_admin")
         self.assertIn(b"Invalid username or password", response.data)
 
+    def test_demo_staff_team_is_super_admin_only_and_school_scoped(self):
+        self.login_as("teacher_route_test")
+        denied = self.client.post(
+            "/staff/demo-team", data={"confirm_demo_team": "yes"}
+        )
+        self.assertEqual(denied.status_code, 403)
+
+        connection = portal.get_db_connection()
+        try:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM users WHERE username LIKE 'cmhs_%_demo%'"
+            ).fetchone()[0]
+            self.assertEqual(count, 0)
+        finally:
+            connection.close()
+
+        self.login_as("super_route_test")
+        self.client.post("/admin/select-school", data={"school_id": "1"})
+        response = self.client.post(
+            "/staff/demo-team",
+            data={"confirm_demo_team": "yes"},
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"cmhs_teacher_english_demo", response.data)
+        self.assertIn(b"cmhs_principal_demo", response.data)
+        self.assertIn(b"New account created", response.data)
+
+        connection = portal.get_db_connection()
+        try:
+            accounts = connection.execute(
+                """SELECT username, role, school_id, password_hash
+                   FROM users WHERE username LIKE 'cmhs_%_demo%'"""
+            ).fetchall()
+            self.assertGreaterEqual(len(accounts), 19)
+            self.assertTrue(all(row["school_id"] == 1 for row in accounts))
+            self.assertTrue(all(row["password_hash"] != "test-password-for-route" for row in accounts))
+        finally:
+            connection.close()
+
+    def test_demo_staff_reactivation_returns_new_password_without_creating_duplicates(self):
+        self.login_as("super_route_test")
+        self.client.post("/admin/select-school", data={"school_id": "1"})
+        first = self.client.post(
+            "/staff/demo-team",
+            data={"confirm_demo_team": "yes"},
+            follow_redirects=True,
+        )
+        self.assertEqual(first.status_code, 200)
+        self.assertIn(b"cmhs_teacher_english_demo", first.data)
+
+        connection = portal.get_db_connection()
+        try:
+            before = connection.execute(
+                "SELECT id, password_hash FROM users WHERE username='cmhs_teacher_english_demo'"
+            ).fetchone()
+            connection.execute(
+                "UPDATE users SET status='suspended' WHERE username='cmhs_teacher_english_demo'"
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        second = self.client.post(
+            "/staff/demo-team",
+            data={"confirm_demo_team": "yes"},
+            follow_redirects=True,
+        )
+        self.assertEqual(second.status_code, 200)
+        self.assertIn(b"Password reset; account reactivated", second.data)
+
+        connection = portal.get_db_connection()
+        try:
+            after_rows = connection.execute(
+                "SELECT id, password_hash, status FROM users WHERE username='cmhs_teacher_english_demo'"
+            ).fetchall()
+            self.assertEqual(len(after_rows), 1)
+            self.assertEqual(after_rows[0]["id"], before["id"])
+            self.assertEqual(after_rows[0]["status"], "active")
+            self.assertNotEqual(after_rows[0]["password_hash"], before["password_hash"])
+        finally:
+            connection.close()
+
     def test_platform_super_admin_must_select_school_before_school_features(self):
         self.login_as("super_route_test")
         response = self.client.get("/dashboard")
