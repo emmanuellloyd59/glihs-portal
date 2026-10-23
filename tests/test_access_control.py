@@ -175,6 +175,9 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         finally:
             connection.close()
 
+        # Flask-Login keeps the existing user authenticated; explicitly end the
+        # teacher session before authenticating as the platform super-admin.
+        self.client.get("/logout")
         self.login_as("super_route_test")
         self.client.post("/admin/select-school", data={"school_id": "1"})
         response = self.client.post(
