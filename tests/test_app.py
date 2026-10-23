@@ -118,6 +118,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertIn(b"Student Records", response.data)
         self.assertIn(b"Version 4 · In Development", response.data)
         self.assertNotIn(b"Version 0.3 Preview", response.data)
+        self.assertNotIn(b"Version 0.3 preview", response.data)
 
     def test_baseline_security_headers_are_set(self):
         response = self.client.get("/")
