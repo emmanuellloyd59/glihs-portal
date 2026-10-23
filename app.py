@@ -898,11 +898,12 @@ def feature_center():
 
 LOGIN_FAILURE_LIMIT = 5
 LOGIN_FAILURE_WINDOW_SECONDS = 15 * 60
-LOGIN_LOCKOUT_SECONDS = 15 * 60
+LOGIN_COOLDOWN_BASE_SECONDS = 2
+LOGIN_COOLDOWN_MAX_SECONDS = 30
 
 
 def login_is_rate_limited(username, now=None):
-    """Return whether this username is temporarily locked after failed logins.
+    """Return whether this username is in a brief cooldown after failed logins.
 
     State is stored in SQLite rather than process memory so it is shared by
     workers using the same database. Use a generic login response either way.
@@ -929,7 +930,7 @@ def login_is_rate_limited(username, now=None):
 
 
 def record_failed_login(username, now=None):
-    """Count failed logins and apply a 15-minute lock after five in 15 minutes."""
+    """Count failures and apply a short, escalating cooldown instead of locking the account."""
     now = time.time() if now is None else now
     key = (username or "").strip().casefold()[:64]
     if not key:
@@ -957,7 +958,10 @@ def record_failed_login(username, now=None):
             attempts, started = 1, now
         else:
             attempts, started = row["failed_attempts"] + 1, row["window_started"]
-        locked_until = now + LOGIN_LOCKOUT_SECONDS if attempts >= LOGIN_FAILURE_LIMIT else 0
+        # Avoid a long account lockout that an attacker could trigger for someone else.
+        # Repeated failures receive a brief exponential cooldown, capped at 30 seconds.
+        cooldown = min(LOGIN_COOLDOWN_MAX_SECONDS, LOGIN_COOLDOWN_BASE_SECONDS * (2 ** min(max(attempts - LOGIN_FAILURE_LIMIT, 0), 4))) if attempts >= LOGIN_FAILURE_LIMIT else 0
+        locked_until = now + cooldown if cooldown else 0
         connection.execute("""INSERT INTO login_attempt_limits
             (username_key,failed_attempts,window_started,locked_until,updated_at)
             VALUES (?,?,?,?,?) ON CONFLICT(username_key) DO UPDATE SET
@@ -996,8 +1000,8 @@ def login():
             return render_template("login.html")
 
         if login_is_rate_limited(username):
-            # Do not reveal whether the account exists or is temporarily locked.
-            flash("Invalid username or password. Please wait before trying again.")
+            # Do not reveal whether the account exists or is in a short cooldown.
+            flash("Invalid username or password. Please wait briefly before trying again.")
             return render_template("login.html"), 429
 
         user = get_user_by_username(username)
