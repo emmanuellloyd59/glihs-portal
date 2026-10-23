@@ -1439,13 +1439,13 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(response.status_code, 403)
 
 
-    def test_all_school_roles_are_registered_for_approved_account_requests(self):
+    def test_staff_roles_are_registered_for_approved_account_requests(self):
         expected = {
             "school_admin", "principal", "vice_principal", "registrar",
             "admissions_officer", "academic_admin", "attendance_officer",
-            "teacher", "finance_admin", "librarian", "counselor", "parent", "student",
+            "teacher", "finance_admin", "librarian", "counselor",
         }
-        self.assertTrue(expected.issubset(set(portal.STAFF_ROLES)))
+        self.assertEqual(set(portal.STAFF_REQUEST_ROLES), expected)
         for role in sorted(expected):
             username = "rolecheck_" + role
             response = self.client.post("/admin/request-access", data={
@@ -1466,6 +1466,26 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
                 self.assertEqual(row["status"], "pending")
                 self.assertEqual(row["school_id"], 1)
                 self.assertEqual(row["is_super_admin"], 0)
+            finally:
+                connection.close()
+
+    def test_public_staff_request_cannot_bypass_student_parent_linking(self):
+        for role in ("student", "parent"):
+            username = "unverified_" + role
+            response = self.client.post("/admin/request-access", data={
+                "full_name": "Fictional Unverified User",
+                "username": username,
+                "requested_role": role,
+                "school_slug": "legacy-demo-campus",
+            }, follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"Choose a valid staff role", response.data)
+            connection = portal.get_db_connection()
+            try:
+                row = connection.execute(
+                    "SELECT id FROM users WHERE username=?", (username,)
+                ).fetchone()
+                self.assertIsNone(row)
             finally:
                 connection.close()
 
