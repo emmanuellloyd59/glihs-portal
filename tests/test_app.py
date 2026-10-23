@@ -1171,6 +1171,14 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertIn(b"campus-v02.css?v=20261023-1", response.data)
         self.assertIn(b"campus-v03.css?v=20261023-1", response.data)
 
+    def test_registration_page_uses_responsive_registration_styles(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get("/students/register")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"class=\"surface-card registration-section", response.data)
+        self.assertIn(b"class=\"col-12 col-lg-4 registration-aside", response.data)
+        self.assertIn(b"class=\"section-icon\"", response.data)
+
     def test_learning_material_upload_is_school_scoped_and_student_class_restricted(self):
         self.login_as("principal_demo", "test-principal-password")
         response = self.client.post("/learning-materials", data={
