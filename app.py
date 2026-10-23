@@ -7,6 +7,7 @@ import uuid
 from werkzeug.utils import secure_filename
 from flask import send_file
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 
 from flask import Flask, render_template, redirect, url_for, request, flash, abort, session, jsonify
 from flask_login import (
@@ -2098,6 +2099,10 @@ def student_finances():
     connection = get_db_connection()
     try:
         if request.method == "POST":
+            # Serialize payment validation and writes. Without an immediate write
+            # lock, two concurrent requests can both read the same balance and
+            # collectively accept payments that exceed the amount owed.
+            connection.execute("BEGIN IMMEDIATE")
             student_id = request.form.get("student_id", "").strip()
             academic_year = request.form.get("academic_year", "").strip()
             total_text = request.form.get("total_fee", "").strip()
@@ -2444,11 +2449,15 @@ def finance_payments():
                 (student_id, school_id),
             ).fetchone()
             try:
-                amount = float(amount_text)
-                if not student or not valid_year or not (0 < amount <= 100000000) or method not in {"cash","bank_transfer","mobile_money","other"}:
+                amount_decimal = Decimal(amount_text)
+                if not amount_decimal.is_finite() or amount_decimal != amount_decimal.quantize(Decimal("0.01")):
                     raise ValueError
-            except (ValueError, TypeError):
-                flash("Check the student, academic year, payment amount and payment method.", "danger")
+                amount_cents = int(amount_decimal * 100)
+                if not student or not valid_year or not (0 < amount_cents <= 10000000000) or method not in {"cash","bank_transfer","mobile_money","other"}:
+                    raise ValueError
+                amount = amount_cents / 100
+            except (InvalidOperation, ValueError, TypeError):
+                flash("Check the student, academic year, payment amount (maximum two decimal places) and payment method.", "danger")
                 return redirect(url_for("finance_payments"))
             finance = connection.execute(
                 "SELECT total_fee,amount_paid FROM student_finances WHERE student_id=? AND school_id=? AND academic_year=?",
@@ -2457,7 +2466,11 @@ def finance_payments():
             if not finance:
                 flash("Set up the student's fee record before recording a payment.", "danger")
                 return redirect(url_for("student_finances", academic_year=academic_year))
-            if amount > float(finance["total_fee"]) - float(finance["amount_paid"]) + 0.00001:
+            # Compare integer cents rather than binary floats, preventing a
+            # fractional-cent overpayment from slipping through a tolerance.
+            total_fee_cents = int(round(float(finance["total_fee"]) * 100))
+            paid_cents = int(round(float(finance["amount_paid"]) * 100))
+            if amount_cents > total_fee_cents - paid_cents:
                 flash("Payment exceeds the outstanding balance. Reconcile the fee record first.", "danger")
                 return redirect(url_for("finance_payments"))
             receipt = "RCPT-" + datetime.now(timezone.utc).strftime("%Y%m%d") + "-" + uuid.uuid4().hex[:10].upper()
