@@ -116,7 +116,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Dashboard Overview", response.data)
         self.assertIn(b"Student Records", response.data)
-        self.assertIn(b"Version 4 · In Development", response.data)
+        self.assertIn("Version 4 · In Development".encode("utf-8"), response.data)
         self.assertNotIn(b"Version 0.3 Preview", response.data)
         self.assertNotIn(b"Version 0.3 preview", response.data)
 
