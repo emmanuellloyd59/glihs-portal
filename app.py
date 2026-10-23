@@ -2115,13 +2115,41 @@ def student_finances():
                 (student_id, require_school_context()),
             ).fetchone()
             try:
-                total_fee, amount_paid = float(total_text), float(paid_text)
-                if not (0 <= amount_paid <= total_fee and total_fee <= 100000000
-                        and len(notes) <= 250 and valid_year and student):
+                total_decimal = Decimal(total_text)
+                paid_decimal = Decimal(paid_text)
+                if (
+                    not total_decimal.is_finite() or not paid_decimal.is_finite()
+                    or total_decimal != total_decimal.quantize(Decimal("0.01"))
+                    or paid_decimal != paid_decimal.quantize(Decimal("0.01"))
+                ):
                     raise ValueError
-            except (ValueError, TypeError):
-                flash("Check the student, academic year, fee and payment amounts. Payments cannot exceed the total fees.", "danger")
+                total_cents = int(total_decimal * 100)
+                paid_cents = int(paid_decimal * 100)
+                if not (
+                    0 <= paid_cents <= total_cents <= 10000000000
+                    and len(notes) <= 250 and valid_year and student
+                ):
+                    raise ValueError
+                total_fee, amount_paid = total_cents / 100, paid_cents / 100
+            except (InvalidOperation, ValueError, TypeError):
+                flash("Check the student, academic year, fee and payment amounts (maximum two decimal places). Payments cannot exceed the total fees.", "danger")
                 return redirect(url_for("student_finances"))
+
+            # Once a fee record has a payment ledger, its paid total must continue
+            # to agree with the ledger. Never silently erase or rewrite receipts by
+            # editing the summary form; record new payments in the payment workflow.
+            ledger = connection.execute(
+                """SELECT COUNT(*) AS payment_count,
+                          COALESCE(SUM(CAST(ROUND(amount * 100) AS INTEGER)), 0) AS paid_cents
+                   FROM finance_payments
+                   WHERE student_id=? AND school_id=? AND academic_year=?""",
+                (student_id, school_id, academic_year),
+            ).fetchone()
+            if ledger["payment_count"] and (
+                paid_cents != ledger["paid_cents"] or total_cents < ledger["paid_cents"]
+            ):
+                flash("This student has recorded payment receipts. The paid total must match the payment history; use the payment workflow to record additional payments.", "danger")
+                return redirect(url_for("student_finances", academic_year=academic_year))
             connection.execute(
                 """INSERT INTO student_finances
                    (student_id, academic_year, total_fee, amount_paid, notes, updated_by, school_id)
