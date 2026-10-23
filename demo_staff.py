@@ -44,13 +44,41 @@ def register_demo_staff_routes(ns):
                 suffix = 0
                 while True:
                     old = db.execute(
-                        "SELECT role,status,school_id FROM users WHERE username=?",
+                        "SELECT role,status,school_id,full_name FROM users WHERE username=?",
                         (username,),
                     ).fetchone()
                     if old is None:
                         break
                     if old["school_id"] == school_id:
-                        existing.append({"username":username,"role":old["role"],"status":old["status"]})
+                        # Recover only accounts that exactly match our known fictional
+                        # demo identity. Never reset a real staff member's password.
+                        if (
+                            old["role"] == role
+                            and old["full_name"] == full_name
+                            and "(Demo" in old["full_name"]
+                        ):
+                            password = secrets.token_urlsafe(15)
+                            db.execute(
+                                """UPDATE users
+                                   SET password_hash=?, status='active'
+                                   WHERE username=? AND school_id=? AND role=? AND full_name=?""",
+                                (generate_password_hash(password), username, school_id, role, full_name),
+                            )
+                            db.execute(
+                                """INSERT INTO audit_log
+                                   (actor_user_id,action,target_username,details,school_id)
+                                   VALUES (?,?,?,?,?)""",
+                                (int(current_user.id), "demo_staff_password_reset", username,
+                                 "Fictional demo account password reset and reactivated; role: " + role,
+                                 school_id),
+                            )
+                            created.append({
+                                "username": username, "full_name": full_name,
+                                "role": role, "subject": subject, "password": password,
+                                "action": "Password reset; account reactivated",
+                            })
+                        else:
+                            existing.append({"username":username,"role":old["role"],"status":old["status"]})
                         username = None
                         break
                     suffix += 1
@@ -63,7 +91,7 @@ def register_demo_staff_routes(ns):
                     (username,full_name,generate_password_hash(password),role,school_id,int(current_user.id)))
                 db.execute("""INSERT INTO audit_log (actor_user_id,action,target_username,details,school_id) VALUES (?,?,?,?,?)""",
                     (int(current_user.id),"demo_staff_account_created",username,"Fictional role: "+role+"; subject/group: "+subject,school_id))
-                created.append({"username":username,"full_name":full_name,"role":role,"subject":subject,"password":password})
+                created.append({"username":username,"full_name":full_name,"role":role,"subject":subject,"password":password,"action":"New account created"})
             db.commit(); school_name=school["name"]
         except Exception:
             db.rollback(); raise

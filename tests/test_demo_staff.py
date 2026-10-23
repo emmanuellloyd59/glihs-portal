@@ -123,12 +123,21 @@ class DemoStaffProvisioningTests(unittest.TestCase):
         )
         db.close()
 
+        # Re-activation must recover credentials for the existing fictional
+        # team instead of leaving the administrator locked out of those accounts.
         repeated = self.activate()
         self.assertEqual(repeated.status_code, 200)
-        self.assertIn(b"No new accounts were created", repeated.data)
+        self.assertIn(b"Accounts created or recovered", repeated.data)
+        self.assertIn(b"Password reset; account reactivated", repeated.data)
         db = portal.get_db_connection()
         self.assertEqual(
             db.execute("SELECT COUNT(*) FROM users WHERE school_id=2 AND username LIKE 'cmhs_%_demo%'").fetchone()[0],
+            19,
+        )
+        self.assertEqual(
+            db.execute(
+                "SELECT COUNT(*) FROM audit_log WHERE school_id=2 AND action='demo_staff_password_reset'"
+            ).fetchone()[0],
             19,
         )
         db.close()
