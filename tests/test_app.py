@@ -1626,6 +1626,9 @@ class StudentParentAccountLifecycleTests(PortalTestSupport, unittest.TestCase):
                 (generate_password_hash("linked-parent-password"),),
             )
             parent_id = cursor.lastrowid
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username='teacher_demo'"
+            ).fetchone()["id"]
             connection.execute(
                 """INSERT INTO parent_student_links
                    (parent_user_id, student_id, school_id, created_by)
@@ -1639,7 +1642,7 @@ class StudentParentAccountLifecycleTests(PortalTestSupport, unittest.TestCase):
         self.login_as("super_demo", "test-super-password")
         # Staff accounts cannot be converted into unlinked parent/student accounts.
         self.client.post("/admin/users", data={
-            "action": "change_role", "user_id": self._user_id("teacher_demo"),
+            "action": "change_role", "user_id": str(teacher_id),
             "new_role": "parent",
         }, follow_redirects=True)
         # A parent with active child links cannot be silently converted into staff.
