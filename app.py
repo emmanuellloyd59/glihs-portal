@@ -1208,6 +1208,22 @@ def admin_users():
                 if role == "student" and student and student["account_user_id"] is not None:
                     flash("That student already has a login account.", "danger")
                     return redirect(url_for("admin_users"))
+                # Serialize the student-link check and account creation. Without an
+                # immediate write lock, two requests can both observe an unlinked
+                # student and leave one newly-created login without its student link.
+                connection.execute("BEGIN IMMEDIATE")
+                student = connection.execute(
+                    "SELECT id, account_user_id FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
+                    (int(linked_student_text), int(school_text)),
+                ).fetchone()
+                if not student:
+                    connection.rollback()
+                    flash("The selected student is no longer active in that school.", "danger")
+                    return redirect(url_for("admin_users"))
+                if role == "student" and student["account_user_id"] is not None:
+                    connection.rollback()
+                    flash("That student already has a login account.", "danger")
+                    return redirect(url_for("admin_users"))
                 try:
                     cursor = connection.execute(
                         """INSERT INTO users
@@ -1218,10 +1234,12 @@ def admin_users():
                     )
                     new_user_id = cursor.lastrowid
                     if role == "student":
-                        connection.execute(
-                            "UPDATE students SET account_user_id = ? WHERE id = ? AND school_id = ? AND account_user_id IS NULL",
+                        linked = connection.execute(
+                            "UPDATE students SET account_user_id = ? WHERE id = ? AND school_id = ? AND status = 'active' AND account_user_id IS NULL",
                             (new_user_id, student["id"], int(school_text)),
                         )
+                        if linked.rowcount != 1:
+                            raise sqlite3.IntegrityError("Student record was linked by another request")
                         audit_action = "student_account_created"
                     else:
                         connection.execute(
