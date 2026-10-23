@@ -46,6 +46,7 @@ class PortalTestSupport:
         connection.execute("DELETE FROM report_cards")
         connection.execute("DELETE FROM student_finances")
         connection.execute("DELETE FROM audit_log")
+        connection.execute("DELETE FROM login_attempt_limits") if "login_attempt_limits" in existing_tables else None
         connection.execute("DELETE FROM students")
         connection.execute("DELETE FROM users")
         connection.execute(
@@ -110,6 +111,38 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 302)
         self.assertIn("/login", response.headers["Location"])
+
+    def test_login_rate_limit_blocks_after_five_failed_attempts(self):
+        for _ in range(5):
+            response = self.client.post("/login", data={
+                "username": "teacher_demo", "password": "incorrect-password"
+            })
+            self.assertEqual(response.status_code, 200)
+        blocked = self.client.post("/login", data={
+            "username": "teacher_demo", "password": "test-teacher-password"
+        })
+        self.assertEqual(blocked.status_code, 429)
+        self.assertIn(b"Please wait before trying again", blocked.data)
+        connection = portal.get_db_connection()
+        row = connection.execute(
+            "SELECT failed_attempts,locked_until FROM login_attempt_limits WHERE username_key='teacher_demo'"
+        ).fetchone()
+        connection.close()
+        self.assertEqual(row["failed_attempts"], 5)
+        self.assertGreater(row["locked_until"], __import__("time").time())
+
+    def test_successful_login_clears_previous_failed_attempts(self):
+        self.client.post("/login", data={"username": "teacher_demo", "password": "wrong"})
+        response = self.client.post("/login", data={
+            "username": "teacher_demo", "password": "test-teacher-password"
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        row = connection.execute(
+            "SELECT username_key FROM login_attempt_limits WHERE username_key='teacher_demo'"
+        ).fetchone()
+        connection.close()
+        self.assertIsNone(row)
 
     def test_valid_teacher_login_opens_dashboard(self):
         response = self.login_as("teacher_demo", "test-teacher-password")
