@@ -1208,6 +1208,49 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         finally:
             connection.close()
 
+    def test_finance_payment_rejects_fractional_cents_and_overpayment_without_mutation(self):
+        connection = portal.get_db_connection()
+        try:
+            student_id = connection.execute(
+                """INSERT INTO students
+                   (admission_number,full_name,class_level,school_id)
+                   VALUES ('PAYMENT-EDGE-001','Fictional Payment Edge Student','Grade 7',1)"""
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id,academic_year,total_fee,amount_paid,updated_by,school_id)
+                   VALUES (?, '2026-2027', 100, 0,
+                           (SELECT id FROM users WHERE username='teacher_demo'), 1)""",
+                (student_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("finance_demo", "test-finance-password")
+        for invalid_amount in ("10.001", "100.01"):
+            response = self.client.post("/finance/payments", data={
+                "student_id": str(student_id), "academic_year": "2026-2027",
+                "amount": invalid_amount, "method": "cash",
+            }, follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn(b"Payment recorded. Receipt number:", response.data)
+
+        connection = portal.get_db_connection()
+        try:
+            finance = connection.execute(
+                "SELECT amount_paid FROM student_finances WHERE student_id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()
+            payment_count = connection.execute(
+                "SELECT COUNT(*) FROM finance_payments WHERE student_id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()[0]
+            self.assertEqual(finance["amount_paid"], 0)
+            self.assertEqual(payment_count, 0)
+        finally:
+            connection.close()
+
     def test_platform_super_admin_must_select_active_school_before_school_modules(self):
         self.login_as("super_demo", "test-super-password")
         # Platform administrators have no permanent school_id and must fail closed
