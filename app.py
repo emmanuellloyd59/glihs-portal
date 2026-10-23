@@ -896,8 +896,6 @@ def feature_center():
     return render_template("features.html")
 
 
-@app.route("/login", methods=["GET", "POST"])
-
 LOGIN_FAILURE_LIMIT = 5
 LOGIN_FAILURE_WINDOW_SECONDS = 15 * 60
 LOGIN_LOCKOUT_SECONDS = 15 * 60
@@ -985,6 +983,7 @@ def clear_failed_logins(username):
     finally:
         connection.close()
 
+@app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("dashboard"))
