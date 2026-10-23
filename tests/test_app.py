@@ -1544,6 +1544,77 @@ class StudentParentAccountLifecycleTests(PortalTestSupport, unittest.TestCase):
         finally:
             connection.close()
 
+    def test_student_account_creation_links_student_record_atomically(self):
+        student_id = self._create_student("STU-ACCOUNT-ATOMIC", "Account Link Student")
+        self.login_as("super_demo", "test-super-password")
+        response = self.client.post("/admin/users", data={
+            "action": "create_account",
+            "new_username": "student_atomic_test",
+            "new_full_name": "Account Link Student",
+            "new_role": "student",
+            "new_password": "temporary-password-123",
+            "school_id": "1",
+            "linked_student_id": str(student_id),
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        try:
+            user = connection.execute(
+                "SELECT id, role, status, school_id FROM users WHERE username='student_atomic_test'"
+            ).fetchone()
+            student = connection.execute(
+                "SELECT account_user_id FROM students WHERE id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()
+            self.assertIsNotNone(user)
+            self.assertEqual((user["role"], user["status"], user["school_id"]), ("student", "active", 1))
+            self.assertEqual(student["account_user_id"], user["id"])
+        finally:
+            connection.close()
+
+    def test_student_account_creation_rejects_existing_link_without_orphan_account(self):
+        student_id = self._create_student("STU-ACCOUNT-LINKED", "Already Linked Student")
+        connection = portal.get_db_connection()
+        try:
+            cursor = connection.execute(
+                """INSERT INTO users
+                   (username, full_name, password_hash, role, status, school_id)
+                   VALUES ('existing_linked_student', 'Already Linked Student', ?, 'student', 'active', 1)""",
+                (generate_password_hash("existing-student-password"),),
+            )
+            connection.execute(
+                "UPDATE students SET account_user_id=? WHERE id=? AND school_id=1",
+                (cursor.lastrowid, student_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("super_demo", "test-super-password")
+        response = self.client.post("/admin/users", data={
+            "action": "create_account",
+            "new_username": "orphan_student_attempt",
+            "new_full_name": "Already Linked Student",
+            "new_role": "student",
+            "new_password": "temporary-password-123",
+            "school_id": "1",
+            "linked_student_id": str(student_id),
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        try:
+            orphan = connection.execute(
+                "SELECT id FROM users WHERE username='orphan_student_attempt'"
+            ).fetchone()
+            student = connection.execute(
+                "SELECT account_user_id FROM students WHERE id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()
+            self.assertIsNone(orphan)
+            self.assertIsNotNone(student["account_user_id"])
+        finally:
+            connection.close()
+
     def test_super_admin_can_create_parent_account_linked_to_verified_child(self):
         student_id = self._create_student()
         self.login_as("super_demo", "test-super-password")
