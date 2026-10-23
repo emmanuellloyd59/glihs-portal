@@ -2124,8 +2124,13 @@ def student_finances():
                     not total_decimal.is_finite() or not paid_decimal.is_finite()
                     or total_decimal.as_tuple().exponent < -2
                     or paid_decimal.as_tuple().exponent < -2
+                    or total_decimal < 0 or paid_decimal < 0
+                    or total_decimal > Decimal("100000000")
+                    or paid_decimal > Decimal("100000000")
                 ):
                     raise ValueError
+                # Bound Decimal values before converting to int so maliciously
+                # large exponents cannot trigger enormous integer allocations.
                 total_cents = int(total_decimal * 100)
                 paid_cents = int(paid_decimal * 100)
                 if not (
@@ -2483,8 +2488,14 @@ def finance_payments():
             ).fetchone()
             try:
                 amount_decimal = Decimal(amount_text)
-                if not amount_decimal.is_finite() or amount_decimal.as_tuple().exponent < -2:
+                if (
+                    not amount_decimal.is_finite()
+                    or amount_decimal.as_tuple().exponent < -2
+                    or amount_decimal <= 0
+                    or amount_decimal > Decimal("100000000")
+                ):
                     raise ValueError
+                # Reject out-of-range values before converting Decimal to int.
                 amount_cents = int(amount_decimal * 100)
                 if not student or not valid_year or not (0 < amount_cents <= 10000000000) or method not in {"cash","bank_transfer","mobile_money","other"}:
                     raise ValueError
