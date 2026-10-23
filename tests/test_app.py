@@ -1615,6 +1615,57 @@ class StudentParentAccountLifecycleTests(PortalTestSupport, unittest.TestCase):
         finally:
             connection.close()
 
+    def test_role_change_cannot_bypass_verified_student_parent_linking(self):
+        student_id = self._create_student("STU-ROLE-GUARD", "Role Guard Student")
+        connection = portal.get_db_connection()
+        try:
+            cursor = connection.execute(
+                """INSERT INTO users
+                   (username, full_name, password_hash, role, status, school_id)
+                   VALUES ('linked_parent_guard', 'Linked Parent', ?, 'parent', 'active', 1)""",
+                (generate_password_hash("linked-parent-password"),),
+            )
+            parent_id = cursor.lastrowid
+            connection.execute(
+                """INSERT INTO parent_student_links
+                   (parent_user_id, student_id, school_id, created_by)
+                   VALUES (?, ?, 1, (SELECT id FROM users WHERE username='super_demo'))""",
+                (parent_id, student_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("super_demo", "test-super-password")
+        # Staff accounts cannot be converted into unlinked parent/student accounts.
+        self.client.post("/admin/users", data={
+            "action": "change_role", "user_id": self._user_id("teacher_demo"),
+            "new_role": "parent",
+        }, follow_redirects=True)
+        # A parent with active child links cannot be silently converted into staff.
+        self.client.post("/admin/users", data={
+            "action": "change_role", "user_id": str(parent_id),
+            "new_role": "teacher",
+        }, follow_redirects=True)
+
+        connection = portal.get_db_connection()
+        try:
+            teacher = connection.execute(
+                "SELECT role FROM users WHERE username='teacher_demo'"
+            ).fetchone()
+            parent = connection.execute(
+                "SELECT role FROM users WHERE id=?", (parent_id,)
+            ).fetchone()
+            links = connection.execute(
+                "SELECT COUNT(*) FROM parent_student_links WHERE parent_user_id=?",
+                (parent_id,),
+            ).fetchone()[0]
+            self.assertEqual(teacher["role"], "teacher")
+            self.assertEqual(parent["role"], "parent")
+            self.assertEqual(links, 1)
+        finally:
+            connection.close()
+
     def test_super_admin_can_create_parent_account_linked_to_verified_child(self):
         student_id = self._create_student()
         self.login_as("super_demo", "test-super-password")
