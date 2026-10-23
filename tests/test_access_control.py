@@ -940,6 +940,61 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertNotIn(b"Private School B Student", detail.data)
         self.assertNotIn(b"Private School B Student", edit.data)
 
+    def test_school_a_finance_staff_cannot_record_payment_for_school_b_student(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO schools (name, slug, status) VALUES (?, ?, 'active') "
+                "ON CONFLICT(slug) DO NOTHING",
+                ("Cross Tenant Finance Test School B", "cross-tenant-finance-test-school-b"),
+            )
+            school_b_id = connection.execute(
+                "SELECT id FROM schools WHERE slug = ?",
+                ("cross-tenant-finance-test-school-b",),
+            ).fetchone()["id"]
+            student_b_id = connection.execute(
+                """INSERT INTO students
+                   (admission_number, full_name, class_level, status, school_id)
+                   VALUES ('TENANT-B-FINANCE-001', 'Private Finance Student B', 'Grade 8', 'active', ?)""",
+                (school_b_id,),
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id, academic_year, total_fee, amount_paid, updated_by, school_id)
+                   VALUES (?, '2026-2027', 8000, 0,
+                           (SELECT id FROM users WHERE username='finance_route_test'), ?)""",
+                (student_b_id, school_b_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("finance_route_test")
+        response = self.client.post("/finance/payments", data={
+            "student_id": str(student_b_id),
+            "academic_year": "2026-2027",
+            "amount": "100.00",
+            "method": "cash",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b"Payment recorded. Receipt number:", response.data)
+
+        connection = portal.get_db_connection()
+        try:
+            payments = connection.execute(
+                "SELECT COUNT(*) FROM finance_payments WHERE student_id=? AND school_id=?",
+                (student_b_id, school_b_id),
+            ).fetchone()[0]
+            balance = connection.execute(
+                "SELECT amount_paid FROM student_finances WHERE student_id=? AND school_id=?",
+                (student_b_id, school_b_id),
+            ).fetchone()["amount_paid"]
+            self.assertEqual(payments, 0)
+            self.assertEqual(balance, 0)
+        finally:
+            connection.close()
+
+
 class StartupMigrationTests(unittest.TestCase):
     def test_legacy_database_migrates_without_losing_records_and_is_idempotent(self):
         """Exercise the real startup migration on a disposable legacy SQLite file."""
