@@ -90,6 +90,11 @@ STAFF_ROLES = {
     "parent": "Parent / Guardian (child link required)",
     "student": "Student (enrollment link required)",
 }
+# Public staff requests must not bypass the verified student/parent linking flow.
+STAFF_REQUEST_ROLES = {
+    role: label for role, label in STAFF_ROLES.items()
+    if role not in {"student", "parent"}
+}
 STUDENT_RECORD_ROLES = {
     "super_admin", "school_admin", "principal", "vice_principal", "registrar",
     "academic_admin", "teacher", "admissions_officer", "attendance_officer",
@@ -1119,9 +1124,9 @@ def request_staff_access():
         selected_school = next((school for school in schools if school["slug"] == school_slug), None)
         if not selected_school:
             flash("Choose an active school from the list.", "danger")
-            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
+            return render_template("admin_request.html", roles=STAFF_REQUEST_ROLES, schools=schools)
 
-        if not full_name or not username or requested_role not in STAFF_ROLES:
+        if not full_name or not username or requested_role not in STAFF_REQUEST_ROLES:
             flash("Complete all fields and choose a valid staff role.", "danger")
             return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
 
