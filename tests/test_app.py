@@ -1176,7 +1176,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         payments = self.client.get("/finance/payments")
         self.assertEqual(payments.status_code, 200)
         self.assertIn(b'class="finance-page"', payments.data)
-        self.assertIn(b"Payments &amp; Receipts", payments.data)
+        self.assertIn(b"Payments & Receipts", payments.data)
         self.assertIn(b"Record a payment", payments.data)
         fees = self.client.get("/student-finances")
         self.assertEqual(fees.status_code, 200)
