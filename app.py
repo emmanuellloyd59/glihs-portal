@@ -1898,7 +1898,7 @@ def report_cards():
 @app.route("/students/register", methods=["GET", "POST"])
 @login_required
 def register_student():
-    if current_user.role not in ("super_admin", "school_admin", "registrar", "admissions_officer", "teacher"):
+    if current_user.role not in {"super_admin", "school_admin", "principal", "vice_principal", "registrar", "admissions_officer", "academic_admin", "teacher"}:
         flash("You are not authorized to register students.", "danger")
         return redirect(url_for("dashboard"))
     # Enforce tenant context on GET as well as POST so platform admins cannot
