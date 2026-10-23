@@ -112,8 +112,8 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"CMHS Digital Campus", response.data)
         self.assertIn(b"CMHS Digital Campus", response.data)
-        self.assertIn(b"SCHOOL PORTAL · VERSION 4 · IN DEVELOPMENT", response.data)
-        self.assertNotIn(b"SCHOOL PORTAL · VERSION 3", response.data)
+        self.assertIn("SCHOOL PORTAL · VERSION 4 · IN DEVELOPMENT".encode("utf-8"), response.data)
+        self.assertNotIn("SCHOOL PORTAL · VERSION 3".encode("utf-8"), response.data)
         self.assertNotIn(b"DEMONSTRATION VERSION", response.data)
 
     def test_dashboard_requires_login(self):
