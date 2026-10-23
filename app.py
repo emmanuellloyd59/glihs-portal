@@ -2099,9 +2099,8 @@ def student_finances():
     connection = get_db_connection()
     try:
         if request.method == "POST":
-            # Serialize payment validation and writes. Without an immediate write
-            # lock, two concurrent requests can both read the same balance and
-            # collectively accept payments that exceed the amount owed.
+            # Serialize financial validation and writes so concurrent requests
+            # cannot overwrite or spend the same balance based on stale reads.
             connection.execute("BEGIN IMMEDIATE")
             student_id = request.form.get("student_id", "").strip()
             academic_year = request.form.get("academic_year", "").strip()
@@ -2436,6 +2435,9 @@ def finance_payments():
     try:
         ensure_content_tables(connection)
         if request.method == "POST":
+            # Lock the SQLite write transaction before reading the outstanding
+            # balance; this prevents concurrent payments from overspending it.
+            connection.execute("BEGIN IMMEDIATE")
             student_id = request.form.get("student_id", "").strip()
             academic_year = request.form.get("academic_year", "").strip()
             amount_text = request.form.get("amount", "").strip()
