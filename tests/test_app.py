@@ -1277,7 +1277,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
             connection.close()
 
         self.login_as("finance_demo", "test-finance-password")
-        for invalid_amount in ("10.001", "10.000", "100.01"):
+        for invalid_amount in ("10.001", "10.000", "100.01", "1e1000000"):
             response = self.client.post("/finance/payments", data={
                 "student_id": str(student_id), "academic_year": "2026-2027",
                 "amount": invalid_amount, "method": "cash",
