@@ -1208,6 +1208,55 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         finally:
             connection.close()
 
+    def test_fee_summary_cannot_erase_recorded_payment_history(self):
+        connection = portal.get_db_connection()
+        try:
+            student_id = connection.execute(
+                """INSERT INTO students
+                   (admission_number,full_name,class_level,school_id)
+                   VALUES ('PAYMENT-LEDGER-001','Fictional Ledger Student','Grade 7',1)"""
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id,academic_year,total_fee,amount_paid,updated_by,school_id)
+                   VALUES (?, '2026-2027', 100, 25,
+                           (SELECT id FROM users WHERE username='teacher_demo'), 1)""",
+                (student_id,),
+            )
+            connection.execute(
+                """INSERT INTO finance_payments
+                   (school_id,student_id,academic_year,amount,method,receipt_number,received_by)
+                   VALUES (1, ?, '2026-2027', 25, 'cash', 'RCPT-LEDGER-TEST', 
+                           (SELECT id FROM users WHERE username='finance_demo'))""",
+                (student_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("finance_demo", "test-finance-password")
+        response = self.client.post("/student-finances", data={
+            "student_id": str(student_id), "academic_year": "2026-2027",
+            "total_fee": "100.00", "amount_paid": "0.00", "notes": "Attempted overwrite",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"paid total must match the payment history", response.data)
+
+        connection = portal.get_db_connection()
+        try:
+            finance = connection.execute(
+                "SELECT total_fee,amount_paid FROM student_finances WHERE student_id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()
+            payment = connection.execute(
+                "SELECT amount,receipt_number FROM finance_payments WHERE student_id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()
+            self.assertEqual((finance["total_fee"], finance["amount_paid"]), (100.0, 25.0))
+            self.assertEqual((payment["amount"], payment["receipt_number"]), (25.0, "RCPT-LEDGER-TEST"))
+        finally:
+            connection.close()
+
     def test_finance_payment_rejects_fractional_cents_and_overpayment_without_mutation(self):
         connection = portal.get_db_connection()
         try:
