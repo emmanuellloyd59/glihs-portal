@@ -1479,7 +1479,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
                 "school_slug": "legacy-demo-campus",
             }, follow_redirects=True)
             self.assertEqual(response.status_code, 200)
-            self.assertIn(b"Choose a valid staff role", response.data)
+            self.assertIn(b"choose a valid staff role", response.data)
             connection = portal.get_db_connection()
             try:
                 row = connection.execute(
