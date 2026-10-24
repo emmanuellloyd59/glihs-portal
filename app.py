@@ -7,6 +7,8 @@ import uuid
 from werkzeug.utils import secure_filename
 from flask import send_file
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
+import time
 
 from flask import Flask, render_template, redirect, url_for, request, flash, abort, session, jsonify
 from flask_login import (
@@ -87,6 +89,11 @@ STAFF_ROLES = {
     "counselor": "School Counselor",
     "parent": "Parent / Guardian (child link required)",
     "student": "Student (enrollment link required)",
+}
+# Public staff requests must not bypass the verified student/parent linking flow.
+STAFF_REQUEST_ROLES = {
+    role: label for role, label in STAFF_ROLES.items()
+    if role not in {"student", "parent"}
 }
 STUDENT_RECORD_ROLES = {
     "super_admin", "school_admin", "principal", "vice_principal", "registrar",
@@ -894,6 +901,97 @@ def feature_center():
     return render_template("features.html")
 
 
+LOGIN_FAILURE_LIMIT = 5
+LOGIN_FAILURE_WINDOW_SECONDS = 15 * 60
+LOGIN_COOLDOWN_BASE_SECONDS = 2
+LOGIN_COOLDOWN_MAX_SECONDS = 30
+
+
+def login_is_rate_limited(username, now=None):
+    """Return whether this username is in a brief cooldown after failed logins.
+
+    State is stored in SQLite rather than process memory so it is shared by
+    workers using the same database. Use a generic login response either way.
+    """
+    now = time.time() if now is None else now
+    key = (username or "").strip().casefold()[:64]
+    if not key:
+        return False
+    connection = get_db_connection()
+    try:
+        connection.execute("""CREATE TABLE IF NOT EXISTS login_attempt_limits (
+            username_key TEXT PRIMARY KEY,
+            failed_attempts INTEGER NOT NULL DEFAULT 0,
+            window_started REAL NOT NULL,
+            locked_until REAL NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL
+        )""")
+        row = connection.execute(
+            "SELECT locked_until FROM login_attempt_limits WHERE username_key=?", (key,)
+        ).fetchone()
+        return bool(row and row["locked_until"] > now)
+    finally:
+        connection.close()
+
+
+def record_failed_login(username, now=None):
+    """Count failures and apply a short, escalating cooldown instead of locking the account."""
+    now = time.time() if now is None else now
+    key = (username or "").strip().casefold()[:64]
+    if not key:
+        return
+    connection = get_db_connection()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("""CREATE TABLE IF NOT EXISTS login_attempt_limits (
+            username_key TEXT PRIMARY KEY,
+            failed_attempts INTEGER NOT NULL DEFAULT 0,
+            window_started REAL NOT NULL,
+            locked_until REAL NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL
+        )""")
+        # Keep this small operational table bounded against random-username abuse.
+        connection.execute("DELETE FROM login_attempt_limits WHERE updated_at < ?", (now - 86400,))
+        row = connection.execute(
+            "SELECT failed_attempts,window_started,locked_until FROM login_attempt_limits WHERE username_key=?",
+            (key,),
+        ).fetchone()
+        if row and row["locked_until"] > now:
+            connection.commit()
+            return
+        if not row or now - row["window_started"] >= LOGIN_FAILURE_WINDOW_SECONDS:
+            attempts, started = 1, now
+        else:
+            attempts, started = row["failed_attempts"] + 1, row["window_started"]
+        # Avoid a long account lockout that an attacker could trigger for someone else.
+        # Repeated failures receive a brief exponential cooldown, capped at 30 seconds.
+        cooldown = min(LOGIN_COOLDOWN_MAX_SECONDS, LOGIN_COOLDOWN_BASE_SECONDS * (2 ** min(max(attempts - LOGIN_FAILURE_LIMIT, 0), 4))) if attempts >= LOGIN_FAILURE_LIMIT else 0
+        locked_until = now + cooldown if cooldown else 0
+        connection.execute("""INSERT INTO login_attempt_limits
+            (username_key,failed_attempts,window_started,locked_until,updated_at)
+            VALUES (?,?,?,?,?) ON CONFLICT(username_key) DO UPDATE SET
+            failed_attempts=excluded.failed_attempts,window_started=excluded.window_started,
+            locked_until=excluded.locked_until,updated_at=excluded.updated_at""",
+            (key, attempts, started, locked_until, now))
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def clear_failed_logins(username):
+    key = (username or "").strip().casefold()[:64]
+    if not key:
+        return
+    connection = get_db_connection()
+    try:
+        connection.execute("DELETE FROM login_attempt_limits WHERE username_key=?", (key,))
+        connection.commit()
+    finally:
+        connection.close()
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
@@ -902,16 +1000,24 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
-        if not username or not password:
-            flash("Please enter your username and password.")
+        if not username or not password or len(username) > 64 or len(password) > 1024:
+            flash("Invalid username or password.")
             return render_template("login.html")
+
+        if login_is_rate_limited(username):
+            # Do not reveal whether the account exists or is in a short cooldown.
+            flash("Invalid username or password. Please wait briefly before trying again.")
+            return render_template("login.html"), 429
 
         user = get_user_by_username(username)
         if user and check_password_hash(user.password_hash, password):
+            clear_failed_logins(username)
+            session.clear()
             session.permanent = True
             login_user(user)
             write_audit(user.id, "login_success", user.username)
             return redirect(url_for("dashboard"))
+        record_failed_login(username)
         write_audit(None, "login_failed", username[:64] or None)
         flash("Invalid username or password.")
 
@@ -1018,9 +1124,9 @@ def request_staff_access():
         selected_school = next((school for school in schools if school["slug"] == school_slug), None)
         if not selected_school:
             flash("Choose an active school from the list.", "danger")
-            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
+            return render_template("admin_request.html", roles=STAFF_REQUEST_ROLES, schools=schools)
 
-        if not full_name or not username or requested_role not in STAFF_ROLES:
+        if not full_name or not username or requested_role not in STAFF_REQUEST_ROLES:
             flash("Complete all fields and choose a valid staff role.", "danger")
             return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
 
@@ -1107,6 +1213,22 @@ def admin_users():
                 if role == "student" and student and student["account_user_id"] is not None:
                     flash("That student already has a login account.", "danger")
                     return redirect(url_for("admin_users"))
+                # Serialize the student-link check and account creation. Without an
+                # immediate write lock, two requests can both observe an unlinked
+                # student and leave one newly-created login without its student link.
+                connection.execute("BEGIN IMMEDIATE")
+                student = connection.execute(
+                    "SELECT id, account_user_id FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
+                    (int(linked_student_text), int(school_text)),
+                ).fetchone()
+                if not student:
+                    connection.rollback()
+                    flash("The selected student is no longer active in that school.", "danger")
+                    return redirect(url_for("admin_users"))
+                if role == "student" and student["account_user_id"] is not None:
+                    connection.rollback()
+                    flash("That student already has a login account.", "danger")
+                    return redirect(url_for("admin_users"))
                 try:
                     cursor = connection.execute(
                         """INSERT INTO users
@@ -1117,10 +1239,12 @@ def admin_users():
                     )
                     new_user_id = cursor.lastrowid
                     if role == "student":
-                        connection.execute(
-                            "UPDATE students SET account_user_id = ? WHERE id = ? AND school_id = ? AND account_user_id IS NULL",
+                        linked = connection.execute(
+                            "UPDATE students SET account_user_id = ? WHERE id = ? AND school_id = ? AND status = 'active' AND account_user_id IS NULL",
                             (new_user_id, student["id"], int(school_text)),
                         )
+                        if linked.rowcount != 1:
+                            raise sqlite3.IntegrityError("Student record was linked by another request")
                         audit_action = "student_account_created"
                     else:
                         connection.execute(
@@ -1309,11 +1433,19 @@ def admin_users():
                     flash("This account has no linked student record.", "info")
             elif action == "change_role":
                 new_role = request.form.get("new_role", "").strip()
-                linked = connection.execute("SELECT 1 FROM students WHERE account_user_id = ?", (target_id_int,)).fetchone()
+                linked_student = connection.execute(
+                    "SELECT 1 FROM students WHERE account_user_id = ?", (target_id_int,)
+                ).fetchone()
+                linked_children = connection.execute(
+                    "SELECT 1 FROM parent_student_links WHERE parent_user_id = ? LIMIT 1",
+                    (target_id_int,),
+                ).fetchone()
                 if target["is_super_admin"] or new_role not in STAFF_ROLES:
                     flash("Super Administrator roles cannot be changed here.", "danger")
-                elif linked:
-                    flash("Unlink this student record before changing the account's role.", "danger")
+                elif new_role in {"student", "parent"}:
+                    flash("Student and parent roles must be assigned through the verified account-creation and linking workflow.", "danger")
+                elif linked_student or linked_children:
+                    flash("Remove the account's existing student or parent-child links before changing its role.", "danger")
                 else:
                     connection.execute("UPDATE users SET role = ? WHERE id = ?", (new_role, target_id_int))
                     connection.execute(
@@ -1797,7 +1929,7 @@ def report_cards():
 @app.route("/students/register", methods=["GET", "POST"])
 @login_required
 def register_student():
-    if current_user.role not in ("super_admin", "school_admin", "registrar", "admissions_officer", "teacher"):
+    if current_user.role not in {"super_admin", "school_admin", "principal", "vice_principal", "registrar", "admissions_officer", "academic_admin", "teacher"}:
         flash("You are not authorized to register students.", "danger")
         return redirect(url_for("dashboard"))
     # Enforce tenant context on GET as well as POST so platform admins cannot
@@ -2097,7 +2229,13 @@ def student_finances():
 
     connection = get_db_connection()
     try:
+        # This page can be the first finance module opened on a fresh install.
+        # Ensure the payment ledger exists before checking it below.
+        ensure_content_tables(connection)
         if request.method == "POST":
+            # Serialize financial validation and writes so concurrent requests
+            # cannot overwrite or spend the same balance based on stale reads.
+            connection.execute("BEGIN IMMEDIATE")
             student_id = request.form.get("student_id", "").strip()
             academic_year = request.form.get("academic_year", "").strip()
             total_text = request.form.get("total_fee", "").strip()
@@ -2111,13 +2249,46 @@ def student_finances():
                 (student_id, require_school_context()),
             ).fetchone()
             try:
-                total_fee, amount_paid = float(total_text), float(paid_text)
-                if not (0 <= amount_paid <= total_fee and total_fee <= 100000000
-                        and len(notes) <= 250 and valid_year and student):
+                total_decimal = Decimal(total_text)
+                paid_decimal = Decimal(paid_text)
+                if (
+                    not total_decimal.is_finite() or not paid_decimal.is_finite()
+                    or total_decimal.as_tuple().exponent < -2
+                    or paid_decimal.as_tuple().exponent < -2
+                    or total_decimal < 0 or paid_decimal < 0
+                    or total_decimal > Decimal("100000000")
+                    or paid_decimal > Decimal("100000000")
+                ):
                     raise ValueError
-            except (ValueError, TypeError):
-                flash("Check the student, academic year, fee and payment amounts. Payments cannot exceed the total fees.", "danger")
+                # Bound Decimal values before converting to int so maliciously
+                # large exponents cannot trigger enormous integer allocations.
+                total_cents = int(total_decimal * 100)
+                paid_cents = int(paid_decimal * 100)
+                if not (
+                    0 <= paid_cents <= total_cents <= 10000000000
+                    and len(notes) <= 250 and valid_year and student
+                ):
+                    raise ValueError
+                total_fee, amount_paid = total_cents / 100, paid_cents / 100
+            except (InvalidOperation, ValueError, TypeError):
+                flash("Check the student, academic year, fee and payment amounts (maximum two decimal places). Payments cannot exceed the total fees.", "danger")
                 return redirect(url_for("student_finances"))
+
+            # Once a fee record has a payment ledger, its paid total must continue
+            # to agree with the ledger. Never silently erase or rewrite receipts by
+            # editing the summary form; record new payments in the payment workflow.
+            ledger = connection.execute(
+                """SELECT COUNT(*) AS payment_count,
+                          COALESCE(SUM(CAST(ROUND(amount * 100) AS INTEGER)), 0) AS paid_cents
+                   FROM finance_payments
+                   WHERE student_id=? AND school_id=? AND academic_year=?""",
+                (student_id, school_id, academic_year),
+            ).fetchone()
+            if ledger["payment_count"] and (
+                paid_cents != ledger["paid_cents"] or total_cents < ledger["paid_cents"]
+            ):
+                flash("This student has recorded payment receipts. The paid total must match the payment history; use the payment workflow to record additional payments.", "danger")
+                return redirect(url_for("student_finances", academic_year=academic_year))
             connection.execute(
                 """INSERT INTO student_finances
                    (student_id, academic_year, total_fee, amount_paid, notes, updated_by, school_id)
@@ -2431,6 +2602,9 @@ def finance_payments():
     try:
         ensure_content_tables(connection)
         if request.method == "POST":
+            # Lock the SQLite write transaction before reading the outstanding
+            # balance; this prevents concurrent payments from overspending it.
+            connection.execute("BEGIN IMMEDIATE")
             student_id = request.form.get("student_id", "").strip()
             academic_year = request.form.get("academic_year", "").strip()
             amount_text = request.form.get("amount", "").strip()
@@ -2444,11 +2618,21 @@ def finance_payments():
                 (student_id, school_id),
             ).fetchone()
             try:
-                amount = float(amount_text)
-                if not student or not valid_year or not (0 < amount <= 100000000) or method not in {"cash","bank_transfer","mobile_money","other"}:
+                amount_decimal = Decimal(amount_text)
+                if (
+                    not amount_decimal.is_finite()
+                    or amount_decimal.as_tuple().exponent < -2
+                    or amount_decimal <= 0
+                    or amount_decimal > Decimal("100000000")
+                ):
                     raise ValueError
-            except (ValueError, TypeError):
-                flash("Check the student, academic year, payment amount and payment method.", "danger")
+                # Reject out-of-range values before converting Decimal to int.
+                amount_cents = int(amount_decimal * 100)
+                if not student or not valid_year or not (0 < amount_cents <= 10000000000) or method not in {"cash","bank_transfer","mobile_money","other"}:
+                    raise ValueError
+                amount = amount_cents / 100
+            except (InvalidOperation, ValueError, TypeError):
+                flash("Check the student, academic year, payment amount (maximum two decimal places) and payment method.", "danger")
                 return redirect(url_for("finance_payments"))
             finance = connection.execute(
                 "SELECT total_fee,amount_paid FROM student_finances WHERE student_id=? AND school_id=? AND academic_year=?",
@@ -2457,7 +2641,11 @@ def finance_payments():
             if not finance:
                 flash("Set up the student's fee record before recording a payment.", "danger")
                 return redirect(url_for("student_finances", academic_year=academic_year))
-            if amount > float(finance["total_fee"]) - float(finance["amount_paid"]) + 0.00001:
+            # Compare integer cents rather than binary floats, preventing a
+            # fractional-cent overpayment from slipping through a tolerance.
+            total_fee_cents = int(round(float(finance["total_fee"]) * 100))
+            paid_cents = int(round(float(finance["amount_paid"]) * 100))
+            if amount_cents > total_fee_cents - paid_cents:
                 flash("Payment exceeds the outstanding balance. Reconcile the fee record first.", "danger")
                 return redirect(url_for("finance_payments"))
             receipt = "RCPT-" + datetime.now(timezone.utc).strftime("%Y%m%d") + "-" + uuid.uuid4().hex[:10].upper()

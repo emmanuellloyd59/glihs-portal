@@ -2,7 +2,7 @@ name: Automated tests
 
 on:
   push:
-    branches: [main, "feature/**"]
+    branches: [main, "feature/**", "version-4/**"]
   pull_request:
     branches: [main]
   workflow_dispatch:

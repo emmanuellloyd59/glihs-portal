@@ -46,6 +46,7 @@ class PortalTestSupport:
         connection.execute("DELETE FROM report_cards")
         connection.execute("DELETE FROM student_finances")
         connection.execute("DELETE FROM audit_log")
+        connection.execute("DELETE FROM login_attempt_limits") if "login_attempt_limits" in existing_tables else None
         connection.execute("DELETE FROM students")
         connection.execute("DELETE FROM users")
         connection.execute(
@@ -73,6 +74,14 @@ class PortalTestSupport:
         connection.execute(
             "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'principal', 1)",
             ("principal_demo", generate_password_hash("test-principal-password")),
+        )
+        connection.execute(
+            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'vice_principal', 1)",
+            ("vice_principal_demo", generate_password_hash("test-vice-principal-password")),
+        )
+        connection.execute(
+            "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'academic_admin', 1)",
+            ("academic_admin_demo", generate_password_hash("test-academic-admin-password")),
         )
         connection.commit()
         connection.close()
@@ -103,7 +112,8 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"CMHS Digital Campus", response.data)
         self.assertIn(b"CMHS Digital Campus", response.data)
-        self.assertIn(b"DEVELOPMENT PREVIEW", response.data)
+        self.assertIn("SCHOOL PORTAL · VERSION 4 · IN DEVELOPMENT".encode("utf-8"), response.data)
+        self.assertNotIn("SCHOOL PORTAL · VERSION 3".encode("utf-8"), response.data)
         self.assertNotIn(b"DEMONSTRATION VERSION", response.data)
 
     def test_dashboard_requires_login(self):
@@ -111,11 +121,54 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn("/login", response.headers["Location"])
 
+    def test_login_rate_limit_blocks_after_five_failed_attempts(self):
+        for _ in range(5):
+            response = self.client.post("/login", data={
+                "username": "teacher_demo", "password": "incorrect-password"
+            })
+            self.assertEqual(response.status_code, 200)
+        blocked = self.client.post("/login", data={
+            "username": "teacher_demo", "password": "test-teacher-password"
+        })
+        self.assertEqual(blocked.status_code, 429)
+        self.assertIn(b"Please wait briefly before trying again", blocked.data)
+        connection = portal.get_db_connection()
+        row = connection.execute(
+            "SELECT failed_attempts,locked_until FROM login_attempt_limits WHERE username_key='teacher_demo'"
+        ).fetchone()
+        connection.close()
+        self.assertEqual(row["failed_attempts"], 5)
+        self.assertGreater(row["locked_until"], __import__("time").time())
+
+    def test_login_cooldown_expires_without_a_long_account_lockout(self):
+        import time
+        now = time.time()
+        for offset in range(5):
+            portal.record_failed_login("teacher_demo", now=now + offset)
+        self.assertTrue(portal.login_is_rate_limited("teacher_demo", now=now + 4.5))
+        self.assertFalse(portal.login_is_rate_limited("teacher_demo", now=now + 7))
+
+    def test_successful_login_clears_previous_failed_attempts(self):
+        self.client.post("/login", data={"username": "teacher_demo", "password": "wrong"})
+        response = self.client.post("/login", data={
+            "username": "teacher_demo", "password": "test-teacher-password"
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        row = connection.execute(
+            "SELECT username_key FROM login_attempt_limits WHERE username_key='teacher_demo'"
+        ).fetchone()
+        connection.close()
+        self.assertIsNone(row)
+
     def test_valid_teacher_login_opens_dashboard(self):
         response = self.login_as("teacher_demo", "test-teacher-password")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Dashboard Overview", response.data)
         self.assertIn(b"Student Records", response.data)
+        self.assertIn("Version 4 · In Development".encode("utf-8"), response.data)
+        self.assertNotIn(b"Version 0.3 Preview", response.data)
+        self.assertNotIn(b"Version 0.3 preview", response.data)
 
     def test_baseline_security_headers_are_set(self):
         response = self.client.get("/")
@@ -1124,8 +1177,43 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
     def test_version3_stylesheets_have_cache_busting_versions(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"campus-v02.css?v=20261022-2", response.data)
-        self.assertIn(b"campus-v03.css?v=20261022-2", response.data)
+        self.assertIn(b"campus-v02.css?v=20261023-1", response.data)
+        self.assertIn(b"campus-v03.css?v=20261023-1", response.data)
+
+    def test_finance_pages_render_advanced_finance_layout_hooks(self):
+        self.login_as("finance_demo", "test-finance-password")
+        payments = self.client.get("/finance/payments")
+        self.assertEqual(payments.status_code, 200)
+        self.assertIn(b'class="finance-page"', payments.data)
+        self.assertIn(b"Payments & Receipts", payments.data)
+        self.assertIn(b"Record a payment", payments.data)
+        fees = self.client.get("/student-finances")
+        self.assertEqual(fees.status_code, 200)
+        self.assertIn(b'class="finance-page"', fees.data)
+        self.assertIn(b"finance-heading", fees.data)
+        self.assertIn(b"finance-form", fees.data)
+        self.assertIn(b"finance-table-wrap", fees.data)
+
+    def test_registration_page_uses_responsive_registration_styles(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get("/students/register")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"class=\"surface-card registration-section", response.data)
+        self.assertIn(b"class=\"col-12 col-lg-4 registration-aside", response.data)
+        self.assertIn(b"class=\"section-icon\"", response.data)
+
+    def test_school_leadership_and_academic_admin_can_open_registration(self):
+        accounts = (
+            ("principal_demo", "test-principal-password"),
+            ("vice_principal_demo", "test-vice-principal-password"),
+            ("academic_admin_demo", "test-academic-admin-password"),
+        )
+        for username, password in accounts:
+            self.client.post("/logout")
+            self.login_as(username, password)
+            response = self.client.get("/students/register")
+            self.assertEqual(response.status_code, 200, username)
+            self.assertIn(b"Register Student", response.data, username)
 
     def test_learning_material_upload_is_school_scoped_and_student_class_restricted(self):
         self.login_as("principal_demo", "test-principal-password")
@@ -1208,6 +1296,98 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         finally:
             connection.close()
 
+    def test_fee_summary_cannot_erase_recorded_payment_history(self):
+        connection = portal.get_db_connection()
+        try:
+            student_id = connection.execute(
+                """INSERT INTO students
+                   (admission_number,full_name,class_level,school_id)
+                   VALUES ('PAYMENT-LEDGER-001','Fictional Ledger Student','Grade 7',1)"""
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id,academic_year,total_fee,amount_paid,updated_by,school_id)
+                   VALUES (?, '2026-2027', 100, 25,
+                           (SELECT id FROM users WHERE username='teacher_demo'), 1)""",
+                (student_id,),
+            )
+            connection.execute(
+                """INSERT INTO finance_payments
+                   (school_id,student_id,academic_year,amount,method,receipt_number,received_by)
+                   VALUES (1, ?, '2026-2027', 25, 'cash', 'RCPT-LEDGER-TEST', 
+                           (SELECT id FROM users WHERE username='finance_demo'))""",
+                (student_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("finance_demo", "test-finance-password")
+        response = self.client.post("/student-finances", data={
+            "student_id": str(student_id), "academic_year": "2026-2027",
+            "total_fee": "100.00", "amount_paid": "0.00", "notes": "Attempted overwrite",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"paid total must match the payment history", response.data)
+
+        connection = portal.get_db_connection()
+        try:
+            finance = connection.execute(
+                "SELECT total_fee,amount_paid FROM student_finances WHERE student_id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()
+            payment = connection.execute(
+                "SELECT amount,receipt_number FROM finance_payments WHERE student_id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()
+            self.assertEqual((finance["total_fee"], finance["amount_paid"]), (100.0, 25.0))
+            self.assertEqual((payment["amount"], payment["receipt_number"]), (25.0, "RCPT-LEDGER-TEST"))
+        finally:
+            connection.close()
+
+    def test_finance_payment_rejects_fractional_cents_and_overpayment_without_mutation(self):
+        connection = portal.get_db_connection()
+        try:
+            student_id = connection.execute(
+                """INSERT INTO students
+                   (admission_number,full_name,class_level,school_id)
+                   VALUES ('PAYMENT-EDGE-001','Fictional Payment Edge Student','Grade 7',1)"""
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id,academic_year,total_fee,amount_paid,updated_by,school_id)
+                   VALUES (?, '2026-2027', 100, 0,
+                           (SELECT id FROM users WHERE username='teacher_demo'), 1)""",
+                (student_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("finance_demo", "test-finance-password")
+        for invalid_amount in ("10.001", "10.000", "100.01", "1e1000000"):
+            response = self.client.post("/finance/payments", data={
+                "student_id": str(student_id), "academic_year": "2026-2027",
+                "amount": invalid_amount, "method": "cash",
+            }, follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn(b"Payment recorded. Receipt number:", response.data)
+
+        connection = portal.get_db_connection()
+        try:
+            finance = connection.execute(
+                "SELECT amount_paid FROM student_finances WHERE student_id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()
+            payment_count = connection.execute(
+                "SELECT COUNT(*) FROM finance_payments WHERE student_id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()[0]
+            self.assertEqual(finance["amount_paid"], 0)
+            self.assertEqual(payment_count, 0)
+        finally:
+            connection.close()
+
     def test_platform_super_admin_must_select_active_school_before_school_modules(self):
         self.login_as("super_demo", "test-super-password")
         # Platform administrators have no permanent school_id and must fail closed
@@ -1259,13 +1439,13 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(response.status_code, 403)
 
 
-    def test_all_school_roles_are_registered_for_approved_account_requests(self):
+    def test_staff_roles_are_registered_for_approved_account_requests(self):
         expected = {
             "school_admin", "principal", "vice_principal", "registrar",
             "admissions_officer", "academic_admin", "attendance_officer",
-            "teacher", "finance_admin", "librarian", "counselor", "parent", "student",
+            "teacher", "finance_admin", "librarian", "counselor",
         }
-        self.assertTrue(expected.issubset(set(portal.STAFF_ROLES)))
+        self.assertEqual(set(portal.STAFF_REQUEST_ROLES), expected)
         for role in sorted(expected):
             username = "rolecheck_" + role
             response = self.client.post("/admin/request-access", data={
@@ -1286,6 +1466,26 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
                 self.assertEqual(row["status"], "pending")
                 self.assertEqual(row["school_id"], 1)
                 self.assertEqual(row["is_super_admin"], 0)
+            finally:
+                connection.close()
+
+    def test_public_staff_request_cannot_bypass_student_parent_linking(self):
+        for role in ("student", "parent"):
+            username = "unverified_" + role
+            response = self.client.post("/admin/request-access", data={
+                "full_name": "Fictional Unverified User",
+                "username": username,
+                "requested_role": role,
+                "school_slug": "legacy-demo-campus",
+            }, follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"choose a valid staff role", response.data)
+            connection = portal.get_db_connection()
+            try:
+                row = connection.execute(
+                    "SELECT id FROM users WHERE username=?", (username,)
+                ).fetchone()
+                self.assertIsNone(row)
             finally:
                 connection.close()
 
@@ -1361,6 +1561,131 @@ class StudentParentAccountLifecycleTests(PortalTestSupport, unittest.TestCase):
             )
             connection.commit()
             return cursor.lastrowid
+        finally:
+            connection.close()
+
+    def test_student_account_creation_links_student_record_atomically(self):
+        student_id = self._create_student("STU-ACCOUNT-ATOMIC", "Account Link Student")
+        self.login_as("super_demo", "test-super-password")
+        response = self.client.post("/admin/users", data={
+            "action": "create_account",
+            "new_username": "student_atomic_test",
+            "new_full_name": "Account Link Student",
+            "new_role": "student",
+            "new_password": "temporary-password-123",
+            "school_id": "1",
+            "linked_student_id": str(student_id),
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        try:
+            user = connection.execute(
+                "SELECT id, role, status, school_id FROM users WHERE username='student_atomic_test'"
+            ).fetchone()
+            student = connection.execute(
+                "SELECT account_user_id FROM students WHERE id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()
+            self.assertIsNotNone(user)
+            self.assertEqual((user["role"], user["status"], user["school_id"]), ("student", "active", 1))
+            self.assertEqual(student["account_user_id"], user["id"])
+        finally:
+            connection.close()
+
+    def test_student_account_creation_rejects_existing_link_without_orphan_account(self):
+        student_id = self._create_student("STU-ACCOUNT-LINKED", "Already Linked Student")
+        connection = portal.get_db_connection()
+        try:
+            cursor = connection.execute(
+                """INSERT INTO users
+                   (username, full_name, password_hash, role, status, school_id)
+                   VALUES ('existing_linked_student', 'Already Linked Student', ?, 'student', 'active', 1)""",
+                (generate_password_hash("existing-student-password"),),
+            )
+            connection.execute(
+                "UPDATE students SET account_user_id=? WHERE id=? AND school_id=1",
+                (cursor.lastrowid, student_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("super_demo", "test-super-password")
+        response = self.client.post("/admin/users", data={
+            "action": "create_account",
+            "new_username": "orphan_student_attempt",
+            "new_full_name": "Already Linked Student",
+            "new_role": "student",
+            "new_password": "temporary-password-123",
+            "school_id": "1",
+            "linked_student_id": str(student_id),
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        try:
+            orphan = connection.execute(
+                "SELECT id FROM users WHERE username='orphan_student_attempt'"
+            ).fetchone()
+            student = connection.execute(
+                "SELECT account_user_id FROM students WHERE id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()
+            self.assertIsNone(orphan)
+            self.assertIsNotNone(student["account_user_id"])
+        finally:
+            connection.close()
+
+    def test_role_change_cannot_bypass_verified_student_parent_linking(self):
+        student_id = self._create_student("STU-ROLE-GUARD", "Role Guard Student")
+        connection = portal.get_db_connection()
+        try:
+            cursor = connection.execute(
+                """INSERT INTO users
+                   (username, full_name, password_hash, role, status, school_id)
+                   VALUES ('linked_parent_guard', 'Linked Parent', ?, 'parent', 'active', 1)""",
+                (generate_password_hash("linked-parent-password"),),
+            )
+            parent_id = cursor.lastrowid
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username='teacher_demo'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO parent_student_links
+                   (parent_user_id, student_id, school_id, created_by)
+                   VALUES (?, ?, 1, (SELECT id FROM users WHERE username='super_demo'))""",
+                (parent_id, student_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("super_demo", "test-super-password")
+        # Staff accounts cannot be converted into unlinked parent/student accounts.
+        self.client.post("/admin/users", data={
+            "action": "change_role", "user_id": str(teacher_id),
+            "new_role": "parent",
+        }, follow_redirects=True)
+        # A parent with active child links cannot be silently converted into staff.
+        self.client.post("/admin/users", data={
+            "action": "change_role", "user_id": str(parent_id),
+            "new_role": "teacher",
+        }, follow_redirects=True)
+
+        connection = portal.get_db_connection()
+        try:
+            teacher = connection.execute(
+                "SELECT role FROM users WHERE username='teacher_demo'"
+            ).fetchone()
+            parent = connection.execute(
+                "SELECT role FROM users WHERE id=?", (parent_id,)
+            ).fetchone()
+            links = connection.execute(
+                "SELECT COUNT(*) FROM parent_student_links WHERE parent_user_id=?",
+                (parent_id,),
+            ).fetchone()[0]
+            self.assertEqual(teacher["role"], "teacher")
+            self.assertEqual(parent["role"], "parent")
+            self.assertEqual(links, 1)
         finally:
             connection.close()
 
