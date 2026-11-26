@@ -339,6 +339,80 @@ class SchoolManagementTests(unittest.TestCase):
         self.assertEqual(self.client.get("/school/settings").status_code, 403)
         self.assertEqual(self.client.get("/school/academic-calendar").status_code, 403)
 
+    def test_staff_management_keeps_school_admin_assignments_consistent(self):
+        self.login_as("v5_platform_admin", "V5-Platform-Admin-Password!")
+        school_id, _ = self.create_school_and_admin("v5-test-campus-a", "v5_admin_a")
+        self.client.post("/admin/select-school", data={"school_id": str(school_id)})
+        self.client.post("/staff", data={
+            "action": "create", "full_name": "Staff-Managed School Admin",
+            "username": "v5_staff_admin", "role": "school_admin",
+            "temporary_password": "V5-Temporary-Password!",
+        })
+        connection = portal.get_db_connection()
+        try:
+            staff_admin = connection.execute(
+                "SELECT id,status,role FROM users WHERE username='v5_staff_admin'"
+            ).fetchone()
+            assignment = connection.execute(
+                """SELECT id,active FROM school_admin_assignments
+                   WHERE school_id=? AND user_id=? AND active=1""",
+                (school_id, staff_admin["id"]),
+            ).fetchone()
+            self.assertEqual(staff_admin["role"], "school_admin")
+            self.assertEqual(assignment["active"], 1)
+        finally:
+            connection.close()
+
+        self.client.post("/staff", data={"action": "suspend", "user_id": str(staff_admin["id"])})
+        connection = portal.get_db_connection()
+        try:
+            status = connection.execute(
+                "SELECT status FROM users WHERE id=?", (staff_admin["id"],)
+            ).fetchone()["status"]
+            active_assignments = connection.execute(
+                "SELECT COUNT(*) FROM school_admin_assignments WHERE user_id=? AND active=1",
+                (staff_admin["id"],),
+            ).fetchone()[0]
+            self.assertEqual(status, "suspended")
+            self.assertEqual(active_assignments, 0)
+        finally:
+            connection.close()
+
+        self.client.post("/staff", data={"action": "reactivate", "user_id": str(staff_admin["id"])})
+        self.client.post("/staff", data={
+            "action": "change_role", "user_id": str(staff_admin["id"]), "role": "principal",
+        })
+        connection = portal.get_db_connection()
+        try:
+            role = connection.execute(
+                "SELECT role FROM users WHERE id=?", (staff_admin["id"],)
+            ).fetchone()["role"]
+            active_assignments = connection.execute(
+                "SELECT COUNT(*) FROM school_admin_assignments WHERE user_id=? AND active=1",
+                (staff_admin["id"],),
+            ).fetchone()[0]
+            self.assertEqual(role, "principal")
+            self.assertEqual(active_assignments, 0)
+        finally:
+            connection.close()
+
+        self.client.post("/staff", data={
+            "action": "change_role", "user_id": str(staff_admin["id"]), "role": "school_admin",
+        })
+        connection = portal.get_db_connection()
+        try:
+            role = connection.execute(
+                "SELECT role FROM users WHERE id=?", (staff_admin["id"],)
+            ).fetchone()["role"]
+            active_assignments = connection.execute(
+                "SELECT COUNT(*) FROM school_admin_assignments WHERE user_id=? AND active=1",
+                (staff_admin["id"],),
+            ).fetchone()[0]
+            self.assertEqual(role, "school_admin")
+            self.assertEqual(active_assignments, 1)
+        finally:
+            connection.close()
+
     def test_default_cmhs_school_cannot_be_suspended(self):
         self.login_as("v5_platform_admin", "V5-Platform-Admin-Password!")
         self.client.post("/platform/schools", data={
