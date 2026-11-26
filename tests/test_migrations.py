@@ -228,6 +228,23 @@ class DatabaseMigrationTests(unittest.TestCase):
                     )
                     self.assertEqual(
                         verify.execute(
+                            "SELECT version FROM schema_migrations ORDER BY version"
+                        ).fetchall(),
+                        [(1,), (2,)],
+                    )
+                    # Finance payment records must agree with both student and
+                    # receiver school ownership, not merely carry a caller-supplied ID.
+                    portal.ensure_content_tables(verify)
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        verify.execute(
+                            """INSERT INTO finance_payments
+                               (school_id,student_id,academic_year,amount,method,receipt_number,received_by)
+                               VALUES (1,?,'2026-2027',100,'cash','CROSS-SCHOOL-RECEIPT',?)""",
+                            (student, parent_two),
+                        )
+                    verify.rollback()
+                    self.assertEqual(
+                        verify.execute(
                             "SELECT COUNT(*) FROM students WHERE admission_number='TENANT-001'"
                         ).fetchone()[0],
                         1,
