@@ -717,6 +717,33 @@ def initialize_database():
             raise sqlite3.DatabaseError(
                 f"Migration stopped: {len(foreign_key_issues)} foreign-key integrity issue(s)"
             )
+        tenant_integrity_checks = (
+            ("student account", """SELECT COUNT(*) FROM students s JOIN users u
+                ON u.id=s.account_user_id WHERE s.account_user_id IS NOT NULL
+                AND u.school_id IS NOT s.school_id"""),
+            ("parent-child link", """SELECT COUNT(*) FROM parent_student_links l
+                JOIN users p ON p.id=l.parent_user_id
+                JOIN students s ON s.id=l.student_id
+                WHERE p.school_id IS NOT l.school_id OR s.school_id IS NOT l.school_id"""),
+            ("student finance", """SELECT COUNT(*) FROM student_finances f
+                JOIN students s ON s.id=f.student_id WHERE s.school_id IS NOT f.school_id"""),
+            ("grade", """SELECT COUNT(*) FROM grades g JOIN students s
+                ON s.id=g.student_id WHERE s.school_id IS NOT g.school_id"""),
+            ("attendance", """SELECT COUNT(*) FROM attendance a JOIN students s
+                ON s.id=a.student_id WHERE s.school_id IS NOT a.school_id"""),
+            ("report card", """SELECT COUNT(*) FROM report_cards r JOIN students s
+                ON s.id=r.student_id WHERE s.school_id IS NOT r.school_id"""),
+            ("teacher assignment", """SELECT COUNT(*) FROM teacher_class_assignments a
+                JOIN users u ON u.id=a.teacher_id WHERE u.school_id IS NOT a.school_id"""),
+            ("timetable", """SELECT COUNT(*) FROM class_timetable t
+                JOIN users u ON u.id=t.teacher_id WHERE u.school_id IS NOT t.school_id"""),
+        )
+        for relationship_name, query in tenant_integrity_checks:
+            mismatch_count = connection.execute(query).fetchone()[0]
+            if mismatch_count:
+                raise sqlite3.DatabaseError(
+                    f"Migration stopped: {mismatch_count} {relationship_name} school-ownership mismatch(es)"
+                )
         connection.commit()
         connection.execute("PRAGMA foreign_keys = ON")
     except Exception:
@@ -2649,6 +2676,36 @@ def ensure_content_tables(connection):
             SELECT RAISE(ABORT, 'school ownership mismatch');
         END
     """)
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_learning_material_school_insert
+        BEFORE INSERT ON learning_materials
+        WHEN (SELECT school_id FROM users WHERE id=NEW.uploaded_by) IS NOT NEW.school_id
+        BEGIN
+            SELECT RAISE(ABORT, 'school ownership mismatch');
+        END
+    """)
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_announcement_school_insert
+        BEFORE INSERT ON school_announcements
+        WHEN (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
+          OR (SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
+        BEGIN
+            SELECT RAISE(ABORT, 'school ownership mismatch');
+        END
+    """)
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_announcement_school_update
+        BEFORE UPDATE OF created_by, updated_by, school_id ON school_announcements
+        WHEN (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
+          OR (SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
+        BEGIN
+            SELECT RAISE(ABORT, 'school ownership mismatch');
+        END
+    """)
+    connection.execute(
+        """INSERT OR IGNORE INTO schema_migrations (version,name)
+           VALUES (3,'content-and-finance-school-ownership-guards')"""
+    )
     connection.commit()
 
 def can_view_material(role, class_level, archived=False):
