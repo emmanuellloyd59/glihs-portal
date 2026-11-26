@@ -1175,10 +1175,19 @@ def require_school_context():
         school = connection.execute(
             "SELECT status FROM schools WHERE id = ?", (school_id,)
         ).fetchone()
+        school_admin_assignment = None
+        if current_user.role == "school_admin":
+            school_admin_assignment = connection.execute(
+                """SELECT 1 FROM school_admin_assignments
+                   WHERE user_id=? AND school_id=? AND active=1""",
+                (current_user.id, school_id),
+            ).fetchone()
     finally:
         connection.close()
 
     if school is None or school["status"] != "active":
+        abort(403)
+    if current_user.role == "school_admin" and school_admin_assignment is None:
         abort(403)
     return school_id
 
