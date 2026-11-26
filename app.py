@@ -1850,7 +1850,7 @@ def report_cards():
 @app.route("/students/register", methods=["GET", "POST"])
 @login_required
 def register_student():
-    if current_user.role not in ("super_admin", "school_admin", "registrar", "admissions_officer", "teacher"):
+    if current_user.role not in ("super_admin", "school_admin", "registrar", "admissions_officer"):
         flash("You are not authorized to register students.", "danger")
         return redirect(url_for("dashboard"))
     # Enforce tenant context on GET as well as POST so platform admins cannot
@@ -1963,13 +1963,18 @@ def student_detail(student_id):
                  "NULL AS guardian_phone, NULL AS emergency_contact_name, "
                  "NULL AS emergency_contact_phone, NULL AS record_notes"
         )
+        detail_school_id = require_school_context()
         student = connection.execute(
             f"""SELECT s.id, s.student_id_number, s.admission_number, s.full_name,
                        s.class_level, {private_profile_fields}, s.enrollment_date,
                        s.created_at, s.status
                 FROM students s
-                WHERE s.id = ? AND s.school_id = ?""",
-            (student_id, require_school_context()),
+                WHERE s.id = ? AND s.school_id = ?
+                  AND (? <> 'teacher' OR s.class_level IN (
+                      SELECT class_level FROM class_timetable
+                      WHERE school_id = s.school_id AND teacher_id = ?
+                  ))""",
+            (student_id, detail_school_id, current_user.role, int(current_user.id)),
         ).fetchone()
         if student is None:
             abort(404)
@@ -1989,7 +1994,13 @@ def student_detail(student_id):
         recent_grades = connection.execute(
             """SELECT subject, assessment, score, max_score, academic_year, term, created_at
                FROM grades WHERE student_id = ? AND school_id = ?
-               ORDER BY created_at DESC, id DESC LIMIT 12""", (student_id, require_school_context())
+                 AND (? <> 'teacher' OR subject IN (
+                     SELECT subject FROM class_timetable
+                     WHERE school_id = ? AND teacher_id = ? AND class_level = ?
+                 ))
+               ORDER BY created_at DESC, id DESC LIMIT 12""",
+            (student_id, detail_school_id, current_user.role, detail_school_id,
+             int(current_user.id), student["class_level"]),
         ).fetchall()
         recent_attendance = connection.execute(
             """SELECT attendance_date, status, note FROM attendance
