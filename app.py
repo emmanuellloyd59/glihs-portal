@@ -1511,6 +1511,393 @@ def select_school_context():
         connection.close()
 
 
+@app.route("/platform/schools", methods=["GET", "POST"])
+@login_required
+def platform_schools():
+    denial = require_super_admin()
+    if denial:
+        return denial
+
+    connection = get_db_connection()
+    try:
+        if request.method == "POST":
+            action = request.form.get("action", "").strip()
+            school_text = request.form.get("school_id", "").strip()
+            if action == "create":
+                name = request.form.get("name", "").strip()
+                slug = request.form.get("slug", "").strip().lower()
+                registration_number = request.form.get("registration_number", "").strip()
+                country_code = request.form.get("country_code", "LR").strip().upper()
+                timezone_name = request.form.get("timezone", "Africa/Monrovia").strip()
+                currency_code = request.form.get("currency_code", "LRD").strip().upper()
+                contact_email = request.form.get("contact_email", "").strip().lower()
+                if (
+                    not name or len(name) > 120
+                    or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug)
+                    or len(registration_number) > 80
+                    or not re.fullmatch(r"[A-Z]{2}", country_code)
+                    or not re.fullmatch(r"[A-Z]{3}", currency_code)
+                    or not timezone_name or len(timezone_name) > 80
+                    or (contact_email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", contact_email))
+                ):
+                    flash("Check the school name, URL slug, country, currency, time zone and contact email.", "danger")
+                    return redirect(url_for("platform_schools"))
+                connection.execute("BEGIN IMMEDIATE")
+                cursor = connection.execute(
+                    """INSERT INTO schools
+                       (name,slug,status,registration_number,country_code,timezone,currency_code,contact_email,updated_at)
+                       VALUES (?,?,'suspended',?,?,?,?,?,CURRENT_TIMESTAMP)""",
+                    (name, slug, registration_number or None, country_code,
+                     timezone_name, currency_code, contact_email or None),
+                )
+                school_id = cursor.lastrowid
+                write_audit_in_transaction(
+                    connection, current_user.id, "school_registered", slug,
+                    "New school created in suspended state pending activation", school_id,
+                )
+                connection.commit()
+                flash("School profile created in suspended state. Assign its school administrator, review its profile, then activate it.", "success")
+                return redirect(url_for("platform_schools"))
+
+            if not school_text.isdigit():
+                flash("Select a valid school.", "danger")
+                return redirect(url_for("platform_schools"))
+            school_id = int(school_text)
+            school = connection.execute(
+                "SELECT id,name,slug,status FROM schools WHERE id=?", (school_id,)
+            ).fetchone()
+            if school is None:
+                abort(404)
+
+            if action == "status":
+                new_status = request.form.get("status", "").strip()
+                if new_status not in {"active", "suspended"}:
+                    flash("Choose a valid school status.", "danger")
+                    return redirect(url_for("platform_schools"))
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    "UPDATE schools SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (new_status, school_id),
+                )
+                write_audit_in_transaction(
+                    connection, current_user.id, "school_status_changed", school["slug"],
+                    "status=" + new_status, school_id,
+                )
+                connection.commit()
+                if new_status == "suspended" and session.get("active_school_id") == school_id:
+                    session.pop("active_school_id", None)
+                flash("School status updated. Suspended schools are blocked from tenant-scoped workflows.", "success")
+            elif action == "update_profile":
+                name = request.form.get("name", "").strip()
+                legal_name = request.form.get("legal_name", "").strip()
+                registration_number = request.form.get("registration_number", "").strip()
+                country_code = request.form.get("country_code", "").strip().upper()
+                county = request.form.get("county", "").strip()
+                district = request.form.get("district", "").strip()
+                address = request.form.get("address", "").strip()
+                contact_email = request.form.get("contact_email", "").strip().lower()
+                contact_phone = request.form.get("contact_phone", "").strip()
+                website = request.form.get("website", "").strip()
+                timezone_name = request.form.get("timezone", "").strip()
+                currency_code = request.form.get("currency_code", "").strip().upper()
+                if (
+                    not name or len(name) > 120 or len(legal_name) > 160
+                    or len(registration_number) > 80 or not re.fullmatch(r"[A-Z]{2}", country_code)
+                    or len(county) > 80 or len(district) > 80 or len(address) > 240
+                    or len(contact_phone) > 40 or len(website) > 200
+                    or not timezone_name or len(timezone_name) > 80
+                    or not re.fullmatch(r"[A-Z]{3}", currency_code)
+                    or (contact_email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", contact_email))
+                    or (website and not website.startswith(("https://", "http://")))
+                ):
+                    flash("Check the school profile fields and their length/format.", "danger")
+                    return redirect(url_for("platform_schools"))
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    """UPDATE schools SET name=?,legal_name=?,registration_number=?,country_code=?,
+                       county=?,district=?,address=?,contact_email=?,contact_phone=?,website=?,
+                       timezone=?,currency_code=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""",
+                    (name, legal_name or None, registration_number or None, country_code,
+                     county or None, district or None, address or None, contact_email or None,
+                     contact_phone or None, website or None, timezone_name, currency_code, school_id),
+                )
+                write_audit_in_transaction(
+                    connection, current_user.id, "school_profile_updated", school["slug"],
+                    "School profile fields updated", school_id,
+                )
+                connection.commit()
+                flash("School profile updated.", "success")
+            elif action == "assign_admin":
+                user_text = request.form.get("user_id", "").strip()
+                if not user_text.isdigit():
+                    flash("Select an approved school administrator account.", "danger")
+                    return redirect(url_for("platform_schools"))
+                user = connection.execute(
+                    """SELECT id,username FROM users
+                       WHERE id=? AND role='school_admin' AND status='active' AND school_id=?""",
+                    (int(user_text), school_id),
+                ).fetchone()
+                if user is None:
+                    flash("The selected account is not an active school administrator for this school.", "danger")
+                    return redirect(url_for("platform_schools"))
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    """INSERT INTO school_admin_assignments
+                       (school_id,user_id,assigned_by,active)
+                       VALUES (?,?,?,1)""",
+                    (school_id, user["id"], current_user.id),
+                )
+                write_audit_in_transaction(
+                    connection, current_user.id, "school_admin_assigned", user["username"],
+                    "School administrator assignment created", school_id,
+                )
+                connection.commit()
+                flash("School administrator assigned.", "success")
+            elif action == "revoke_admin":
+                assignment_text = request.form.get("assignment_id", "").strip()
+                if not assignment_text.isdigit():
+                    flash("Select a valid school administrator assignment.", "danger")
+                    return redirect(url_for("platform_schools"))
+                assignment = connection.execute(
+                    """SELECT a.id,u.username FROM school_admin_assignments a
+                       JOIN users u ON u.id=a.user_id
+                       WHERE a.id=? AND a.school_id=? AND a.active=1""",
+                    (int(assignment_text), school_id),
+                ).fetchone()
+                if assignment is None:
+                    flash("That active school administrator assignment was not found.", "danger")
+                    return redirect(url_for("platform_schools"))
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    """UPDATE school_admin_assignments
+                       SET active=0,revoked_by=?,revoked_at=CURRENT_TIMESTAMP
+                       WHERE id=? AND school_id=? AND active=1""",
+                    (current_user.id, assignment["id"], school_id),
+                )
+                write_audit_in_transaction(
+                    connection, current_user.id, "school_admin_assignment_revoked",
+                    assignment["username"], "School administrator assignment revoked", school_id,
+                )
+                connection.commit()
+                flash("School administrator assignment revoked. The account remains available for audit.", "success")
+            else:
+                abort(400)
+            return redirect(url_for("platform_schools"))
+
+        schools = connection.execute(
+            """SELECT s.*,
+               (SELECT COUNT(*) FROM school_admin_assignments a
+                WHERE a.school_id=s.id AND a.active=1) AS active_admin_count
+               FROM schools s ORDER BY s.id"""
+        ).fetchall()
+        admins = connection.execute(
+            """SELECT a.id AS assignment_id,a.school_id,u.id AS user_id,u.username,u.full_name,
+                      a.assigned_at,a.active
+               FROM school_admin_assignments a JOIN users u ON u.id=a.user_id
+               WHERE a.active=1 ORDER BY a.school_id,u.username"""
+        ).fetchall()
+        eligible_admins = connection.execute(
+            """SELECT id,username,full_name,school_id FROM users
+               WHERE role='school_admin' AND status='active' ORDER BY school_id,username"""
+        ).fetchall()
+        return render_template(
+            "platform_schools.html", schools=schools, admins=admins,
+            eligible_admins=eligible_admins,
+        )
+    except sqlite3.IntegrityError:
+        connection.rollback()
+        flash("The school, registration number or administrator assignment conflicts with an existing record.", "danger")
+        return redirect(url_for("platform_schools"))
+    finally:
+        connection.close()
+
+
+@app.route("/school/settings", methods=["GET", "POST"])
+@login_required
+def school_settings():
+    if current_user.role != "school_admin":
+        abort(403)
+    school_id = require_school_context()
+    connection = get_db_connection()
+    try:
+        if request.method == "POST":
+            action = request.form.get("action", "").strip()
+            if action == "profile":
+                name = request.form.get("name", "").strip()
+                legal_name = request.form.get("legal_name", "").strip()
+                county = request.form.get("county", "").strip()
+                district = request.form.get("district", "").strip()
+                address = request.form.get("address", "").strip()
+                contact_email = request.form.get("contact_email", "").strip().lower()
+                contact_phone = request.form.get("contact_phone", "").strip()
+                website = request.form.get("website", "").strip()
+                if (
+                    not name or len(name) > 120 or len(legal_name) > 160
+                    or len(county) > 80 or len(district) > 80 or len(address) > 240
+                    or len(contact_phone) > 40 or len(website) > 200
+                    or (contact_email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", contact_email))
+                    or (website and not website.startswith(("https://", "http://")))
+                ):
+                    flash("Check the school profile fields and their length/format.", "danger")
+                    return redirect(url_for("school_settings"))
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    """UPDATE schools SET name=?,legal_name=?,county=?,district=?,address=?,
+                       contact_email=?,contact_phone=?,website=?,updated_at=CURRENT_TIMESTAMP
+                       WHERE id=?""",
+                    (name, legal_name or None, county or None, district or None, address or None,
+                     contact_email or None, contact_phone or None, website or None, school_id),
+                )
+                write_audit_in_transaction(
+                    connection, current_user.id, "school_profile_updated", name,
+                    "School profile updated by its school administrator", school_id,
+                )
+                connection.commit()
+                flash("School profile updated.", "success")
+            elif action == "setting":
+                key = request.form.get("setting_key", "").strip()
+                value = request.form.get("setting_value", "").strip()
+                allowed_keys = {
+                    "academic_year_start_month", "grading_scale", "attendance_policy",
+                    "school_email", "school_phone", "school_address", "school_website",
+                }
+                if key not in allowed_keys or not value or len(value) > 500:
+                    flash("Choose an allowed setting and provide a value of at most 500 characters.", "danger")
+                    return redirect(url_for("school_settings"))
+                if key == "academic_year_start_month" and (
+                    not value.isdigit() or not 1 <= int(value) <= 12
+                ):
+                    flash("Academic-year start month must be between 1 and 12.", "danger")
+                    return redirect(url_for("school_settings"))
+                if key == "school_email" and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
+                    flash("Enter a valid school email address.", "danger")
+                    return redirect(url_for("school_settings"))
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    """INSERT INTO school_settings (school_id,setting_key,setting_value,updated_by)
+                       VALUES (?,?,?,?)
+                       ON CONFLICT(school_id,setting_key) DO UPDATE SET
+                       setting_value=excluded.setting_value,updated_by=excluded.updated_by,
+                       updated_at=CURRENT_TIMESTAMP""",
+                    (school_id, key, value, current_user.id),
+                )
+                write_audit_in_transaction(
+                    connection, current_user.id, "school_setting_updated", key,
+                    "School-specific configuration updated", school_id,
+                )
+                connection.commit()
+                flash("School setting saved.", "success")
+            else:
+                abort(400)
+            return redirect(url_for("school_settings"))
+
+        profile = connection.execute("SELECT * FROM schools WHERE id=?", (school_id,)).fetchone()
+        settings = connection.execute(
+            "SELECT setting_key,setting_value,updated_at FROM school_settings WHERE school_id=? ORDER BY setting_key",
+            (school_id,),
+        ).fetchall()
+        return render_template("school_settings.html", school=profile, settings=settings)
+    finally:
+        connection.close()
+
+
+@app.route("/school/academic-calendar", methods=["GET", "POST"])
+@login_required
+def school_academic_calendar():
+    if current_user.role not in {"school_admin", "principal", "vice_principal", "academic_admin"}:
+        abort(403)
+    school_id = require_school_context()
+    connection = get_db_connection()
+    try:
+        if request.method == "POST":
+            action = request.form.get("action", "").strip()
+            calendar_id_text = request.form.get("calendar_id", "").strip()
+            academic_year = request.form.get("academic_year", "").strip()
+            term = request.form.get("term", "").strip()
+            start_date = request.form.get("start_date", "").strip()
+            end_date = request.form.get("end_date", "").strip()
+            status = request.form.get("status", "planned").strip()
+            year_parts = academic_year.split("-")
+            valid_year = (
+                len(year_parts) == 2 and all(part.isdigit() and len(part) == 4 for part in year_parts)
+                and int(year_parts[1]) == int(year_parts[0]) + 1
+            )
+            try:
+                datetime.strptime(start_date, "%Y-%m-%d")
+                datetime.strptime(end_date, "%Y-%m-%d")
+                valid_dates = start_date <= end_date
+            except ValueError:
+                valid_dates = False
+            if (
+                action not in {"create", "update"} or not valid_year
+                or term not in {"Term 1", "Term 2", "Term 3"}
+                or status not in {"planned", "active", "closed"} or not valid_dates
+            ):
+                flash("Enter a valid consecutive academic year, term, date range and status.", "danger")
+                return redirect(url_for("school_academic_calendar"))
+
+            connection.execute("BEGIN IMMEDIATE")
+            excluded_id = int(calendar_id_text) if action == "update" and calendar_id_text.isdigit() else 0
+            overlap = connection.execute(
+                """SELECT id FROM school_academic_calendars
+                   WHERE school_id=? AND status <> 'closed'
+                     AND start_date <= ? AND end_date >= ? AND id <> ?
+                   LIMIT 1""",
+                (school_id, end_date, start_date, excluded_id),
+            ).fetchone() if status != "closed" else None
+            if overlap:
+                connection.rollback()
+                flash("The selected dates overlap another planned or active term for this school.", "danger")
+                return redirect(url_for("school_academic_calendar"))
+            if action == "create":
+                connection.execute(
+                    """INSERT INTO school_academic_calendars
+                       (school_id,academic_year,term,start_date,end_date,status,created_by,updated_by)
+                       VALUES (?,?,?,?,?,?,?,?)""",
+                    (school_id, academic_year, term, start_date, end_date, status,
+                     current_user.id, current_user.id),
+                )
+                audit_action = "school_calendar_term_created"
+            else:
+                if not calendar_id_text.isdigit():
+                    connection.rollback()
+                    flash("Choose a valid calendar entry.", "danger")
+                    return redirect(url_for("school_academic_calendar"))
+                updated = connection.execute(
+                    """UPDATE school_academic_calendars
+                       SET academic_year=?,term=?,start_date=?,end_date=?,status=?,
+                           updated_by=?,updated_at=CURRENT_TIMESTAMP
+                       WHERE id=? AND school_id=?""",
+                    (academic_year, term, start_date, end_date, status, current_user.id,
+                     int(calendar_id_text), school_id),
+                )
+                if updated.rowcount != 1:
+                    connection.rollback()
+                    abort(404)
+                audit_action = "school_calendar_term_updated"
+            write_audit_in_transaction(
+                connection, current_user.id, audit_action,
+                academic_year + " / " + term, f"{start_date} to {end_date}; status={status}",
+                school_id,
+            )
+            connection.commit()
+            flash("Academic calendar saved.", "success")
+            return redirect(url_for("school_academic_calendar"))
+
+        calendars = connection.execute(
+            """SELECT * FROM school_academic_calendars WHERE school_id=?
+               ORDER BY academic_year DESC,start_date""",
+            (school_id,),
+        ).fetchall()
+        return render_template("school_academic_calendar.html", calendars=calendars)
+    except sqlite3.IntegrityError:
+        connection.rollback()
+        flash("The calendar term conflicts with an existing school/year/term or active term.", "danger")
+        return redirect(url_for("school_academic_calendar"))
+    finally:
+        connection.close()
+
+
 @app.route("/logout", methods=["POST"])
 @login_required
 def logout():
