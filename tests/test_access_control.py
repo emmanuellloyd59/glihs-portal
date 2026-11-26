@@ -1519,6 +1519,64 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertEqual(self.client.get("/finance/payments").status_code, 403)
 
 
+
+    def test_registered_route_inventory_matches_the_authorization_audit(self):
+        expected_routes = {
+            "/", "/healthz", "/features", "/login", "/dashboard",
+            "/admin/select-school", "/logout", "/admin/request-access",
+            "/admin/users", "/academics", "/timetable", "/my-report-cards",
+            "/report-cards", "/students/register", "/students/<int:student_id>",
+            "/students/<int:student_id>/edit", "/students", "/student-finances",
+            "/learning-materials", "/learning-materials/<int:material_id>/download",
+            "/learning-materials/<int:material_id>/archive", "/announcements",
+            "/announcements/<int:announcement_id>/archive", "/finance/payments",
+            "/parent/children", "/assignments", "/staff", "/attendance-report",
+            "/school-performance", "/staff/demo-team",
+        }
+        actual_routes = {
+            rule.rule for rule in portal.app.url_map.iter_rules()
+            if rule.endpoint != "static"
+        }
+        self.assertEqual(actual_routes, expected_routes)
+
+    def test_every_nonpublic_operational_route_requires_authentication(self):
+        protected_requests = (
+            ("GET", "/dashboard"),
+            ("GET", "/admin/select-school"),
+            ("POST", "/logout"),
+            ("GET", "/admin/users"),
+            ("GET", "/academics"),
+            ("GET", "/timetable"),
+            ("GET", "/my-report-cards"),
+            ("GET", "/report-cards"),
+            ("GET", "/students/register"),
+            ("GET", "/students/1"),
+            ("GET", "/students/1/edit"),
+            ("GET", "/students"),
+            ("GET", "/student-finances"),
+            ("GET", "/learning-materials"),
+            ("GET", "/learning-materials/1/download"),
+            ("POST", "/learning-materials/1/archive"),
+            ("GET", "/announcements"),
+            ("POST", "/announcements/1/archive"),
+            ("GET", "/finance/payments"),
+            ("GET", "/parent/children"),
+            ("GET", "/assignments"),
+            ("GET", "/staff"),
+            ("GET", "/attendance-report"),
+            ("GET", "/school-performance"),
+            ("POST", "/staff/demo-team"),
+        )
+        for method, path in protected_requests:
+            with self.subTest(method=method, path=path):
+                response = self.client.open(
+                    path, method=method,
+                    data={"confirm_demo_team": "yes"} if path == "/staff/demo-team" else {},
+                )
+                self.assertEqual(response.status_code, 302)
+                self.assertIn("/login", response.headers.get("Location", ""))
+
+
 class StartupMigrationTests(unittest.TestCase):
     def test_legacy_database_migrates_without_losing_records_and_is_idempotent(self):
         """Exercise the real startup migration on a disposable legacy SQLite file."""
