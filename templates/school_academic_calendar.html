@@ -29,17 +29,19 @@
             <tbody>
             {% for item in calendars %}
                 <tr>
-                    <form method="POST">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <input type="hidden" name="action" value="update">
-                        <input type="hidden" name="calendar_id" value="{{ item.id }}">
-                        <td><input class="form-control form-control-sm" name="academic_year" value="{{ item.academic_year }}" pattern="[0-9]{4}-[0-9]{4}" required></td>
-                        <td><select class="form-select form-select-sm" name="term">{% for term in ['Term 1','Term 2','Term 3'] %}<option value="{{ term }}" {{ 'selected' if item.term == term else '' }}>{{ term }}</option>{% endfor %}</select></td>
-                        <td><input class="form-control form-control-sm" type="date" name="start_date" value="{{ item.start_date }}" required></td>
-                        <td><input class="form-control form-control-sm" type="date" name="end_date" value="{{ item.end_date }}" required></td>
-                        <td><select class="form-select form-select-sm" name="status">{% for status in ['planned','active','closed'] %}<option value="{{ status }}" {{ 'selected' if item.status == status else '' }}>{{ status|title }}</option>{% endfor %}</select></td>
-                        <td><button class="btn btn-sm btn-outline-primary" type="submit">Save</button></td>
-                    </form>
+                    <td>
+                        <form id="calendar-update-{{ item.id }}" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="update">
+                            <input type="hidden" name="calendar_id" value="{{ item.id }}">
+                        </form>
+                        <input form="calendar-update-{{ item.id }}" class="form-control form-control-sm" name="academic_year" value="{{ item.academic_year }}" pattern="[0-9]{4}-[0-9]{4}" required aria-label="Academic year">
+                    </td>
+                    <td><select form="calendar-update-{{ item.id }}" class="form-select form-select-sm" name="term" aria-label="Term">{% for term in ['Term 1','Term 2','Term 3'] %}<option value="{{ term }}" {{ 'selected' if item.term == term else '' }}>{{ term }}</option>{% endfor %}</select></td>
+                    <td><input form="calendar-update-{{ item.id }}" class="form-control form-control-sm" type="date" name="start_date" value="{{ item.start_date }}" required aria-label="Start date"></td>
+                    <td><input form="calendar-update-{{ item.id }}" class="form-control form-control-sm" type="date" name="end_date" value="{{ item.end_date }}" required aria-label="End date"></td>
+                    <td><select form="calendar-update-{{ item.id }}" class="form-select form-select-sm" name="status" aria-label="Status">{% for status in ['planned','active','closed'] %}<option value="{{ status }}" {{ 'selected' if item.status == status else '' }}>{{ status|title }}</option>{% endfor %}</select></td>
+                    <td><button form="calendar-update-{{ item.id }}" class="btn btn-sm btn-outline-primary" type="submit">Save</button></td>
                 </tr>
             {% else %}
                 <tr><td colspan="6" class="text-secondary">No academic terms have been configured.</td></tr>
