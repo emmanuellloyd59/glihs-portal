@@ -1119,6 +1119,55 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertIn(b"Invalid username or password", response.data)
         self.assertNotIn(b"Dashboard Overview", response.data)
 
+
+    def test_finance_dashboard_exposes_only_financial_metrics_to_finance_admin(self):
+        connection = portal.get_db_connection()
+        try:
+            finance_user_id = connection.execute(
+                "SELECT id FROM users WHERE username='finance_route_test'"
+            ).fetchone()["id"]
+            student_id = connection.execute(
+                """INSERT INTO students
+                   (admission_number, full_name, class_level, school_id)
+                   VALUES ('PERF-FINANCE-001', 'Fictional Finance Student', 'Grade 7', 1)"""
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id, academic_year, total_fee, amount_paid, updated_by, school_id)
+                   VALUES (?, '2026-2027', 1000, 400, ?, 1)""",
+                (student_id, finance_user_id),
+            )
+            connection.execute(
+                """INSERT INTO grades
+                   (student_id, subject, assessment, score, max_score, recorded_by,
+                    academic_year, term, school_id)
+                   VALUES (?, 'Private Subject Metric', 'Quiz', 9, 10, ?,
+                           '2026-2027', 'Term 1', 1)""",
+                (student_id, finance_user_id),
+            )
+            connection.execute(
+                """INSERT INTO attendance
+                   (student_id, attendance_date, status, recorded_by, school_id)
+                   VALUES (?, date('now'), 'present', ?, 1)""",
+                (student_id, finance_user_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("finance_route_test")
+        response = self.client.get("/school-performance")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"600.00", response.data)
+        self.assertNotIn(b"Private Subject Metric", response.data)
+        self.assertNotIn(b"Fictional Finance Student", response.data)
+        self.assertNotIn(b"Attendance Overview", response.data)
+        self.assertNotIn(b"Academic Performance", response.data)
+
+    def test_teacher_cannot_open_school_wide_performance_dashboard(self):
+        self.login_as("teacher_route_test")
+        self.assertEqual(self.client.get("/school-performance").status_code, 403)
+
 class StartupMigrationTests(unittest.TestCase):
     def test_legacy_database_migrates_without_losing_records_and_is_idempotent(self):
         """Exercise the real startup migration on a disposable legacy SQLite file."""
