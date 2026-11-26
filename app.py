@@ -2784,18 +2784,25 @@ def learning_materials():
             stored_name = uuid.uuid4().hex + suffix
             target = RESOURCE_DIR / stored_name
             upload.save(target)
-            connection.execute(
-                """INSERT INTO learning_materials
-                   (school_id,title,description,class_level,stored_name,original_name,uploaded_by)
-                   VALUES (?,?,?,?,?,?,?)""",
-                (school_id, title, description, class_level, stored_name, original,
-                 int(current_user.id)),
-            )
-            write_audit_in_transaction(
-                connection, current_user.id, "learning_material_uploaded", original,
-                "class=" + class_level, school_id,
-            )
-            connection.commit()
+            try:
+                connection.execute(
+                    """INSERT INTO learning_materials
+                       (school_id,title,description,class_level,stored_name,original_name,uploaded_by)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (school_id, title, description, class_level, stored_name, original,
+                     int(current_user.id)),
+                )
+                write_audit_in_transaction(
+                    connection, current_user.id, "learning_material_uploaded", original,
+                    "class=" + class_level, school_id,
+                )
+                connection.commit()
+            except Exception:
+                # Do not leave an orphaned resource file when its metadata or
+                # required audit event fails to commit.
+                if target.is_file():
+                    target.unlink()
+                raise
             flash("Learning material uploaded.", "success")
             return redirect(url_for("learning_materials"))
         rows = connection.execute(
