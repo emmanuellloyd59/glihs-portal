@@ -1639,7 +1639,7 @@ def platform_schools():
                 if school_id == 1 and new_status == "suspended":
                     flash("The existing CMHS default school cannot be suspended through this workflow.", "danger")
                     return redirect(url_for("platform_schools"))
-                if new_status == "active":
+                if new_status == "active" and school["status"] != "active":
                     admin_count = connection.execute(
                         """SELECT COUNT(*) FROM school_admin_assignments
                            WHERE school_id=? AND active=1""", (school_id,)
