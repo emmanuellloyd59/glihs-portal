@@ -126,7 +126,6 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"CMHS Digital Campus", response.data)
-        self.assertIn(b"CMHS Digital Campus", response.data)
         self.assertIn("SCHOOL PORTAL · VERSION 4 · IN DEVELOPMENT".encode("utf-8"), response.data)
         self.assertNotIn("SCHOOL PORTAL · VERSION 3".encode("utf-8"), response.data)
         self.assertNotIn(b"DEMONSTRATION VERSION", response.data)
@@ -503,12 +502,15 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(rows[1]["password_hash"], "existing-teacher-hash")
         self.assertEqual(rows[1]["role"], "teacher")
 
-    def test_feature_center_page_loads_and_explains_planned_modules(self):
+    def test_feature_center_is_current_and_does_not_mislabel_old_preview(self):
         response = self.client.get("/features")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Feature Center", response.data)
-        self.assertIn(b"Grades and attendance", response.data)
-        self.assertIn(b"Planned", response.data)
+        self.assertIn(b"CMHS DIGITAL CAMPUS", response.data)
+        self.assertIn(b"VERSION 4", response.data)
+        self.assertIn(b"Use fictional data only", response.data)
+        self.assertNotIn(b"VERSION 0.2 PREVIEW", response.data)
+        self.assertNotIn(b"Homework is still planned", response.data)
 
     def test_duplicate_admission_number_is_rejected_gracefully(self):
         self.login_as("registrar_demo", "test-registrar-password")
@@ -1561,6 +1563,13 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
             self.assertEqual(finance["amount_paid"], 25.0)
             self.assertEqual(payment["amount"], 25.0)
             self.assertTrue(payment["receipt_number"].startswith("RCPT-"))
+            audit = connection.execute(
+                """SELECT action,target_username,school_id FROM audit_log
+                   WHERE action='finance_payment_recorded' AND target_username=?""",
+                (payment["receipt_number"],),
+            ).fetchone()
+            self.assertIsNotNone(audit)
+            self.assertEqual(audit["school_id"], 1)
         finally:
             connection.close()
 
