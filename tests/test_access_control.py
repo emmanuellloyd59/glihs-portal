@@ -165,6 +165,52 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(b"Fictional Revoked Student", response.data)
 
+    def test_school_leader_can_assign_and_revoke_teacher_class_subject(self):
+        connection = portal.get_db_connection()
+        try:
+            teacher_id = connection.execute("SELECT id FROM users WHERE username = 'teacher_route_test'").fetchone()["id"]
+        finally:
+            connection.close()
+        self.login_as("principal_route_test")
+        assigned = self.client.post("/staff", data={
+            "action": "assign_teacher", "teacher_id": str(teacher_id),
+            "class_level": "Grade 7", "subject": "Mathematics",
+        }, follow_redirects=True)
+        self.assertEqual(assigned.status_code, 200)
+        connection = portal.get_db_connection()
+        try:
+            row = connection.execute("""SELECT id, active FROM teacher_class_assignments
+                WHERE school_id=1 AND teacher_id=? AND class_level='Grade 7' AND subject='Mathematics'""",
+                (teacher_id,)).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row["active"], 1)
+            assignment_id = row["id"]
+        finally:
+            connection.close()
+        revoked = self.client.post("/staff", data={
+            "action": "revoke_teacher_assignment", "assignment_id": str(assignment_id),
+        }, follow_redirects=True)
+        self.assertEqual(revoked.status_code, 200)
+        connection = portal.get_db_connection()
+        try:
+            row = connection.execute("SELECT active FROM teacher_class_assignments WHERE id=?",
+                                     (assignment_id,)).fetchone()
+            self.assertEqual(row["active"], 0)
+            actions = {r["action"] for r in connection.execute(
+                "SELECT action FROM audit_log WHERE target_username='teacher_route_test'").fetchall()}
+            self.assertIn("teacher_assignment_activated", actions)
+            self.assertIn("teacher_assignment_revoked", actions)
+        finally:
+            connection.close()
+
+    def test_teacher_cannot_assign_or_revoke_teacher_permissions(self):
+        self.login_as("teacher_route_test")
+        response = self.client.post("/staff", data={
+            "action": "assign_teacher", "teacher_id": "1",
+            "class_level": "Grade 7", "subject": "Mathematics",
+        })
+        self.assertEqual(response.status_code, 403)
+
     def test_parent_account_creation_requires_identity_verification(self):
         connection = portal.get_db_connection()
         try:
