@@ -201,10 +201,14 @@ def register_staff_attendance_routes(ns):
         connection = get_db_connection()
         try:
             classes = connection.execute(
-                """SELECT DISTINCT class_level FROM students
-                   WHERE school_id = ? AND status = 'active'
-                   ORDER BY class_level COLLATE NOCASE""",
-                (school_id,),
+                """SELECT DISTINCT s.class_level FROM students s
+                   WHERE s.school_id = ? AND s.status = 'active'
+                     AND (? <> 'teacher' OR s.class_level IN (
+                         SELECT class_level FROM class_timetable
+                         WHERE school_id = s.school_id AND teacher_id = ?
+                     ))
+                   ORDER BY s.class_level COLLATE NOCASE""",
+                (school_id, current_user.role, int(current_user.id)),
             ).fetchall()
             rows = connection.execute(
                 """SELECT s.id AS student_id, s.full_name, s.admission_number, s.class_level,
@@ -219,9 +223,14 @@ def register_staff_attendance_routes(ns):
                     AND a.attendance_date BETWEEN ? AND ?
                    WHERE s.school_id = ? AND s.status = 'active'
                      AND (? = '' OR s.class_level = ?)
+                     AND (? <> 'teacher' OR s.class_level IN (
+                         SELECT class_level FROM class_timetable
+                         WHERE school_id = s.school_id AND teacher_id = ?
+                     ))
                    GROUP BY s.id, s.full_name, s.admission_number, s.class_level
                    ORDER BY s.class_level COLLATE NOCASE, s.full_name COLLATE NOCASE""",
-                (start_text, end_text, school_id, class_filter, class_filter),
+                (start_text, end_text, school_id, class_filter, class_filter,
+                 current_user.role, int(current_user.id)),
             ).fetchall()
             totals = connection.execute(
                 """SELECT COUNT(DISTINCT s.id) AS students,
@@ -233,8 +242,13 @@ def register_staff_attendance_routes(ns):
                    FROM students s LEFT JOIN attendance a
                      ON a.student_id=s.id AND a.school_id=s.school_id
                     AND a.attendance_date BETWEEN ? AND ?
-                   WHERE s.school_id=? AND s.status='active' AND (?='' OR s.class_level=?)""",
-                (start_text, end_text, school_id, class_filter, class_filter),
+                   WHERE s.school_id=? AND s.status='active' AND (?='' OR s.class_level=?)
+                     AND (? <> 'teacher' OR s.class_level IN (
+                         SELECT class_level FROM class_timetable
+                         WHERE school_id = s.school_id AND teacher_id = ?
+                     ))""",
+                (start_text, end_text, school_id, class_filter, class_filter,
+                 current_user.role, int(current_user.id)),
             ).fetchone()
             daily = connection.execute(
                 """SELECT a.attendance_date,
@@ -248,8 +262,13 @@ def register_staff_attendance_routes(ns):
                    WHERE a.school_id=? AND s.status='active'
                      AND a.attendance_date BETWEEN ? AND ?
                      AND (?='' OR s.class_level=?)
+                     AND (? <> 'teacher' OR s.class_level IN (
+                         SELECT class_level FROM class_timetable
+                         WHERE school_id = s.school_id AND teacher_id = ?
+                     ))
                    GROUP BY a.attendance_date ORDER BY a.attendance_date DESC""",
-                (school_id, start_text, end_text, class_filter, class_filter),
+                (school_id, start_text, end_text, class_filter, class_filter,
+                 current_user.role, int(current_user.id)),
             ).fetchall()
         finally:
             connection.close()
