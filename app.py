@@ -1720,6 +1720,13 @@ def school_settings():
     school_id = require_school_context()
     connection = get_db_connection()
     try:
+        admin_assignment = connection.execute(
+            """SELECT 1 FROM school_admin_assignments
+               WHERE user_id=? AND school_id=? AND active=1""",
+            (current_user.id, school_id),
+        ).fetchone()
+        if admin_assignment is None:
+            abort(403)
         if request.method == "POST":
             action = request.form.get("action", "").strip()
             if action == "profile":
@@ -1731,8 +1738,14 @@ def school_settings():
                 contact_email = request.form.get("contact_email", "").strip().lower()
                 contact_phone = request.form.get("contact_phone", "").strip()
                 website = request.form.get("website", "").strip()
+                country_code = request.form.get("country_code", "LR").strip().upper()
+                timezone_name = request.form.get("timezone", "Africa/Monrovia").strip()
+                currency_code = request.form.get("currency_code", "LRD").strip().upper()
                 if (
                     not name or len(name) > 120 or len(legal_name) > 160
+                    or not re.fullmatch(r"[A-Z]{2}", country_code)
+                    or not timezone_name or len(timezone_name) > 80
+                    or not re.fullmatch(r"[A-Z]{3}", currency_code)
                     or len(county) > 80 or len(district) > 80 or len(address) > 240
                     or len(contact_phone) > 40 or len(website) > 200
                     or (contact_email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", contact_email))
@@ -1742,11 +1755,12 @@ def school_settings():
                     return redirect(url_for("school_settings"))
                 connection.execute("BEGIN IMMEDIATE")
                 connection.execute(
-                    """UPDATE schools SET name=?,legal_name=?,county=?,district=?,address=?,
-                       contact_email=?,contact_phone=?,website=?,updated_at=CURRENT_TIMESTAMP
-                       WHERE id=?""",
-                    (name, legal_name or None, county or None, district or None, address or None,
-                     contact_email or None, contact_phone or None, website or None, school_id),
+                    """UPDATE schools SET name=?,legal_name=?,country_code=?,county=?,district=?,address=?,
+                       contact_email=?,contact_phone=?,website=?,timezone=?,currency_code=?,
+                       updated_at=CURRENT_TIMESTAMP WHERE id=?""",
+                    (name, legal_name or None, country_code, county or None, district or None,
+                     address or None, contact_email or None, contact_phone or None, website or None,
+                     timezone_name, currency_code, school_id),
                 )
                 write_audit_in_transaction(
                     connection, current_user.id, "school_profile_updated", name,
@@ -1758,8 +1772,9 @@ def school_settings():
                 key = request.form.get("setting_key", "").strip()
                 value = request.form.get("setting_value", "").strip()
                 allowed_keys = {
-                    "academic_year_start_month", "grading_scale", "attendance_policy",
-                    "school_email", "school_phone", "school_address", "school_website",
+                    "timezone", "currency_code", "academic_year_start_month", "grading_scale",
+                    "attendance_policy", "school_email", "school_phone", "school_address",
+                    "school_website",
                 }
                 if key not in allowed_keys or not value or len(value) > 500:
                     flash("Choose an allowed setting and provide a value of at most 500 characters.", "danger")
@@ -1809,6 +1824,14 @@ def school_academic_calendar():
     school_id = require_school_context()
     connection = get_db_connection()
     try:
+        if current_user.role == "school_admin":
+            assignment = connection.execute(
+                """SELECT 1 FROM school_admin_assignments
+                   WHERE user_id=? AND school_id=? AND active=1""",
+                (current_user.id, school_id),
+            ).fetchone()
+            if assignment is None:
+                abort(403)
         if request.method == "POST":
             action = request.form.get("action", "").strip()
             calendar_id_text = request.form.get("calendar_id", "").strip()
