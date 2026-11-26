@@ -821,7 +821,7 @@ def teacher_assigned_class_levels(connection, teacher_id, school_id):
     """Return active class levels from the canonical school-scoped assignment table."""
     rows = connection.execute(
         """SELECT DISTINCT class_level FROM teacher_class_assignments
-           WHERE school_id = ? AND teacher_id = ? AND active = 1 AND active = 1""",
+           WHERE school_id = ? AND teacher_id = ? AND active = 1""",
         (int(school_id), int(teacher_id)),
     ).fetchall()
     return {row["class_level"] for row in rows}
@@ -830,7 +830,7 @@ def teacher_assigned_class_levels(connection, teacher_id, school_id):
 def teacher_has_class_subject(connection, teacher_id, school_id, class_level, subject=None):
     """Check canonical teacher assignment; never trust posted IDs or timetable slots."""
     sql = """SELECT 1 FROM teacher_class_assignments
-             WHERE school_id = ? AND teacher_id = ? AND active = 1 AND class_level = ? AND active = 1"""
+             WHERE school_id = ? AND teacher_id = ? AND class_level = ? AND active = 1"""
     params = [int(school_id), int(teacher_id), str(class_level)]
     if subject is not None:
         sql += " AND lower(subject) = lower(?)"
