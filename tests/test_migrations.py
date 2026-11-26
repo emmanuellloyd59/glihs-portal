@@ -263,10 +263,10 @@ class DatabaseMigrationTests(unittest.TestCase):
                         [],
                     )
                     self.assertEqual(
-                        verify.execute(
+                        [row["version"] for row in verify.execute(
                             "SELECT version FROM schema_migrations ORDER BY version"
-                        ).fetchall(),
-                        [(1,), (2,)],
+                        ).fetchall()],
+                        [1, 2],
                     )
                     # Finance payment records must agree with both student and
                     # receiver school ownership, not merely carry a caller-supplied ID.
@@ -280,10 +280,10 @@ class DatabaseMigrationTests(unittest.TestCase):
                         )
                     verify.rollback()
                     self.assertEqual(
-                        verify.execute(
+                        [row["version"] for row in verify.execute(
                             "SELECT version FROM schema_migrations ORDER BY version"
-                        ).fetchall(),
-                        [(1,), (2,), (3,)],
+                        ).fetchall()],
+                        [1, 2, 3],
                     )
                     with self.assertRaises(sqlite3.IntegrityError):
                         verify.execute(
