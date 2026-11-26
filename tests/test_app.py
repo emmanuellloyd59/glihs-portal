@@ -503,6 +503,50 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertIn(b"Attendance saved successfully", attendance_response.data)
         self.assertIn(b"Present", attendance_response.data)
 
+    def test_teacher_cannot_access_unassigned_class_student_or_grade(self):
+        self._assign_teacher("Grade 7", "Mathematics")
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
+            ("UNASSIGNED-001", "Unassigned Class Student", "Grade 8"),
+        )
+        student_id = connection.execute(
+            "SELECT id FROM students WHERE admission_number='UNASSIGNED-001'"
+        ).fetchone()["id"]
+        connection.commit()
+        connection.close()
+        self.login_as("teacher_demo", "test-teacher-password")
+        roster = self.client.get("/students")
+        self.assertEqual(roster.status_code, 200)
+        self.assertNotIn(b"Unassigned Class Student", roster.data)
+        self.assertEqual(self.client.get(f"/students/{student_id}").status_code, 404)
+        self.client.post("/academics", data={
+            "action": "grade", "student_id": str(student_id), "subject": "Mathematics",
+            "assessment": "Quiz", "score": "8", "max_score": "10",
+            "academic_year": "2026-2027", "term": "Term 1",
+        })
+        connection = portal.get_db_connection()
+        grade_count = connection.execute(
+            "SELECT COUNT(*) FROM grades WHERE student_id=?", (student_id,)
+        ).fetchone()[0]
+        connection.close()
+        self.assertEqual(grade_count, 0)
+
+    def test_teacher_cannot_publish_school_announcement(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.post("/announcements", data={
+            "title": "Unauthorized announcement",
+            "body": "This should not be published by a teacher.",
+            "audience": "all",
+        })
+        self.assertEqual(response.status_code, 403)
+        connection = portal.get_db_connection()
+        count = connection.execute(
+            "SELECT COUNT(*) FROM school_announcements WHERE title='Unauthorized announcement'"
+        ).fetchone()[0]
+        connection.close()
+        self.assertEqual(count, 0)
+
     def test_student_and_finance_roles_cannot_open_academics(self):
         self.login_as("student_demo", "test-student-password")
         self.assertEqual(self.client.get("/academics").status_code, 403)
