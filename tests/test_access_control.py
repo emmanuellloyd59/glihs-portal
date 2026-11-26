@@ -1577,6 +1577,119 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
                 self.assertIn("/login", response.headers.get("Location", ""))
 
 
+
+    def test_school_a_cannot_download_or_archive_school_b_content_or_grade_its_homework(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                """INSERT INTO schools (name, slug, status)
+                   VALUES ('Fictional Content Isolation School', 'content-isolation-school-b', 'active')
+                   ON CONFLICT(slug) DO NOTHING"""
+            )
+            school_b_id = connection.execute(
+                "SELECT id FROM schools WHERE slug='content-isolation-school-b'"
+            ).fetchone()["id"]
+            teacher_b_id = connection.execute(
+                """INSERT INTO users
+                   (username, password_hash, role, status, is_super_admin, school_id)
+                   VALUES ('content_isolation_teacher_b', 'test-hash', 'teacher', 'active', 0, ?)""",
+                (school_b_id,),
+            ).lastrowid
+            student_b_id = connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('CONTENT-ISOLATION-B-001', 'Fictional School B Student', 'Grade 7', ?)""",
+                (school_b_id,),
+            ).lastrowid
+            portal.ensure_content_tables(connection)
+            material_id = connection.execute(
+                """INSERT INTO learning_materials
+                   (school_id, title, description, class_level, stored_name, original_name, uploaded_by)
+                   VALUES (?, 'School B Private Resource', 'Private test resource', 'Grade 7',
+                           'school-b-private.txt', 'private.txt', ?)""",
+                (school_b_id, teacher_b_id),
+            ).lastrowid
+            announcement_id = connection.execute(
+                """INSERT INTO school_announcements
+                   (school_id, title, body, audience, created_by, updated_by)
+                   VALUES (?, 'School B Private Notice', 'Private test notice', 'all', ?, ?)""",
+                (school_b_id, teacher_b_id, teacher_b_id),
+            ).lastrowid
+            timetable_id = connection.execute(
+                """INSERT INTO class_timetable
+                   (school_id, class_level, subject, teacher_id, weekday, start_time,
+                    end_time, room, created_by)
+                   VALUES (?, 'Grade 7', 'Mathematics', ?, 'Tuesday', '08:00', '09:00',
+                           'Room B', ?)""",
+                (school_b_id, teacher_b_id, teacher_b_id),
+            ).lastrowid
+            assignment_id = connection.execute(
+                """INSERT INTO homework_assignments
+                   (school_id, class_level, subject, title, instructions, due_date, created_by)
+                   VALUES (?, 'Grade 7', 'Mathematics', 'School B Private Homework',
+                           'Private test assignment', '2099-12-31', ?)""",
+                (school_b_id, teacher_b_id),
+            ).lastrowid
+            submission_id = connection.execute(
+                """INSERT INTO homework_submissions
+                   (school_id, assignment_id, student_id, response_text)
+                   VALUES (?, ?, ?, 'Private School B submission')""",
+                (school_b_id, assignment_id, student_b_id),
+            ).lastrowid
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("principal_route_test")
+        self.assertEqual(
+            self.client.get(f"/learning-materials/{material_id}/download").status_code, 404
+        )
+        self.assertEqual(
+            self.client.post(f"/learning-materials/{material_id}/archive").status_code, 404
+        )
+        self.assertEqual(
+            self.client.post(f"/announcements/{announcement_id}/archive").status_code, 404
+        )
+        timetable_response = self.client.post("/timetable", data={
+            "action": "delete", "schedule_id": str(timetable_id),
+        })
+        self.assertEqual(timetable_response.status_code, 302)
+
+        self.client.post("/logout")
+        self.login_as("teacher_route_test")
+        grade_response = self.client.post("/assignments", data={
+            "action": "grade", "submission_id": str(submission_id),
+            "score": "90", "feedback": "Unauthorized cross-school grade",
+        })
+        self.assertEqual(grade_response.status_code, 404)
+
+        connection = portal.get_db_connection()
+        try:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT archived FROM learning_materials WHERE id=?", (material_id,)
+                ).fetchone()["archived"], 0,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT status FROM school_announcements WHERE id=?", (announcement_id,)
+                ).fetchone()["status"], "published",
+            )
+            self.assertIsNotNone(
+                connection.execute(
+                    "SELECT 1 FROM class_timetable WHERE id=? AND school_id=?",
+                    (timetable_id, school_b_id),
+                ).fetchone()
+            )
+            self.assertIsNone(
+                connection.execute(
+                    "SELECT score FROM homework_submissions WHERE id=?", (submission_id,)
+                ).fetchone()["score"]
+            )
+        finally:
+            connection.close()
+
+
+
 class StartupMigrationTests(unittest.TestCase):
     def test_legacy_database_migrates_without_losing_records_and_is_idempotent(self):
         """Exercise the real startup migration on a disposable legacy SQLite file."""
