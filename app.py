@@ -2014,7 +2014,7 @@ def student_detail(student_id):
         recent_grades = connection.execute(
             """SELECT subject, assessment, score, max_score, academic_year, term, created_at
                FROM grades WHERE student_id = ? AND school_id = ?
-                 AND (? <> 'teacher' OR subject IN (
+                 AND (? <> 'teacher' OR lower(subject) IN (
                      SELECT lower(subject) FROM class_timetable
                      WHERE school_id = ? AND teacher_id = ? AND class_level = ?
                  ))
@@ -2412,6 +2412,13 @@ def download_learning_material(material_id):
             current_user.role, material["class_level"], bool(material["archived"])
         ):
             abort(404)
+        if current_user.role == "teacher":
+            assigned_levels = teacher_assigned_class_levels(connection, current_user.id, school_id)
+            if (
+                material["class_level"].lower() not in {"all classes", "school-wide"}
+                and material["class_level"] not in assigned_levels
+            ):
+                abort(404)
         path = RESOURCE_DIR / material["stored_name"]
         if not path.is_file() or path.parent.resolve() != RESOURCE_DIR.resolve():
             abort(404)
