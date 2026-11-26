@@ -1583,6 +1583,17 @@ def platform_schools():
                 if new_status not in {"active", "suspended"}:
                     flash("Choose a valid school status.", "danger")
                     return redirect(url_for("platform_schools"))
+                if school_id == 1 and new_status == "suspended":
+                    flash("The existing CMHS default school cannot be suspended through this workflow.", "danger")
+                    return redirect(url_for("platform_schools"))
+                if new_status == "active":
+                    admin_count = connection.execute(
+                        """SELECT COUNT(*) FROM school_admin_assignments
+                           WHERE school_id=? AND active=1""", (school_id,)
+                    ).fetchone()[0]
+                    if admin_count < 1:
+                        flash("Assign at least one active school administrator before activating this school.", "danger")
+                        return redirect(url_for("platform_schools"))
                 connection.execute("BEGIN IMMEDIATE")
                 connection.execute(
                     "UPDATE schools SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
@@ -1676,6 +1687,14 @@ def platform_schools():
                 if assignment is None:
                     flash("That active school administrator assignment was not found.", "danger")
                     return redirect(url_for("platform_schools"))
+                if school["status"] == "active":
+                    admin_count = connection.execute(
+                        """SELECT COUNT(*) FROM school_admin_assignments
+                           WHERE school_id=? AND active=1""", (school_id,)
+                    ).fetchone()[0]
+                    if admin_count <= 1:
+                        flash("An active school must retain at least one active school administrator.", "danger")
+                        return redirect(url_for("platform_schools"))
                 connection.execute("BEGIN IMMEDIATE")
                 connection.execute(
                     """UPDATE school_admin_assignments
@@ -1706,8 +1725,11 @@ def platform_schools():
                WHERE a.active=1 ORDER BY a.school_id,u.username"""
         ).fetchall()
         eligible_admins = connection.execute(
-            """SELECT id,username,full_name,school_id FROM users
-               WHERE role='school_admin' AND status='active' ORDER BY school_id,username"""
+            """SELECT u.id,u.username,u.full_name,u.school_id FROM users u
+               WHERE u.role='school_admin' AND u.status='active'
+                 AND NOT EXISTS (SELECT 1 FROM school_admin_assignments a
+                                 WHERE a.user_id=u.id AND a.school_id=u.school_id AND a.active=1)
+               ORDER BY u.school_id,u.username"""
         ).fetchall()
         return render_template(
             "platform_schools.html", schools=schools, admins=admins,
