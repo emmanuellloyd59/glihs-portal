@@ -165,6 +165,73 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(b"Fictional Revoked Student", response.data)
 
+    def test_teacher_homework_is_limited_to_active_class_subject_assignments(self):
+        connection = portal.get_db_connection()
+        try:
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username='teacher_route_test'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO teacher_class_assignments
+                   (school_id, teacher_id, class_level, subject, active, created_by)
+                   VALUES (1, ?, 'Grade 7', 'Mathematics', 1, ?)""",
+                (teacher_id, teacher_id),
+            )
+            assigned_id = connection.execute(
+                """INSERT INTO homework_assignments
+                   (school_id, class_level, subject, title, instructions, due_date, created_by)
+                   VALUES (1, 'Grade 7', 'Mathematics', 'Assigned Homework', 'Complete the work',
+                           '2099-12-31', ?)""",
+                (teacher_id,),
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO homework_assignments
+                   (school_id, class_level, subject, title, instructions, due_date, created_by)
+                   VALUES (1, 'Grade 7', 'Science', 'Unassigned Homework', 'Complete the work',
+                           '2099-12-31', ?)""",
+                (teacher_id,),
+            )
+            student_id = connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('HOMEWORK-ACCESS-001', 'Fictional Homework Student', 'Grade 7', 1)"""
+            ).lastrowid
+            submission_id = connection.execute(
+                """INSERT INTO homework_submissions
+                   (school_id, assignment_id, student_id, response_text)
+                   VALUES (1, ?, ?, 'Fictional response')""",
+                (assigned_id, student_id),
+            ).lastrowid
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("teacher_route_test")
+        visible = self.client.get("/assignments")
+        self.assertEqual(visible.status_code, 200)
+        self.assertIn(b"Assigned Homework", visible.data)
+        self.assertNotIn(b"Unassigned Homework", visible.data)
+
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                """UPDATE teacher_class_assignments SET active=0
+                   WHERE school_id=1 AND teacher_id=? AND class_level='Grade 7'
+                     AND subject='Mathematics'""",
+                (teacher_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        hidden = self.client.get("/assignments")
+        self.assertEqual(hidden.status_code, 200)
+        self.assertNotIn(b"Assigned Homework", hidden.data)
+        denied = self.client.post("/assignments", data={
+            "action": "grade", "submission_id": str(submission_id),
+            "score": "85", "feedback": "Good work",
+        })
+        self.assertEqual(denied.status_code, 403)
+
     def test_school_leader_can_assign_and_revoke_teacher_class_subject(self):
         connection = portal.get_db_connection()
         try:
