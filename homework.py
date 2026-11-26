@@ -9,6 +9,7 @@ def register_homework_routes(ns):
     render_template, flash, abort = ns["render_template"], ns["flash"], ns["abort"]
     get_db_connection = ns["get_db_connection"]
     require_school_context, write_audit = ns["require_school_context"], ns["write_audit"]
+    teacher_has_class_subject = ns["teacher_has_class_subject"]
     class_levels = ns["TIMETABLE_CLASS_LEVELS"]
     staff_roles = {"super_admin", "school_admin", "principal", "vice_principal", "academic_admin", "registrar", "teacher"}
     admin_roles = {"super_admin", "school_admin", "principal", "vice_principal", "academic_admin"}
@@ -72,6 +73,10 @@ def register_homework_routes(ns):
                         len(instructions) > 10000 or not valid_date):
                         flash("Check the class, subject, title, instructions and due date.", "danger")
                         return redirect(url_for("assignments"))
+                    if role == "teacher" and not teacher_has_class_subject(
+                        connection, current_user.id, school_id, level, subject
+                    ):
+                        abort(403)
                     connection.execute("""INSERT INTO homework_assignments
                         (school_id,class_level,subject,title,instructions,due_date,created_by)
                         VALUES (?,?,?,?,?,?,?)""",
