@@ -223,16 +223,33 @@ class SchoolManagementTests(unittest.TestCase):
         self.login_as("v5_admin_a", "V5-Temporary-Password!")
         self.assertEqual(self.client.get("/school/settings").status_code, 200)
 
-        platform_client = portal.app.test_client()
-        platform_client.post("/login", data={
-            "username": "v5_platform_admin",
-            "password": "V5-Platform-Admin-Password!",
-        }, follow_redirects=True)
-        platform_client.post("/platform/schools", data={
-            "action": "status", "school_id": str(school_id), "status": "suspended",
-        })
+        # Simulate a platform suspension occurring while this administrator
+        # remains authenticated in a separate browser session.
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "UPDATE schools SET status='suspended' WHERE id=?", (school_id,)
+            )
+            connection.commit()
+        finally:
+            connection.close()
         self.assertEqual(self.client.get("/school/settings").status_code, 403)
         self.assertEqual(self.client.get("/school/academic-calendar").status_code, 403)
+
+    def test_platform_admin_can_suspend_a_school(self):
+        self.login_as("v5_platform_admin", "V5-Platform-Admin-Password!")
+        school_id, _ = self.create_school_and_admin("v5-test-campus-a", "v5_admin_a")
+        self.client.post("/platform/schools", data={
+            "action": "status", "school_id": str(school_id), "status": "suspended",
+        })
+        connection = portal.get_db_connection()
+        try:
+            status = connection.execute(
+                "SELECT status FROM schools WHERE id=?", (school_id,)
+            ).fetchone()["status"]
+            self.assertEqual(status, "suspended")
+        finally:
+            connection.close()
 
     def test_revoked_school_admin_assignment_removes_tenant_access(self):
         self.login_as("v5_platform_admin", "V5-Platform-Admin-Password!")
