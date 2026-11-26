@@ -1818,8 +1818,13 @@ def report_cards():
             raw_grades = connection.execute(
                 """SELECT subject, score, max_score, assessment FROM grades
                    WHERE student_id = ? AND school_id = ? AND academic_year = ? AND term = ?
+                     AND (? <> 'teacher' OR lower(subject) IN (
+                         SELECT lower(subject) FROM class_timetable
+                         WHERE school_id = ? AND teacher_id = ? AND class_level = ?
+                     ))
                    ORDER BY subject COLLATE NOCASE, assessment COLLATE NOCASE""",
-                (student_id, require_school_context(), academic_year, term),
+                (student_id, report_school_id, academic_year, term, current_user.role,
+                 report_school_id, int(current_user.id), selected_student["class_level"]),
             ).fetchall()
             by_subject = {}
             for grade in raw_grades:
