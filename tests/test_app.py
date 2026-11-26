@@ -1410,9 +1410,9 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.login_as("principal_demo", "test-principal-password")
         response = self.client.get("/students/register")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"class=\\"surface-card registration-section", response.data)
-        self.assertIn(b"class=\\"col-12 col-lg-4 registration-aside", response.data)
-        self.assertIn(b"class=\\"section-icon\\"", response.data)
+        self.assertIn(b'class="surface-card registration-section', response.data)
+        self.assertIn(b'class="col-12 col-lg-4 registration-aside', response.data)
+        self.assertIn(b'class="section-icon"', response.data)
 
     def test_teacher_cannot_open_official_student_registration(self):
         self.login_as("teacher_demo", "test-teacher-password")
@@ -1473,6 +1473,56 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Student Notice Example", response.data)
         self.assertNotIn(b"Staff Notice Example", response.data)
+
+    def test_payment_is_blocked_when_existing_ledger_disagrees_with_fee_summary(self):
+        connection = portal.get_db_connection()
+        try:
+            student_id = connection.execute(
+                """INSERT INTO students
+                   (admission_number,full_name,class_level,school_id)
+                   VALUES ('PAYMENT-MISMATCH-001','Fictional Ledger Mismatch','Grade 7',1)"""
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id,academic_year,total_fee,amount_paid,updated_by,school_id)
+                   VALUES (?, '2026-2027', 100, 10,
+                           (SELECT id FROM users WHERE username='teacher_demo'), 1)""",
+                (student_id,),
+            )
+            connection.execute(
+                """INSERT INTO finance_payments
+                   (school_id,student_id,academic_year,amount,method,receipt_number,received_by)
+                   VALUES (1, ?, '2026-2027', 20, 'cash', 'RCPT-MISMATCH-TEST',
+                           (SELECT id FROM users WHERE username='finance_demo'))""",
+                (student_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("finance_demo", "test-finance-password")
+        response = self.client.post("/finance/payments", data={
+            "student_id": str(student_id), "academic_year": "2026-2027",
+            "amount": "10.00", "method": "cash",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b"Payment recorded. Receipt number:", response.data)
+        self.assertIn(b"payment ledger does not match", response.data)
+
+        connection = portal.get_db_connection()
+        try:
+            finance = connection.execute(
+                "SELECT amount_paid FROM student_finances WHERE student_id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()
+            count = connection.execute(
+                "SELECT COUNT(*) FROM finance_payments WHERE student_id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()[0]
+            self.assertEqual(finance["amount_paid"], 10)
+            self.assertEqual(count, 1)
+        finally:
+            connection.close()
 
     def test_finance_payment_creates_receipt_and_updates_balance(self):
         connection = portal.get_db_connection()
