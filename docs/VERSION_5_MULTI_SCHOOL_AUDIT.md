@@ -57,7 +57,7 @@ Version 5 adds tests for:
 
 ## Automated verification
 
-<badge>**Passed**</badge>
+**Automated verification: PASSED**
 
 - Full suite: **186 tests**
 - Python 3.11: passed
