@@ -7,7 +7,7 @@ CMHS Digital Campus is a Flask-based school-portal demonstration built with Flas
 - Public welcome page and consistent responsive branding.
 - Login with hashed-password verification and protected routes.
 - Role-aware dashboard for student, teacher, and administrator accounts.
-- Teacher/administrator student registration and records listing.
+- Authorized admissions/registrar/administrator student registration and role-scoped records listing.
 - Search across visible student records.
 - CSRF protection on forms and POST-only sign-out.
 - Startup creation/migration of core database tables, including users, students, grades, attendance, and audit events.
