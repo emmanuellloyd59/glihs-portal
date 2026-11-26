@@ -222,8 +222,8 @@ class ReportCardTests(unittest.TestCase):
             ).fetchone()["id"]
             connection.execute(
                 """INSERT INTO report_cards
-                   (student_id, academic_year, term, published, published_at)
-                   VALUES (?, '2026-2027', 'Term 1', 1, CURRENT_TIMESTAMP)
+                   (student_id, academic_year, term, published, published_at, school_id)
+                   VALUES (?, '2026-2027', 'Term 1', 1, CURRENT_TIMESTAMP, 1)
                    ON CONFLICT(student_id, academic_year, term)
                    DO UPDATE SET published=1, published_at=CURRENT_TIMESTAMP""",
                 (student_id,),
