@@ -34,6 +34,11 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         # Clear dependent records before their referenced parents. This fixture
         # shares the initialized test database with timetable, content, finance,
         # and homework tables, all of which may retain user/student references.
+        existing_tables = {
+            row["name"] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
         for table in (
             "parent_student_links",
             "homework_submissions",
@@ -51,7 +56,8 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             "students",
             "users",
         ):
-            connection.execute(f"DELETE FROM {table}")
+            if table in existing_tables:
+                connection.execute(f"DELETE FROM {table}")
         accounts = [
             ("teacher_route_test", "teacher"),
             ("student_route_test", "student"),
