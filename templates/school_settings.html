@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}School Settings | CMHS Digital Campus{% endblock %}
+{% block content %}
+<section class="surface-card p-4 p-md-5 mb-4">
+    <p class="eyebrow text-primary mb-1">SCHOOL ADMINISTRATION</p>
+    <h1 class="h2 fw-bold mb-2">School Settings</h1>
+    <p class="text-secondary mb-0">Manage your school's profile and configuration. Changes are restricted to the active school assigned to your administrator account.</p>
+</section>
+
+<section class="surface-card p-4 mb-4">
+    <h2 class="h4 fw-bold mb-3">School profile</h2>
+    <form method="POST" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="profile">
+        <div class="col-12 col-md-6"><label class="form-label" for="school-name">School name</label><input class="form-control" id="school-name" name="name" maxlength="120" value="{{ school.name }}" required></div>
+        <div class="col-12 col-md-6"><label class="form-label" for="legal-name">Legal name</label><input class="form-control" id="legal-name" name="legal_name" maxlength="160" value="{{ school.legal_name or '' }}"></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="country-code">Country code</label><input class="form-control" id="country-code" name="country_code" maxlength="2" pattern="[A-Z]{2}" value="{{ school.country_code }}" required></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="county">County / region</label><input class="form-control" id="county" name="county" maxlength="80" value="{{ school.county or '' }}"></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="district">District</label><input class="form-control" id="district" name="district" maxlength="80" value="{{ school.district or '' }}"></div>
+        <div class="col-12"><label class="form-label" for="address">Address</label><input class="form-control" id="address" name="address" maxlength="240" value="{{ school.address or '' }}"></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="contact-email">Contact email</label><input class="form-control" id="contact-email" name="contact_email" type="email" maxlength="160" value="{{ school.contact_email or '' }}"></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="contact-phone">Contact phone</label><input class="form-control" id="contact-phone" name="contact_phone" maxlength="40" value="{{ school.contact_phone or '' }}"></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="website">Website</label><input class="form-control" id="website" name="website" type="url" maxlength="200" value="{{ school.website or '' }}"></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="timezone">Time zone</label><input class="form-control" id="timezone" name="timezone" maxlength="80" value="{{ school.timezone }}" required></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="currency-code">Currency code</label><input class="form-control" id="currency-code" name="currency_code" maxlength="3" pattern="[A-Z]{3}" value="{{ school.currency_code }}" required></div>
+        <div class="col-12"><button class="btn btn-primary" type="submit">Save school profile</button></div>
+    </form>
+</section>
+
+<section class="surface-card p-4">
+    <h2 class="h4 fw-bold mb-3">School configuration</h2>
+    <form method="POST" class="row g-3 mb-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="setting">
+        <div class="col-12 col-md-5">
+            <label class="form-label" for="setting-key">Setting</label>
+            <select class="form-select" id="setting-key" name="setting_key" required>
+                <option value="academic_year_start_month">Academic-year start month (1–12)</option>
+                <option value="grading_scale">Grading scale</option>
+                <option value="attendance_policy">Attendance policy</option>
+                <option value="timezone">Time zone override</option>
+                <option value="currency_code">Currency code override</option>
+                <option value="school_email">School email</option>
+                <option value="school_phone">School phone</option>
+                <option value="school_address">School address</option>
+                <option value="school_website">School website</option>
+            </select>
+        </div>
+        <div class="col-12 col-md-5">
+            <label class="form-label" for="setting-value">Value</label>
+            <input class="form-control" id="setting-value" name="setting_value" maxlength="500" required>
+        </div>
+        <div class="col-12 col-md-2 d-flex align-items-end"><button class="btn btn-outline-primary w-100" type="submit">Save setting</button></div>
+    </form>
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead><tr><th>Setting</th><th>Value</th><th>Last updated</th></tr></thead>
+            <tbody>
+            {% for item in settings %}
+                <tr><td>{{ item.setting_key|replace('_',' ')|title }}</td><td>{{ item.setting_value }}</td><td>{{ item.updated_at }}</td></tr>
+            {% else %}
+                <tr><td colspan="3" class="text-secondary">No custom settings have been saved.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}
