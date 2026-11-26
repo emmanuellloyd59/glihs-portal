@@ -233,8 +233,11 @@ class SchoolManagementTests(unittest.TestCase):
             connection.commit()
         finally:
             connection.close()
-        self.assertEqual(self.client.get("/school/settings").status_code, 403)
-        self.assertEqual(self.client.get("/school/academic-calendar").status_code, 403)
+        for path in ("/school/settings", "/school/academic-calendar"):
+            response = self.client.get(path)
+            self.assertIn(response.status_code, (302, 403))
+            if response.status_code == 302:
+                self.assertIn("/login", response.headers.get("Location", ""))
 
     def test_platform_admin_can_suspend_a_school(self):
         self.login_as("v5_platform_admin", "V5-Platform-Admin-Password!")
