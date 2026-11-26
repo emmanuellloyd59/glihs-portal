@@ -903,6 +903,22 @@ def write_audit(actor_user_id, action, target_username=None, details=None):
         connection.close()
 
 
+def write_audit_in_transaction(connection, actor_user_id, action,
+                               target_username=None, details=None, school_id=None):
+    """Write an audit event in the caller's transaction with its school context."""
+    if school_id is None:
+        actor = connection.execute(
+            "SELECT school_id FROM users WHERE id = ?", (actor_user_id,)
+        ).fetchone()
+        school_id = actor["school_id"] if actor else None
+    connection.execute(
+        """INSERT INTO audit_log
+           (actor_user_id,action,target_username,details,school_id)
+           VALUES (?,?,?,?,?)""",
+        (actor_user_id, action, target_username, details, school_id),
+    )
+
+
 # --------------------------------------------------
 # 3. USER MODEL AND DATABASE LOOKUPS
 # --------------------------------------------------
@@ -1785,9 +1801,11 @@ def academics():
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (student_id, subject, assessment, score, max_score, current_user.id, academic_year, term, require_school_context()),
                     )
+                    write_audit_in_transaction(
+                        connection, current_user.id, "grade_recorded", str(student_id),
+                        f"{subject} / {assessment}: {score}/{max_score}", school_id,
+                    )
                     connection.commit()
-                    write_audit(current_user.id, "grade_recorded", str(student_id),
-                                f"{subject} / {assessment}: {score}/{max_score}")
                     flash("Grade saved successfully.", "success")
                 except sqlite3.IntegrityError:
                     flash("This student already has that assessment in the selected subject, academic year, and term.", "danger")
@@ -1812,9 +1830,11 @@ def academics():
                            VALUES (?, ?, ?, ?, ?, ?)""",
                         (student_id, attendance_date, status, note or None, current_user.id, require_school_context()),
                     )
+                    write_audit_in_transaction(
+                        connection, current_user.id, "attendance_recorded", str(student_id),
+                        f"{attendance_date}: {status}", school_id,
+                    )
                     connection.commit()
-                    write_audit(current_user.id, "attendance_recorded", str(student_id),
-                                f"{attendance_date}: {status}")
                     flash("Attendance saved successfully.", "success")
                 except sqlite3.IntegrityError:
                     flash("Attendance has already been recorded for this student on that date.", "danger")
@@ -1905,11 +1925,15 @@ def timetable():
                     "DELETE FROM class_timetable WHERE id = ? AND school_id = ?",
                     (int(schedule_id), school_id),
                 )
-                connection.commit()
                 if cursor.rowcount:
-                    write_audit(current_user.id, "timetable_entry_deleted", details=f"entry_id={int(schedule_id)}")
+                    write_audit_in_transaction(
+                        connection, current_user.id, "timetable_entry_deleted",
+                        details=f"entry_id={int(schedule_id)}", school_id=school_id,
+                    )
+                    connection.commit()
                     flash("Timetable entry removed.", "success")
                 else:
+                    connection.rollback()
                     flash("That timetable entry was not found in this school.", "danger")
                 return redirect(url_for("timetable"))
 
@@ -1970,11 +1994,12 @@ def timetable():
                 (school_id, class_level, subject, int(teacher_text), weekday,
                  start_time, end_time, room, int(current_user.id)),
             )
-            connection.commit()
-            write_audit(
-                current_user.id, "timetable_entry_created",
+            write_audit_in_transaction(
+                connection, current_user.id, "timetable_entry_created",
                 details=f"class={class_level}; day={weekday}; time={start_time}-{end_time}",
+                school_id=school_id,
             )
+            connection.commit()
             flash("Class timetable entry saved.", "success")
             return redirect(url_for("timetable"))
 
@@ -2119,9 +2144,12 @@ def report_cards():
                      updated_at = CURRENT_TIMESTAMP""",
                 (student_id, academic_year, term, published, current_user.id, published, require_school_context()),
             )
+            write_audit_in_transaction(
+                connection, current_user.id, "report_card_" + action,
+                selected_student["admission_number"], academic_year + " / " + term,
+                report_school_id,
+            )
             connection.commit()
-            write_audit(current_user.id, "report_card_" + action, selected_student["admission_number"],
-                        academic_year + " / " + term)
             flash("Report card publication updated.", "success")
             return redirect(url_for("report_cards", student_id=student_id, academic_year=academic_year, term=term))
 
@@ -2171,7 +2199,7 @@ def register_student():
         return redirect(url_for("dashboard"))
     # Enforce tenant context on GET as well as POST so platform admins cannot
     # open a school-scoped form that they cannot safely submit.
-    require_school_context()
+    school_id = require_school_context()
 
     if request.method == "POST":
         admission_number = request.form.get("admission_number", "").strip()
@@ -2241,16 +2269,18 @@ def register_student():
                 (admission_number, full_name, class_level, date_of_birth or None,
                  guardian_name or None, guardian_phone or None, enrollment_date or None,
                  previous_school or None, emergency_contact_name or None,
-                 emergency_contact_phone or None, record_notes or None, require_school_context()),
+                 emergency_contact_phone or None, record_notes or None, school_id),
             )
             student_id_number = f"CMHS-{datetime.now().year}-{cursor.lastrowid:05d}"
             connection.execute(
                 "UPDATE students SET student_id_number = ? WHERE id = ? AND school_id = ?",
-                (student_id_number, cursor.lastrowid, require_school_context()),
+                (student_id_number, cursor.lastrowid, school_id),
+            )
+            write_audit_in_transaction(
+                connection, current_user.id, "student_registered", admission_number,
+                "Fictional/demo record created", school_id,
             )
             connection.commit()
-            write_audit(current_user.id, "student_registered", admission_number,
-                        "Fictional/demo record created")
             flash("Student registered successfully.", "success")
             return redirect(url_for("list_students"))
         except sqlite3.IntegrityError:
@@ -2334,9 +2364,10 @@ def student_detail(student_id):
 def edit_student(student_id):
     if current_user.role not in {"principal", "registrar"}:
         abort(403)
+    school_id = require_school_context()
     connection = get_db_connection()
     try:
-        student = connection.execute("SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, require_school_context())).fetchone()
+        student = connection.execute("SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, school_id)).fetchone()
         if student is None:
             abort(404)
         if request.method == "POST":
@@ -2390,11 +2421,13 @@ def edit_student(student_id):
                  fields["guardian_name"] or None, fields["guardian_phone"] or None,
                  fields["enrollment_date"] or None, fields["previous_school"] or None,
                  fields["emergency_contact_name"] or None, fields["emergency_contact_phone"] or None,
-                 fields["record_notes"] or None, student_id, require_school_context()),
+                 fields["record_notes"] or None, student_id, school_id),
+            )
+            write_audit_in_transaction(
+                connection, current_user.id, "student_record_updated", student["admission_number"],
+                f"class changed from {old_class} to {fields['class_level']}", school_id,
             )
             connection.commit()
-            write_audit(current_user.id, "student_record_updated", student["admission_number"],
-                        f"class changed from {old_class} to {fields['class_level']}")
             flash("Student record updated successfully.", "success")
             return redirect(url_for("student_detail", student_id=student_id))
     finally:
@@ -2558,9 +2591,11 @@ def student_finances():
                      updated_at = CURRENT_TIMESTAMP""",
                 (student_id, academic_year, total_fee, amount_paid, notes or None, current_user.id, school_id),
             )
+            write_audit_in_transaction(
+                connection, current_user.id, "student_finance_updated", student["admission_number"],
+                f"{academic_year}; fees={total_fee:.2f}; paid={amount_paid:.2f}", school_id,
+            )
             connection.commit()
-            write_audit(current_user.id, "student_finance_updated", student["admission_number"],
-                        f"{academic_year}; fees={total_fee:.2f}; paid={amount_paid:.2f}")
             flash("Student financial record saved.", "success")
             return redirect(url_for("student_finances", academic_year=academic_year))
 
@@ -2756,9 +2791,11 @@ def learning_materials():
                 (school_id, title, description, class_level, stored_name, original,
                  int(current_user.id)),
             )
+            write_audit_in_transaction(
+                connection, current_user.id, "learning_material_uploaded", original,
+                "class=" + class_level, school_id,
+            )
             connection.commit()
-            write_audit(current_user.id, "learning_material_uploaded", original,
-                        "class=" + class_level)
             flash("Learning material uploaded.", "success")
             return redirect(url_for("learning_materials"))
         rows = connection.execute(
@@ -2824,12 +2861,15 @@ def archive_learning_material(material_id):
             "UPDATE learning_materials SET archived=1 WHERE id=? AND school_id=?",
             (material_id, school_id),
         )
-        connection.commit()
         if result.rowcount != 1:
             abort(404)
+        write_audit_in_transaction(
+            connection, current_user.id, "learning_material_archived",
+            str(material_id), school_id=school_id,
+        )
+        connection.commit()
     finally:
         connection.close()
-    write_audit(current_user.id, "learning_material_archived", str(material_id))
     flash("Learning material archived.", "success")
     return redirect(url_for("learning_materials"))
 
@@ -2871,8 +2911,10 @@ def announcements():
                     (school_id, title, body, audience, int(current_user.id), int(current_user.id)),
                 )
                 action = "announcement_published"
+            write_audit_in_transaction(
+                connection, current_user.id, action, title, school_id=school_id,
+            )
             connection.commit()
-            write_audit(current_user.id, action, title)
             flash("Announcement saved.", "success")
             return redirect(url_for("announcements"))
         if role in CONTENT_MANAGE_ROLES:
@@ -2908,12 +2950,15 @@ def archive_announcement(announcement_id):
                updated_at=CURRENT_TIMESTAMP WHERE id=? AND school_id=? AND status='published'""",
             (int(current_user.id), announcement_id, school_id),
         )
-        connection.commit()
         if result.rowcount != 1:
             abort(404)
+        write_audit_in_transaction(
+            connection, current_user.id, "announcement_archived",
+            str(announcement_id), school_id=school_id,
+        )
+        connection.commit()
     finally:
         connection.close()
-    write_audit(current_user.id, "announcement_archived", str(announcement_id))
     flash("Announcement archived.", "success")
     return redirect(url_for("announcements"))
 
