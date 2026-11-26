@@ -21,6 +21,7 @@ Database triggers now reject inconsistent school ownership for:
 - Grades, attendance and report cards.
 - Teacher assignments and timetable entries.
 - Finance payment rows, including the receiving user.
+- Attempts to reassign a linked student or parent/teacher account to another school while dependent records still exist.
 
 Application route checks remain required. These triggers are a second integrity boundary, not a substitute for authorization and tenant-scoped queries. Existing rows should still be audited before any production migration.
 
