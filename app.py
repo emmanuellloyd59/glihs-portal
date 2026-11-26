@@ -2823,9 +2823,21 @@ def finance_payments():
                    updated_at=CURRENT_TIMESTAMP WHERE student_id=? AND school_id=? AND academic_year=?""",
                 (amount, int(current_user.id), student_id, school_id, academic_year),
             )
+            # Keep the payment ledger, fee summary, and audit event in one
+            # SQLite transaction. A failed audit write must not leave an
+            # untraceable financial mutation behind.
+            connection.execute(
+                """INSERT INTO audit_log
+                   (actor_user_id, action, target_username, details, school_id)
+                   VALUES (?, 'finance_payment_recorded', ?, ?, ?)""",
+                (
+                    int(current_user.id),
+                    receipt,
+                    f"student={student['admission_number']}; amount={amount:.2f}; method={method}",
+                    school_id,
+                ),
+            )
             connection.commit()
-            write_audit(current_user.id, "finance_payment_recorded", receipt,
-                        f"student={student['admission_number']}; amount={amount:.2f}; method={method}")
             flash("Payment recorded. Receipt number: " + receipt, "success")
             return redirect(url_for("finance_payments", receipt=receipt))
         students = connection.execute(
