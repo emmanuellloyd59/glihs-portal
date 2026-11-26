@@ -133,15 +133,26 @@ def register_homework_routes(ns):
                     except (ValueError,TypeError):
                         flash("Score must be between 0 and 100.","danger")
                         return redirect(url_for("assignments"))
-                    owner_clause = " AND created_by=?" if role == "teacher" else ""
-                    params = [score,feedback,int(current_user.id),int(sid),school_id,school_id]
+                    assignment = connection.execute("""SELECT id, class_level, subject, created_by
+                        FROM homework_assignments
+                        WHERE id=(SELECT assignment_id FROM homework_submissions
+                                  WHERE id=? AND school_id=?)
+                          AND school_id=? AND status='published'""",
+                        (int(sid), school_id, school_id)).fetchone()
+                    if assignment is None:
+                        abort(404)
                     if role == "teacher":
-                        params.append(int(current_user.id))
+                        if int(assignment["created_by"]) != int(current_user.id):
+                            abort(403)
+                        if not teacher_has_class_subject(
+                            connection, current_user.id, school_id,
+                            assignment["class_level"], assignment["subject"]
+                        ):
+                            abort(403)
                     result = connection.execute("""UPDATE homework_submissions
                         SET score=?,feedback=?,graded_by=?,graded_at=CURRENT_TIMESTAMP
-                        WHERE id=? AND school_id=? AND assignment_id IN
-                        (SELECT id FROM homework_assignments WHERE school_id=? AND status='published'""" +
-                        owner_clause + ")",params)
+                        WHERE id=? AND school_id=? AND assignment_id=?""",
+                        (score, feedback, int(current_user.id), int(sid), school_id, assignment["id"]))
                     connection.commit()
                     if result.rowcount != 1:
                         abort(404)
@@ -167,7 +178,12 @@ def register_homework_routes(ns):
                         ORDER BY a.due_date,a.created_at DESC""",
                         (student["id"],school_id,student["class_level"])).fetchall()
             else:
-                own = " AND a.created_by=?" if role == "teacher" else ""
+                own = """ AND EXISTS (
+                    SELECT 1 FROM teacher_class_assignments tca
+                    WHERE tca.school_id=a.school_id AND tca.teacher_id=?
+                      AND tca.class_level=a.class_level
+                      AND lower(tca.subject)=lower(a.subject) AND tca.active=1
+                )""" if role == "teacher" else ""
                 params = [school_id] + ([int(current_user.id)] if role == "teacher" else [])
                 assignment_rows = connection.execute("""SELECT a.*,u.full_name AS teacher_name,
                     u.username AS teacher_username FROM homework_assignments a
