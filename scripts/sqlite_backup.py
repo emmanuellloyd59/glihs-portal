@@ -23,6 +23,11 @@ def _database_integrity(path: Path) -> None:
         if not result or result[0] != "ok":
             detail = result[0] if result else "no integrity result"
             raise ValueError(f"SQLite integrity check failed: {detail}")
+        foreign_key_issues = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if foreign_key_issues:
+            raise ValueError(
+                f"SQLite foreign-key check failed: {len(foreign_key_issues)} issue(s)"
+            )
         tables = connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
         ).fetchone()[0]
@@ -60,6 +65,13 @@ def copy_database(source: str | Path, destination: str | Path, *, overwrite: boo
             if not result or result[0] != "ok":
                 detail = result[0] if result else "no integrity result"
                 raise ValueError(f"Copied database failed integrity check: {detail}")
+            foreign_key_issues = target_connection.execute(
+                "PRAGMA foreign_key_check"
+            ).fetchall()
+            if foreign_key_issues:
+                raise ValueError(
+                    f"Copied database failed foreign-key check: {len(foreign_key_issues)} issue(s)"
+                )
             tables = target_connection.execute(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             ).fetchone()[0]
