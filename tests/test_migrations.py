@@ -214,6 +214,46 @@ class DatabaseMigrationTests(unittest.TestCase):
                             (student, updater),
                         )
                     connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            """INSERT INTO student_finances
+                               (student_id,academic_year,total_fee,amount_paid,updated_by,school_id)
+                               VALUES (?,'2026-2028',8000,0,?,1)""",
+                            (student, parent_two),
+                        )
+                    connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            """INSERT INTO grades
+                               (student_id,subject,assessment,score,max_score,recorded_by,academic_year,term,school_id)
+                               VALUES (?,'Mathematics','Quiz',8,10,?,'2026-2027','Term 1',1)""",
+                            (student, parent_two),
+                        )
+                    connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            """INSERT INTO attendance
+                               (student_id,attendance_date,status,recorded_by,school_id)
+                               VALUES (?,'2026-10-22','present',?,1)""",
+                            (student, parent_two),
+                        )
+                    connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            """INSERT INTO report_cards
+                               (student_id,academic_year,term,published,published_by,school_id)
+                               VALUES (?,'2026-2027','Term 1',1,?,1)""",
+                            (student, parent_two),
+                        )
+                    connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            """INSERT INTO parent_student_links
+                               (parent_user_id,student_id,school_id,created_by)
+                               VALUES (?,?,1,?)""",
+                            (parent_one, student, parent_two),
+                        )
+                    connection.rollback()
 
                     with self.assertRaises(sqlite3.IntegrityError):
                         connection.execute(
