@@ -2217,6 +2217,16 @@ def admin_users():
                         (target_id_int, target["school_id"]),
                     )
                     if target["role"] == "school_admin":
+                        school_status = connection.execute(
+                            "SELECT status FROM schools WHERE id=?", (target["school_id"],)
+                        ).fetchone()
+                        active_admin_count = connection.execute(
+                            """SELECT COUNT(*) FROM school_admin_assignments
+                               WHERE school_id=? AND active=1""", (target["school_id"],)
+                        ).fetchone()[0]
+                        if school_status and school_status["status"] == "active" and active_admin_count <= 1:
+                            flash("Cannot deactivate the last administrator of an active school. Assign another administrator first.", "danger")
+                            return redirect(url_for("admin_users"))
                         connection.execute(
                             """UPDATE school_admin_assignments
                                SET active=0,revoked_by=?,revoked_at=CURRENT_TIMESTAMP
@@ -2242,6 +2252,16 @@ def admin_users():
                     return redirect(url_for("admin_users"))
                 new_status = "suspended" if action == "suspend" else "active"
                 if action == "suspend" and target["role"] == "school_admin":
+                    school_status = connection.execute(
+                        "SELECT status FROM schools WHERE id=?", (target["school_id"],)
+                    ).fetchone()
+                    active_admin_count = connection.execute(
+                        """SELECT COUNT(*) FROM school_admin_assignments
+                           WHERE school_id=? AND active=1""", (target["school_id"],)
+                    ).fetchone()[0]
+                    if school_status and school_status["status"] == "active" and active_admin_count <= 1:
+                        flash("Cannot suspend the last administrator of an active school. Assign another administrator first.", "danger")
+                        return redirect(url_for("admin_users"))
                     connection.execute(
                         """UPDATE school_admin_assignments
                            SET active=0,revoked_by=?,revoked_at=CURRENT_TIMESTAMP
