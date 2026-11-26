@@ -189,6 +189,48 @@ class SchoolManagementTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_attendance_csv_export_contains_only_the_selected_school(self):
+        self.login_as("v5_platform_admin", "V5-Platform-Admin-Password!")
+        school_a, admin_a = self.create_school_and_admin("v5-test-campus-a", "v5_admin_a")
+        school_b, admin_b = self.create_school_and_admin("v5-test-campus-b", "v5_admin_b")
+        connection = portal.get_db_connection()
+        try:
+            student_a = connection.execute(
+                """INSERT INTO students (admission_number,full_name,class_level,school_id)
+                   VALUES ('V5-EXPORT-A-001','School A Export Student','Grade 7',?)""",
+                (school_a,),
+            ).lastrowid
+            student_b = connection.execute(
+                """INSERT INTO students (admission_number,full_name,class_level,school_id)
+                   VALUES ('V5-EXPORT-B-001','School B Confidential Student','Grade 7',?)""",
+                (school_b,),
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO attendance
+                   (student_id,attendance_date,status,note,recorded_by,school_id)
+                   VALUES (?,'2026-10-22','present','Fictional export test',?,?)""",
+                (student_a, admin_a, school_a),
+            )
+            connection.execute(
+                """INSERT INTO attendance
+                   (student_id,attendance_date,status,note,recorded_by,school_id)
+                   VALUES (?,'2026-10-22','present','Fictional export test',?,?)""",
+                (student_b, admin_b, school_b),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("v5_admin_a", "V5-Temporary-Password!")
+        response = self.client.get(
+            "/attendance-report?start_date=2026-10-20&end_date=2026-10-25&export=csv"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response.content_type)
+        self.assertIn(b"School A Export Student", response.data)
+        self.assertNotIn(b"School B Confidential Student", response.data)
+        self.assertNotIn(b"V5-EXPORT-B-001", response.data)
+
     def test_school_calendar_rejects_overlaps_and_multiple_active_terms(self):
         self.login_as("v5_platform_admin", "V5-Platform-Admin-Password!")
         school_id, _ = self.create_school_and_admin("v5-test-campus-a", "v5_admin_a")
