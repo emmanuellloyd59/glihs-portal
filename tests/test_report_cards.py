@@ -87,6 +87,36 @@ class ReportCardTests(unittest.TestCase):
         self.assertIn(b"Mathematics", response.data)
         self.assertIn(b"80.0%", response.data)
 
+
+    def test_teacher_report_preview_hides_unassigned_subject_grades(self):
+        client = self.login_as("test_teacher")
+        connection = get_db_connection()
+        try:
+            student_id = connection.execute(
+                "SELECT id FROM students WHERE admission_number='DEMO-001'"
+            ).fetchone()["id"]
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username='test_teacher'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT OR IGNORE INTO grades
+                   (student_id, subject, assessment, score, max_score, recorded_by,
+                    academic_year, term, school_id)
+                   VALUES (?, 'Unassigned Biology', 'Private Subject Check', 9, 10, ?,
+                           '2026-2027', 'Term 1', 1)""",
+                (student_id, teacher_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        response = client.get(
+            f"/report-cards?student_id={student_id}&academic_year=2026-2027&term=Term%201"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Mathematics", response.data)
+        self.assertNotIn(b"Unassigned Biology", response.data)
+
     def test_teacher_cannot_publish_report_card(self):
         client = self.login_as("test_teacher")
         connection = get_db_connection()
