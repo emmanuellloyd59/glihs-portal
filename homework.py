@@ -63,8 +63,10 @@ def register_homework_routes(ns):
         connection.execute("""
             CREATE TRIGGER IF NOT EXISTS trg_homework_assignment_school_update
             BEFORE UPDATE OF school_id,created_by ON homework_assignments
-            WHEN (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
-             AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1
+            WHEN ((SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
+                  AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)
+              OR EXISTS (SELECT 1 FROM homework_submissions
+                         WHERE assignment_id=OLD.id AND school_id IS NOT NEW.school_id)
             BEGIN
                 SELECT RAISE(ABORT, 'school ownership mismatch');
             END
@@ -95,6 +97,15 @@ def register_homework_routes(ns):
             END
         """)
         connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_student_school_homework_dependents_update
+            BEFORE UPDATE OF school_id ON students
+            WHEN EXISTS (SELECT 1 FROM homework_submissions
+                         WHERE student_id=OLD.id AND school_id IS NOT NEW.school_id)
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
             CREATE TRIGGER IF NOT EXISTS trg_user_school_homework_dependents_update
             BEFORE UPDATE OF school_id ON users
             WHEN EXISTS (SELECT 1 FROM homework_assignments
@@ -113,7 +124,6 @@ def register_homework_routes(ns):
             JOIN students st ON st.id=s.student_id
             LEFT JOIN users grader ON grader.id=s.graded_by
             WHERE a.school_id IS NOT s.school_id OR st.school_id IS NOT s.school_id
-               OR a.class_level IS NOT st.class_level
                OR (s.graded_by IS NOT NULL AND grader.school_id IS NOT s.school_id
                    AND COALESCE(grader.is_super_admin,0) <> 1)""").fetchone()[0]
         if mismatch_count:
