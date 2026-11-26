@@ -491,6 +491,95 @@ def initialize_database():
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        school_profile_columns = {
+            "registration_number": "TEXT",
+            "legal_name": "TEXT",
+            "country_code": "TEXT NOT NULL DEFAULT 'LR'",
+            "county": "TEXT",
+            "district": "TEXT",
+            "address": "TEXT",
+            "contact_email": "TEXT",
+            "contact_phone": "TEXT",
+            "website": "TEXT",
+            "timezone": "TEXT NOT NULL DEFAULT 'Africa/Monrovia'",
+            "currency_code": "TEXT NOT NULL DEFAULT 'LRD'",
+            "updated_at": "TEXT",
+        }
+        existing_school_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(schools)").fetchall()
+        }
+        for column_name, column_type in school_profile_columns.items():
+            if column_name not in existing_school_columns:
+                connection.execute(
+                    f"ALTER TABLE schools ADD COLUMN {column_name} {column_type}"
+                )
+        connection.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS idx_schools_registration_number
+               ON schools(registration_number)
+               WHERE registration_number IS NOT NULL AND TRIM(registration_number) <> ''"""
+        )
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS school_settings (
+                school_id INTEGER NOT NULL REFERENCES schools(id),
+                setting_key TEXT NOT NULL CHECK (setting_key IN (
+                    'timezone','currency_code','academic_year_start_month',
+                    'grading_scale','attendance_policy','school_email',
+                    'school_phone','school_address','school_website'
+                )),
+                setting_value TEXT NOT NULL,
+                updated_by INTEGER NOT NULL REFERENCES users(id),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (school_id, setting_key)
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS school_academic_calendars (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                school_id INTEGER NOT NULL REFERENCES schools(id),
+                academic_year TEXT NOT NULL,
+                term TEXT NOT NULL CHECK (term IN ('Term 1','Term 2','Term 3')),
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'planned'
+                    CHECK (status IN ('planned','active','closed')),
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                updated_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (school_id, academic_year, term),
+                CHECK (start_date <= end_date)
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS school_admin_assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                school_id INTEGER NOT NULL REFERENCES schools(id),
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                assigned_by INTEGER REFERENCES users(id),
+                active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+                assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                revoked_by INTEGER REFERENCES users(id),
+                revoked_at TEXT,
+                CHECK ((active=1 AND revoked_at IS NULL) OR active=0)
+            )
+        """)
+        connection.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_school_admin_active_assignment
+            ON school_admin_assignments(school_id,user_id) WHERE active=1
+        """)
+        connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_school_calendar_school_year
+            ON school_academic_calendars(school_id,academic_year,start_date)
+        """)
+        # Preserve existing approved school-admin accounts by recording their
+        # current school assignment without changing user IDs or school ownership.
+        connection.execute("""
+            INSERT OR IGNORE INTO school_admin_assignments
+                (school_id,user_id,assigned_by,active,assigned_at)
+            SELECT school_id,id,approved_by,1,COALESCE(approved_at,created_at,CURRENT_TIMESTAMP)
+            FROM users
+            WHERE role='school_admin' AND status='active' AND school_id IS NOT NULL
+        """)
         connection.execute(
             "INSERT INTO schools (id, name, slug) VALUES (1, 'CMHS', 'legacy-demo-campus') "
             "ON CONFLICT(id) DO NOTHING"
