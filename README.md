@@ -33,7 +33,7 @@ These modules remain demonstration software and have not been approved for real 
 
 Automated tests passing is useful evidence, but does not by itself prove browser usability, production security, reliable hosting persistence, backup recovery, or readiness for real school operations. Report-card printing still needs a real-browser/PDF visual check, and deployment requires separate staging, persistence, backup/restore, and security reviews.
 
-## Future roadmap and release gates
+## Version 0.3 remaining work and release gates
 
 The prices below are **business-planning targets only**, not current product prices, guaranteed market rates, or proof that features are implemented. Offer a tier only after every capability promised in that tier has passed its acceptance tests.
 
@@ -48,13 +48,12 @@ Setup, data migration, staff training, dedicated hosting, messaging charges, and
 
 ### Implementation order
 
-1. **Multi-school isolation and data architecture:** decide between a properly isolated database per school and a tenant-aware shared database. Enforce school scope on every request and query; test that users and administrators from School A cannot read or modify School B records, reports, files, finance, or accounts.
-2. **Staff management:** staff profiles, role assignment, activation/suspension, safe account provisioning, least-privilege access, and audit history.
-3. **Timetable management:** create/update timetables and validate teacher, class, room, and period conflicts.
-4. **Fees and payment tracking:** fee schedules, invoices, partial/full payments, balance calculations, receipts, correction/refund controls, finance permissions, and auditable changes. Do not claim accounting-grade reliability until reconciliations and recovery tests pass.
-5. **Parent portal:** verified guardian-to-student links, least-privilege access, and tests proving parents cannot access unrelated students or private staff/finance information.
-6. **Notifications:** configurable channels, delivery/failure tracking, retry and duplicate handling, consent/preferences where applicable, and no sensitive student information exposed in insecure messages.
-7. **Release readiness:** responsive browser tests, accessibility checks, security review, durable database configuration, tested backup/restore, operational monitoring, support procedures, and rollback plan.
+1. **Authorization and assignment scoping:** enforce role and school boundaries on every route, POST action, file download, and export; establish authoritative teacher-to-class/subject assignments and apply them across rosters, academics, attendance, homework, resources, report previews, and timetable.
+2. **Complete school operations audit:** verify school-scoped staff management, student registration, finance, parent links, announcements, and learning-resource workflows; preserve existing records and account relationships.
+3. **Leadership analytics:** implement or verify a school-scoped aggregate performance dashboard for enrollment, attendance, academic performance, and operational activity without exposing unnecessary personal data.
+4. **Finance assurance:** validate fee/payment records, receipts, balances, correction/refund controls, finance permissions, and auditability. Do not claim accounting-grade reliability until reconciliation and recovery tests pass.
+5. **Notifications:** define safe channels, delivery/failure tracking, retries, duplicate handling, and privacy controls before advertising this module.
+6. **Release readiness:** responsive browser tests, accessibility checks, security review, durable database configuration, tested backup/restore, operational monitoring, support procedures, and rollback plan.
 
 ### Acceptance gate for every module
 
