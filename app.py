@@ -305,6 +305,10 @@ def initialize_database():
         # The legacy users-table migration replaces the table. Temporarily disable
         # FK enforcement for that schema operation, then re-enable it for normal use.
         connection.execute("PRAGMA foreign_keys = OFF")
+        # Make every schema/data change in this upgrade one SQLite transaction.
+        # SQLite DDL is transactional when enclosed in an explicit transaction;
+        # this prevents a failed table rebuild from leaving half-migrated tables.
+        connection.execute("BEGIN IMMEDIATE")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -628,9 +632,68 @@ def initialize_database():
                         NEW.subject, NEW.created_by);
             END
         """)
+        # Enforce tenant ownership at the database boundary as well as in routes.
+        # These triggers prevent inconsistent school IDs on linked records even if
+        # a future endpoint accidentally omits an application-level tenant filter.
+        tenant_guards = (
+            ("trg_student_account_school_insert", "BEFORE INSERT ON students",
+             "NEW.account_user_id IS NOT NULL AND "
+             "(SELECT school_id FROM users WHERE id=NEW.account_user_id) IS NOT NEW.school_id"),
+            ("trg_student_account_school_update", "BEFORE UPDATE OF account_user_id, school_id ON students",
+             "NEW.account_user_id IS NOT NULL AND "
+             "(SELECT school_id FROM users WHERE id=NEW.account_user_id) IS NOT NEW.school_id"),
+            ("trg_parent_link_school_insert", "BEFORE INSERT ON parent_student_links",
+             "(SELECT school_id FROM users WHERE id=NEW.parent_user_id) IS NOT NEW.school_id "
+             "OR (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+            ("trg_parent_link_school_update", "BEFORE UPDATE OF parent_user_id, student_id, school_id ON parent_student_links",
+             "(SELECT school_id FROM users WHERE id=NEW.parent_user_id) IS NOT NEW.school_id "
+             "OR (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+            ("trg_student_finance_school_insert", "BEFORE INSERT ON student_finances",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+            ("trg_student_finance_school_update", "BEFORE UPDATE OF student_id, school_id ON student_finances",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+            ("trg_grade_school_insert", "BEFORE INSERT ON grades",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+            ("trg_grade_school_update", "BEFORE UPDATE OF student_id, school_id ON grades",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+            ("trg_attendance_school_insert", "BEFORE INSERT ON attendance",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+            ("trg_attendance_school_update", "BEFORE UPDATE OF student_id, school_id ON attendance",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+            ("trg_report_card_school_insert", "BEFORE INSERT ON report_cards",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+            ("trg_report_card_school_update", "BEFORE UPDATE OF student_id, school_id ON report_cards",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+            ("trg_teacher_assignment_school_insert", "BEFORE INSERT ON teacher_class_assignments",
+             "(SELECT school_id FROM users WHERE id=NEW.teacher_id) IS NOT NEW.school_id"),
+            ("trg_teacher_assignment_school_update", "BEFORE UPDATE OF teacher_id, school_id ON teacher_class_assignments",
+             "(SELECT school_id FROM users WHERE id=NEW.teacher_id) IS NOT NEW.school_id"),
+            ("trg_timetable_teacher_school_insert", "BEFORE INSERT ON class_timetable",
+             "(SELECT school_id FROM users WHERE id=NEW.teacher_id) IS NOT NEW.school_id"),
+            ("trg_timetable_teacher_school_update", "BEFORE UPDATE OF teacher_id, school_id ON class_timetable",
+             "(SELECT school_id FROM users WHERE id=NEW.teacher_id) IS NOT NEW.school_id"),
+        )
+        for trigger_name, trigger_event, invalid_condition in tenant_guards:
+            connection.execute(
+                f"""CREATE TRIGGER IF NOT EXISTS {trigger_name}
+                    {trigger_event}
+                    WHEN {invalid_condition}
+                    BEGIN
+                        SELECT RAISE(ABORT, 'school ownership mismatch');
+                    END"""
+            )
+
         connection.commit()
         connection.execute("PRAGMA foreign_keys = ON")
+    except Exception:
+        connection.rollback()
+        raise
     finally:
+        # Always restore connection-level FK enforcement, including after a
+        # failed migration. A failed transaction must never be left half-open.
+        if connection.in_transaction:
+            connection.rollback()
+        connection.execute("PRAGMA foreign_keys = ON")
         connection.close()
 
 
