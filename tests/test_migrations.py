@@ -209,6 +209,18 @@ class DatabaseMigrationTests(unittest.TestCase):
                             (parent_two, student),
                         )
                     connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            "UPDATE users SET school_id=2 WHERE id=?",
+                            (parent_one,),
+                        )
+                    connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            "UPDATE students SET school_id=2 WHERE id=?",
+                            (student,),
+                        )
+                    connection.rollback()
                 finally:
                     connection.close()
 
