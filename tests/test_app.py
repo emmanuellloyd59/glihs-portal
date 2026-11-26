@@ -655,6 +655,28 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         connection.close()
         self.assertEqual(count, 0)
 
+    def test_teacher_cannot_download_learning_material_from_unassigned_class(self):
+        self._assign_teacher("Grade 7", "Mathematics")
+        stored_name = "teacher_scope_hidden_test.pdf"
+        target = portal.RESOURCE_DIR / stored_name
+        target.write_bytes(b"%PDF-1.4 fictional test content")
+        connection = portal.get_db_connection()
+        connection.execute(
+            """INSERT INTO learning_materials
+               (school_id,title,description,class_level,stored_name,original_name,uploaded_by)
+               VALUES (1,'Private Grade Eight Material','', 'Grade 8', ?, 'lesson.pdf', 1)""",
+            (stored_name,),
+        )
+        material_id = connection.execute(
+            "SELECT id FROM learning_materials WHERE stored_name=?", (stored_name,)
+        ).fetchone()["id"]
+        connection.commit()
+        connection.close()
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get(f"/learning-materials/{material_id}/download")
+        self.assertEqual(response.status_code, 404)
+        target.unlink(missing_ok=True)
+
     def test_teacher_cannot_publish_school_announcement(self):
         self.login_as("teacher_demo", "test-teacher-password")
         response = self.client.post("/announcements", data={
