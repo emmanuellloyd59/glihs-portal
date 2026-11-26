@@ -1,71 +1,150 @@
-# CMHS Digital Campus — Version 4 Route Authorization Audit
+# CMHS Digital Campus — Prompt 02 Authorization and Teacher Least-Privilege Audit
 
 **Audit date:** 2026-11-26  
-**Audited branch:** `version-4/reconciled-main-2026-11-26`  
+**Development branch:** `version-4/reconciled-main-2026-11-26`  
 **Pull request:** #49 (draft)  
-**Scope:** Flask route inventory, authentication boundaries, tenant context, role gates, and existing automated-test evidence.
+**Scope:** All Flask routes registered by the main application and its route-registration modules, role boundaries, direct HTTP actions, school scoping, file access, exports, and current automated-test evidence.
 
 ## Executive result
 
-This is a source-level route inventory, not a security certification. The current `app.py` exposes 25 application routes. All non-public operational routes are decorated with `login_required`; public routes are limited to the home page, health check, feature overview, login, and staff-access request. School-scoped routes generally call `require_school_context()` and apply a school ID to database queries.
+The repository registers **30 HTTP routes across five Python modules**: `app.py`, `homework.py`, `staff_attendance.py`, `school_performance.py`, and `demo_staff.py`. This count corrects the earlier preliminary inventory, which counted only the 25 decorators located directly in `app.py` and omitted five routes registered by helper modules.
 
-The audit confirms useful direct-route tests for teacher least privilege, finance restrictions, report publication, student-record editing, parent/child linking, teacher assignment scoping, and cross-school object access. It does **not** yet prove every role/action/object combination. Version 4 remains blocked from production pending the release gates in `VERSION_4_QA_AND_RELEASE_READINESS.md`.
+The application has server-side role checks on the protected operational routes, with more granular action checks inside several shared GET/POST endpoints. Tenant-scoped routes use the active school context and school-qualified queries; several data relationships also have database-level ownership guards. The current test suite contains substantial direct-route, role, cross-school and data-minimization tests. Two additional tests were added in this pass for librarian/counselor least privilege; CI must confirm them before this audit can be marked complete.
 
-## Route inventory
+This is an engineering source review, not a penetration test, legal compliance assessment, or production certification.
 
-| Route | Authentication | Source-level authorization / scope | Existing test evidence and remaining checks |
-|---|---|---|---|
-| `GET /` | Public | Public landing page only | Home-page branding test |
-| `GET /healthz` | Public | Minimal database readiness response; no credential/path detail | Health response and non-disclosure test |
-| `GET /features` | Public | Public feature overview | Feature Center accuracy test |
-| `GET,POST /login` | Public | Password verification, active-account checks, throttling | Invalid password, inactive account, rate-limit, session and audit tests |
-| `GET /dashboard` | Login required | Role-aware dashboard; platform super-admin requires a valid selected active school for tenant context | Login requirement, teacher dashboard, finance metrics and role dashboard tests; complete role-by-role rendered-link review remains |
-| `GET,POST /admin/select-school` | Login required | Platform super-admin invariants required; only active schools can be selected | Super-admin flag, school-selection and suspended-school tests |
-| `POST /logout` | Login required | POST-only sign-out and audit event | GET logout rejection and session tests |
-| `GET,POST /admin/request-access` | Public | Creates pending staff request; excludes student/parent self-assignment and validates selected active school | Pending request, role allowlist and school validation tests; abuse/rate-limit review remains |
-| `GET,POST /admin/users` | Login required | Platform super-admin only | Non-super-admin denial, student/parent link lifecycle and account-management tests; full action-by-action platform-admin audit remains |
-| `GET,POST /academics` | Login required | Academic role allowlist; school context; teacher class/subject assignment scoping | Teacher assignment, revocation, unassigned access, invalid grade/attendance, cross-school and direct-post denial tests |
-| `GET,POST /timetable` | Login required | Timetable view allowlist; separate manage permission; school context | Teacher view-only, school-admin management, overlap/time validation tests; all role/action combinations remain to be enumerated |
-| `GET /my-report-cards` | Login required | Student role only; own linked student record and published reports | Student own-report and parent/student isolation tests |
-| `GET,POST /report-cards` | Login required | Report-card view allowlist; school context; teacher assignment scoping; publication permission is separate | Teacher preview/no-publish, registrar view/no-publish, principal publish/unpublish and term validation tests |
-| `GET,POST /students/register` | Login required | Explicit registration role allowlist; school context | Teacher denial, school leadership/academic-admin access, validation and atomic audit tests |
-| `GET /students/<student_id>` | Login required | Student-record role allowlist; school-scoped lookup; private profile fields limited to principal/registrar | Teacher private-field minimization and cross-school detail denial tests |
-| `GET,POST /students/<student_id>/edit` | Login required | Principal/registrar only; school-scoped lookup | Teacher edit denial, registrar update and cross-school edit denial tests |
-| `GET /students` | Login required | Student-record role allowlist; school-scoped query; teacher assignment filter and private-field minimization | Teacher list scoping, private-field minimization and cross-school tests |
-| `GET,POST /student-finances` | Login required | Super-admin, school-admin, principal, registrar or finance-admin; school context; serialized write transaction | Finance role restriction, ledger integrity, overpayment, atomic audit rollback and teacher direct-route denial tests |
-| `GET,POST /learning-materials` | Login required | School context; publishing role required for upload; teacher uploads constrained by assignments | Teacher unassigned upload denial and school/class scoping tests; test all manager/student/parent audience combinations |
-| `GET /learning-materials/<material_id>/download` | Login required | School-scoped lookup; audience, archive and teacher-assignment checks | Teacher unassigned download denial and cross-school database guards; test archived and each audience/role combination |
-| `POST /learning-materials/<material_id>/archive` | Login required | Materials-manage role only; school-scoped mutation and audit | Database guard and manager policy exist; add direct-route denial tests for every non-manager role and cross-school IDs |
-| `GET,POST /announcements` | Login required | School context; content-publish role required for create/edit; audience-scoped visibility | Teacher publish denial, student audience visibility and cross-school guards; test each audience and edit action by role |
-| `POST /announcements/<announcement_id>/archive` | Login required | Content-manage role only; school-scoped mutation and audit | Teacher archive denial and database guards; expand direct-route tests to other non-manager roles and cross-school IDs |
-| `GET,POST /finance/payments` | Login required | Finance role allowlist; school context; serialized ledger/balance update | Finance access, receipt/balance, overpayment, cross-school payment denial and atomic audit rollback tests |
-| `GET /parent/children` | Login required | Parent role only; returns explicitly linked children in the same school | Parent sees only linked children and private-data minimization tests |
+## Authoritative role catalogue
 
-## Verified authorization principles
+The application currently recognizes these roles:
 
-1. **Authentication is not authorization.** Navigation visibility is not treated as a security boundary; server-side role checks protect operational routes and mutations.
-2. **Teacher least privilege.** Teachers are limited to assigned classes/subjects for academic activity. They cannot create official student records, edit identity records, manage staff, access finance, or publish/archive school-wide announcements.
-3. **School isolation.** Student, finance, academic, report-card, parent-link, timetable, learning-material and announcement records are scoped to the selected school. Database guards provide a second integrity boundary for supported relationships.
-4. **Platform administration is explicit.** A platform super-admin must satisfy the role, platform flag and unassigned-school invariants, then explicitly select an active school before tenant workflows.
-5. **Sensitive field minimization.** Teacher-facing student queries omit guardian/contact and birth-date fields at the SQL result level; private profile fields are restricted to authorized roles.
-6. **State-changing actions are separately permissioned.** Viewing a timetable/report/material is not equivalent to managing, publishing, archiving or recording payments.
+- Platform Super Administrator
+- School Administrator
+- Principal
+- Vice Principal
+- Registrar / Student Records Officer
+- Admissions Officer
+- Academic Administrator
+- Attendance Officer
+- Teacher
+- Finance Administrator
+- Librarian / Learning Resources Officer
+- School Counselor
+- Parent / Guardian
+- Student
 
-## Required next tests (Prompt 05 follow-through)
+The public staff-request workflow intentionally excludes parent and student roles. Student and parent access is created through a separately verified account-linking workflow.
 
-- [ ] Build a route/action/role matrix from Flask's registered URL map and compare it with this inventory.
-- [ ] Add direct GET and POST denial tests for every restricted mutation route, including timetable management, resource upload/archive, announcement edit/archive, account management and finance.
-- [ ] Add cross-school direct-object tests for student detail/edit, report publication, timetable IDs, resource download/archive, announcement edit/archive and payment targets.
-- [ ] Verify parent and student object ownership for every endpoint, not only the dashboard and linked-child list.
-- [ ] Verify every file download/export is authorized by role, school, audience, assignment and archive status.
-- [ ] Verify missing, suspended or stale school context fails closed for every tenant route.
-- [ ] Verify all unsafe methods require CSRF and all state changes write audit events atomically.
-- [ ] Run the full Python 3.11 and 3.14 suites after additions; use only fictional test records.
-- [ ] Complete authenticated browser testing on a separate durable staging environment before production approval.
+## Route inventory and authorization
 
-## Explicit exclusions
+| Route | Authentication | Authorization and data boundary |
+|---|---|---|
+| `GET /` | Public | Public landing page; no school records |
+| `GET /healthz` | Public | Minimal readiness response; does not expose database paths or credentials |
+| `GET /features` | Public | Public feature overview |
+| `GET,POST /login` | Public | Password verification, active-account and active-school checks, login throttling and failure auditing |
+| `GET /dashboard` | Login required | Role-specific dashboard; platform super-admin must explicitly select an active school before tenant modules |
+| `GET,POST /admin/select-school` | Login required | Platform super-admin invariants required; only active schools can be selected |
+| `POST /logout` | Login required | POST-only logout and audit event |
+| `GET,POST /admin/request-access` | Public | Pending staff requests only; role allowlist excludes student/parent; requests do not grant login access |
+| `GET,POST /admin/users` | Login required | Platform super-admin only; manages staff requests and verified student/parent account links across explicitly selected school records |
+| `GET,POST /academics` | Login required | Academic view allowlist; grade/attendance write actions use a narrower entry-role allowlist; teachers must hold active class/subject assignment; attendance officers may record attendance but not grades |
+| `GET,POST /timetable` | Login required | View: super-admin, school admin, principal, vice principal, academic admin, registrar, teacher. Manage: super-admin, school admin, principal, vice principal, academic admin. Teachers see their own assigned lessons |
+| `GET /my-report-cards` | Login required | Student only; active linked student record and published reports for that student |
+| `GET,POST /report-cards` | Login required | View: super-admin, school admin, principal, vice principal, academic admin, teacher, registrar. Publish/unpublish: super-admin, school admin, principal, vice principal, academic admin. Teacher and registrar are preview-only |
+| `GET,POST /students/register` | Login required | Super-admin, school admin, principal, vice principal, registrar, admissions officer, academic admin; active school context required |
+| `GET /students/<student_id>` | Login required | Student-record role allowlist; school-scoped lookup; private guardian, birth-date and notes fields limited to principal/registrar |
+| `GET,POST /students/<student_id>/edit` | Login required | Principal and registrar only; school-scoped lookup and update |
+| `GET /students` | Login required | Student-record role allowlist; school-scoped results; teachers limited to assigned classes; private fields omitted for non-principal/registrar roles |
+| `GET,POST /student-finances` | Login required | Super-admin, school admin, principal, registrar, finance admin; school-scoped ledger and balance controls |
+| `GET,POST /learning-materials` | Login required | School context required. Publishing roles: content publishers plus librarian and teacher. Other roles do not receive unrestricted resource visibility |
+| `GET /learning-materials/<material_id>/download` | Login required | School-scoped record; audience, archive and class-assignment rules checked before file delivery; teachers constrained to assigned classes |
+| `POST /learning-materials/<material_id>/archive` | Login required | Materials-manage roles only (content managers plus librarian); school-scoped mutation and audit |
+| `GET,POST /announcements` | Login required | School-scoped visibility by audience. Create/edit roles: super-admin, school admin, principal, vice principal, academic admin, registrar |
+| `POST /announcements/<announcement_id>/archive` | Login required | Content-manage roles only; school-scoped mutation and audit |
+| `GET,POST /finance/payments` | Login required | Super-admin, school admin, principal, registrar, finance admin; school-scoped student lookup, serialized ledger/balance update and transactional audit |
+| `GET /parent/children` | Login required | Parent only; returns explicitly linked active children and their authorized school-scoped report, attendance and finance summaries |
+| `GET,POST /assignments` | Login required | Staff roles: super-admin, school admin, principal, vice principal, academic admin, registrar, teacher; students may view/submit only for their linked active record and class. Teacher creation/grading is constrained to assigned class/subject and teacher-authored work |
+| `GET,POST /staff` | Login required | Staff management: super-admin, school admin, principal, vice principal. Assignable/manageable roles narrow by leadership level; no school-crossing account changes |
+| `GET /attendance-report` | Login required | Super-admin, school admin, principal, vice principal, registrar, academic admin, attendance officer, teacher; teachers limited to classes with active assignments |
+| `GET /school-performance` | Login required | Leadership roles receive authorized aggregate views; attendance officer receives attendance metrics; finance admin receives financial metrics only; all queries use selected school |
+| `POST /staff/demo-team` | Login required | Platform super-admin invariants, explicit confirmation and selected active school required; provisions fictional demo accounts only |
 
-This audit did not sign in to the live service, submit live forms, inspect or alter live student records, change Render configuration, create paid infrastructure, merge PR #49, or deploy code. It does not establish compliance with education, privacy, banking, or other regulations.
+## Role-specific boundaries
 
-## Release decision
+### Teachers
 
-**Not production-approved.** The route inventory and existing tests are evidence of progress, not proof of complete security. Keep PR #49 as the sole consolidated Version 4 track. Do not merge or deploy until all critical authorization, staging, backup/restore, browser, monitoring and rollback gates pass and the project owner explicitly approves.
+- May view and enter academic information only within active assigned class/subject permissions.
+- May view only their assigned timetable lessons and attendance-report classes.
+- May create and grade homework only for their own authorized class/subject assignments.
+- May preview report cards but cannot publish or unpublish them.
+- Cannot create official student records, edit official student profiles, manage staff accounts, access finance workflows, or publish/archive school-wide announcements.
+- Teacher-facing student queries omit private guardian and birth-date fields at the SQL result level.
+
+### Attendance officers
+
+- May access the academic and attendance reporting workflows needed for attendance duties.
+- May record attendance but are excluded from grade-entry permissions.
+- Do not receive finance, student-record editing, staff-management or school-wide leadership privileges.
+
+### Finance administrators
+
+- May access finance/payment workflows and financial dashboard metrics.
+- Cannot access academic grading, student-record administration, or school-wide performance metrics outside the finance subset.
+- Cannot use teacher, registrar or leadership permissions merely because they can access financial records.
+
+### Librarians
+
+- May publish/manage learning resources under the resource-specific role policy.
+- Are not staff managers, student-record administrators, academic grade-entry users, finance users, or school-wide announcement publishers.
+- Two direct-route tests have been added to verify the restricted workflows and allowed resource-page access.
+
+### Counselors
+
+- The role exists in the staff catalogue but currently has no dedicated counselor module.
+- It is intentionally excluded from student-record, finance, academic, staff-management, attendance-report, homework and school-performance route allowlists.
+- A future counseling workflow must define confidential case-note access, guardian visibility, safeguarding escalation and retention rules before counselor access is expanded. Do not infer access from the role label alone.
+
+### Parents and students
+
+- Parent accounts require identity/relationship verification and explicit school-scoped child links.
+- Student accounts require a verified active student record; a student can access only their own published reports, class homework and linked learning resources.
+- Unlinked accounts do not gain access by supplying a student ID in the request.
+
+### Platform Super Administrator
+
+- Global access requires all three invariants: role is `super_admin`, platform flag is true, and the user has no assigned school.
+- Tenant modules require explicit selection of an active school.
+- A school-assigned account cannot become a platform super-admin merely by changing a role or flag.
+
+## Existing automated evidence
+
+The current test inventory documents 176 tests before this pass. It includes:
+
+- Teacher direct-route denials for student registration/edit, finance, announcement publication/archive and unassigned academic data.
+- Teacher assignment scoping, revocation, timetable visibility and homework restrictions.
+- Student and parent account linking, ownership and relationship restrictions.
+- Registrar preview-only report-card permissions and principal publication controls.
+- Attendance-officer attendance-only permissions.
+- Finance dashboard data minimization and cross-school payment denial.
+- School-to-school object access denial for student records, grades, attendance, reports, finance, parent links and homework.
+- Atomic audit rollback for financial, academic, registration and homework mutations.
+- Session invalidation for suspended accounts and suspended schools.
+
+Two new direct-route tests were committed to expand coverage for librarian and counselor roles. The post-change CI result is pending and must be checked before counting those tests as passed.
+
+## Remaining Prompt 02 verification work
+
+- [ ] Confirm CI passes on Python 3.11 and 3.14 after the new specialist-role tests.
+- [ ] Verify the exact Flask URL map against this 30-route source inventory in a test, so newly registered routes cannot silently escape the audit.
+- [ ] Expand negative direct-route tests for every role on sensitive mutation endpoints, including resource archive, timetable create/delete, staff actions, demo provisioning and report publication.
+- [ ] Add/confirm cross-school object-ID tests for resource download/archive, announcement archive, timetable deletion, homework submission/grade and parent-linked reports/finance.
+- [ ] Review export/download responses for school, role and field-level data minimization.
+- [ ] Add a formal permission matrix artifact that is machine-readable and used by tests where practical.
+- [ ] Review counselor access policy before implementing any counseling feature.
+
+## Release and safety boundaries
+
+No live account was used to submit forms. No live student or financial records were read or changed. No production database, Render configuration, paid infrastructure, merge or deployment was changed.
+
+**Prompt 02 status: IN PROGRESS.** Do not begin Prompt 03 or any Version 5 work until the outstanding authorization verification tasks are complete and the test evidence is recorded.
+
