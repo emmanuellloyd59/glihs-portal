@@ -28,11 +28,11 @@ Application route checks remain required. These triggers are a second integrity 
 
 ## Backup and restore helpers
 
-`db_safety.py` provides:
-- `create_verified_backup(source_path, backup_path)`: uses SQLite's online backup API and validates the resulting database.
-- `restore_backup_to_new_database(backup_path, destination_path)`: verifies the source backup and restores to a new file only.
+`scripts/sqlite_backup.py` provides:
+- `copy_database(source, destination)`: uses SQLite's online backup API, publishes atomically, and validates integrity and foreign keys.
+- `copy_database(backup, restore_destination)`: verifies the source backup and restores to a new file only (without `--overwrite`).
 
-Both verify `PRAGMA integrity_check` and `PRAGMA foreign_key_check`. They refuse same-path operations and existing destinations. A failed backup/restore removes its incomplete output.
+The script verifies `PRAGMA integrity_check` and `PRAGMA foreign_key_check`, refuses same-path operations and existing destinations by default, and cleans up incomplete temporary output.
 
 These are tested helper functions, not a configured production backup scheduler or an operational disaster-recovery service. Production backup retention, off-host copies, encryption/key management, restore-point objectives and scheduled restore drills remain separate operational work.
 
