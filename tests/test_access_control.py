@@ -1254,6 +1254,62 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             connection.close()
 
 
+    def test_homework_database_guards_reject_cross_school_author_and_submission_links(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                """INSERT INTO schools (id,name,slug) VALUES (2,'Second Test School','second-test-school')
+                   ON CONFLICT(id) DO NOTHING"""
+            )
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username='teacher_route_test'"
+            ).fetchone()["id"]
+            second_teacher = connection.execute(
+                """INSERT INTO users
+                   (username,password_hash,role,status,is_super_admin,school_id)
+                   VALUES ('second_school_teacher','hash','teacher','active',0,2)"""
+            ).lastrowid
+            second_student = connection.execute(
+                """INSERT INTO students
+                   (admission_number,full_name,class_level,school_id)
+                   VALUES ('HOMEWORK-CROSS-001','Fictional Second School Student','Grade 7',2)"""
+            ).lastrowid
+            assignment_id = connection.execute(
+                """INSERT INTO homework_assignments
+                   (school_id,class_level,subject,title,instructions,due_date,created_by)
+                   VALUES (1,'Grade 7','Mathematics','Fictional homework','Solve questions','2099-01-01',?)""",
+                (teacher_id,),
+            ).lastrowid
+            connection.commit()
+
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute(
+                    """INSERT INTO homework_submissions
+                       (school_id,assignment_id,student_id,response_text)
+                       VALUES (1,?,?, 'Not a valid cross-school submission')""",
+                    (assignment_id, second_student),
+                )
+            connection.rollback()
+
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute(
+                    """INSERT INTO homework_assignments
+                       (school_id,class_level,subject,title,instructions,due_date,created_by)
+                       VALUES (1,'Grade 7','Mathematics','Wrong owner','Must be rejected','2099-01-01',?)""",
+                    (second_teacher,),
+                )
+            connection.rollback()
+
+            versions = [
+                row["version"] for row in connection.execute(
+                    "SELECT version FROM schema_migrations ORDER BY version"
+                ).fetchall()
+            ]
+            self.assertIn(4, versions)
+        finally:
+            connection.close()
+
+
     def test_teacher_cannot_read_or_write_financial_workflows(self):
         self.login_as("teacher_route_test")
         self.assertEqual(self.client.get("/student-finances").status_code, 403)
