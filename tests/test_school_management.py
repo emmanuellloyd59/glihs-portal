@@ -220,15 +220,19 @@ class SchoolManagementTests(unittest.TestCase):
     def test_suspending_school_blocks_existing_school_admin_sessions(self):
         self.login_as("v5_platform_admin", "V5-Platform-Admin-Password!")
         school_id, _ = self.create_school_and_admin("v5-test-campus-a", "v5_admin_a")
-        admin_client = portal.app.test_client()
-        admin_client.post("/login", data={
-            "username": "v5_admin_a", "password": "V5-Temporary-Password!",
+        self.login_as("v5_admin_a", "V5-Temporary-Password!")
+        self.assertEqual(self.client.get("/school/settings").status_code, 200)
+
+        platform_client = portal.app.test_client()
+        platform_client.post("/login", data={
+            "username": "v5_platform_admin",
+            "password": "V5-Platform-Admin-Password!",
         }, follow_redirects=True)
-        self.client.post("/platform/schools", data={
+        platform_client.post("/platform/schools", data={
             "action": "status", "school_id": str(school_id), "status": "suspended",
         })
-        self.assertEqual(admin_client.get("/school/settings").status_code, 403)
-        self.assertEqual(admin_client.get("/school/academic-calendar").status_code, 403)
+        self.assertEqual(self.client.get("/school/settings").status_code, 403)
+        self.assertEqual(self.client.get("/school/academic-calendar").status_code, 403)
 
     def test_revoked_school_admin_assignment_removes_tenant_access(self):
         self.login_as("v5_platform_admin", "V5-Platform-Admin-Password!")
