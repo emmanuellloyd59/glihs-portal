@@ -661,11 +661,14 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         target = portal.RESOURCE_DIR / stored_name
         target.write_bytes(b"%PDF-1.4 fictional test content")
         connection = portal.get_db_connection()
+        teacher_id = connection.execute(
+            "SELECT id FROM users WHERE username='teacher_demo'"
+        ).fetchone()["id"]
         connection.execute(
             """INSERT INTO learning_materials
                (school_id,title,description,class_level,stored_name,original_name,uploaded_by)
-               VALUES (1,'Private Grade Eight Material','', 'Grade 8', ?, 'lesson.pdf', 1)""",
-            (stored_name,),
+               VALUES (1,'Private Grade Eight Material','', 'Grade 8', ?, 'lesson.pdf', ?)""",
+            (stored_name, teacher_id),
         )
         material_id = connection.execute(
             "SELECT id FROM learning_materials WHERE stored_name=?", (stored_name,)
