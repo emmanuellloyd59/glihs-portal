@@ -24,7 +24,7 @@ def register_school_performance_routes(ns):
             if se:
                 enrollment["active"]=db.execute("SELECT COUNT(*) FROM students WHERE school_id=? AND status='active'",(sid,)).fetchone()[0]
                 enrollment["total"]=db.execute("SELECT COUNT(*) FROM students WHERE school_id=?",(sid,)).fetchone()[0]
-                enrollment["recent"]=db.execute("SELECT COUNT(*) FROM students WHERE school_id=? AND date(COALESCE(enrollment_date,created_at))>=date(?)",(sid,start.isoformat())).fetchone()[0]
+                enrollment["recent"]=db.execute("SELECT COUNT(*) FROM students WHERE school_id=? AND date(COALESCE(enrollment_date,created_at)) BETWEEN date(?) AND date(?)",(sid,start.isoformat(),today.isoformat())).fetchone()[0]
                 enrollment["classes"]=db.execute("SELECT class_level,COUNT(*) student_count FROM students WHERE school_id=? AND status='active' GROUP BY class_level ORDER BY class_level COLLATE NOCASE LIMIT 16",(sid,)).fetchall()
             if sa:
                 rows=db.execute("""SELECT attendance_date,SUM(CASE WHEN lower(status)='present' THEN 1 ELSE 0 END) present,SUM(CASE WHEN lower(status)='absent' THEN 1 ELSE 0 END) absent,SUM(CASE WHEN lower(status)='late' THEN 1 ELSE 0 END) late,SUM(CASE WHEN lower(status)='excused' THEN 1 ELSE 0 END) excused,COUNT(*) total FROM attendance WHERE school_id=? AND attendance_date BETWEEN ? AND ? GROUP BY attendance_date ORDER BY attendance_date""",(sid,start.isoformat(),today.isoformat())).fetchall()

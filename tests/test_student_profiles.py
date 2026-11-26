@@ -18,6 +18,16 @@ class StudentProfileTests(PortalTestSupport, unittest.TestCase):
                 (admission, "Alex Fiction", "Grade 7", "2026-09-01",
                  "Example Primary", "Jamie Fiction", "000-111-2222", "Fictional note"),
             )
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username='teacher_demo'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO class_timetable
+                   (school_id, class_level, subject, teacher_id, weekday, start_time,
+                    end_time, room, created_by)
+                   VALUES (1, 'Grade 7', 'Mathematics', ?, 'Monday', '08:00', '09:00', '', ?)""",
+                (teacher_id, teacher_id),
+            )
             connection.commit()
             return cur.lastrowid
         finally:

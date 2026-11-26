@@ -44,6 +44,13 @@ class ReportCardTests(unittest.TestCase):
                    VALUES (?, 'Mathematics', 'Test Quiz', 8, 10, ?, '2026-2027', 'Term 1', 1)""",
                 (student_id, teacher_id),
             )
+            connection.execute(
+                """INSERT OR IGNORE INTO class_timetable
+                   (school_id, class_level, subject, teacher_id, weekday, start_time,
+                    end_time, room, created_by)
+                   VALUES (1, 'Grade 7', 'Mathematics', ?, 'Monday', '08:00', '09:00', '', ?)""",
+                (teacher_id, teacher_id),
+            )
             connection.commit()
         finally:
             connection.close()

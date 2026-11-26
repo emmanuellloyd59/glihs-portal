@@ -31,9 +31,33 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
 
     def setUp(self):
         connection = portal.get_db_connection()
-        connection.execute("DELETE FROM parent_student_links")
-        for table in ("grades", "attendance", "report_cards", "student_finances", "audit_log", "students", "users"):
-            connection.execute(f"DELETE FROM {table}")
+        # Clear dependent records before their referenced parents. This fixture
+        # shares the initialized test database with timetable, content, finance,
+        # and homework tables, all of which may retain user/student references.
+        existing_tables = {
+            row["name"] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        for table in (
+            "parent_student_links",
+            "homework_submissions",
+            "homework_assignments",
+            "teacher_class_assignments",
+            "class_timetable",
+            "learning_materials",
+            "school_announcements",
+            "finance_payments",
+            "grades",
+            "attendance",
+            "report_cards",
+            "student_finances",
+            "audit_log",
+            "students",
+            "users",
+        ):
+            if table in existing_tables:
+                connection.execute(f"DELETE FROM {table}")
         accounts = [
             ("teacher_route_test", "teacher"),
             ("student_route_test", "student"),
@@ -61,6 +85,273 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             data={"username": username, "password": "test-password-for-route"},
             follow_redirects=True,
         )
+
+    def test_teacher_assignment_survives_timetable_entry_deletion(self):
+        connection = portal.get_db_connection()
+        try:
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username = 'teacher_route_test'"
+            ).fetchone()["id"]
+            student_id = connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('ASSIGNMENT-PERSIST-001', 'Fictional Assignment Student', 'Grade 7', 1)"""
+            ).lastrowid
+            timetable_id = connection.execute(
+                """INSERT INTO class_timetable
+                   (school_id, class_level, subject, teacher_id, weekday, start_time,
+                    end_time, room, created_by)
+                   VALUES (1, 'Grade 7', 'Mathematics', ?, 'Monday', '08:00', '09:00', '', ?)""",
+                (teacher_id, teacher_id),
+            ).lastrowid
+            connection.commit()
+            assignment = connection.execute(
+                """SELECT active FROM teacher_class_assignments
+                   WHERE school_id = 1 AND teacher_id = ?
+                     AND class_level = 'Grade 7' AND subject = 'Mathematics'""",
+                (teacher_id,),
+            ).fetchone()
+            self.assertIsNotNone(assignment)
+            self.assertEqual(assignment["active"], 1)
+            connection.execute(
+                "DELETE FROM class_timetable WHERE id = ? AND school_id = 1",
+                (timetable_id,),
+            )
+            connection.commit()
+            remaining = connection.execute(
+                """SELECT active FROM teacher_class_assignments
+                   WHERE school_id = 1 AND teacher_id = ?
+                     AND class_level = 'Grade 7' AND subject = 'Mathematics'""",
+                (teacher_id,),
+            ).fetchone()
+            self.assertIsNotNone(remaining)
+            self.assertEqual(remaining["active"], 1)
+        finally:
+            connection.close()
+
+        self.login_as("teacher_route_test")
+        response = self.client.get("/students")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Fictional Assignment Student", response.data)
+
+    def test_teacher_assignment_is_school_scoped_and_revocation_is_enforced(self):
+        connection = portal.get_db_connection()
+        try:
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username = 'teacher_route_test'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO teacher_class_assignments
+                   (school_id, teacher_id, class_level, subject, active, created_by)
+                   VALUES (1, ?, 'Grade 8', 'Science', 1, ?)""",
+                (teacher_id, teacher_id),
+            )
+            connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('ASSIGNMENT-REVOKE-001', 'Fictional Revoked Student', 'Grade 8', 1)"""
+            )
+            connection.commit()
+            connection.execute(
+                """UPDATE teacher_class_assignments SET active = 0, updated_at = CURRENT_TIMESTAMP
+                   WHERE school_id = 1 AND teacher_id = ? AND class_level = 'Grade 8'
+                     AND subject = 'Science'""",
+                (teacher_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("teacher_route_test")
+        response = self.client.get("/students")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b"Fictional Revoked Student", response.data)
+
+    def test_teacher_homework_is_limited_to_active_class_subject_assignments(self):
+        connection = portal.get_db_connection()
+        try:
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username='teacher_route_test'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO teacher_class_assignments
+                   (school_id, teacher_id, class_level, subject, active, created_by)
+                   VALUES (1, ?, 'Grade 7', 'Mathematics', 1, ?)""",
+                (teacher_id, teacher_id),
+            )
+            assigned_id = connection.execute(
+                """INSERT INTO homework_assignments
+                   (school_id, class_level, subject, title, instructions, due_date, created_by)
+                   VALUES (1, 'Grade 7', 'Mathematics', 'Assigned Homework', 'Complete the work',
+                           '2099-12-31', ?)""",
+                (teacher_id,),
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO homework_assignments
+                   (school_id, class_level, subject, title, instructions, due_date, created_by)
+                   VALUES (1, 'Grade 7', 'Science', 'Unassigned Homework', 'Complete the work',
+                           '2099-12-31', ?)""",
+                (teacher_id,),
+            )
+            student_id = connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('HOMEWORK-ACCESS-001', 'Fictional Homework Student', 'Grade 7', 1)"""
+            ).lastrowid
+            submission_id = connection.execute(
+                """INSERT INTO homework_submissions
+                   (school_id, assignment_id, student_id, response_text)
+                   VALUES (1, ?, ?, 'Fictional response')""",
+                (assigned_id, student_id),
+            ).lastrowid
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("teacher_route_test")
+        visible = self.client.get("/assignments")
+        self.assertEqual(visible.status_code, 200)
+        self.assertIn(b"Assigned Homework", visible.data)
+        self.assertNotIn(b"Unassigned Homework", visible.data)
+
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                """UPDATE teacher_class_assignments SET active=0
+                   WHERE school_id=1 AND teacher_id=? AND class_level='Grade 7'
+                     AND subject='Mathematics'""",
+                (teacher_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        hidden = self.client.get("/assignments")
+        self.assertEqual(hidden.status_code, 200)
+        self.assertNotIn(b"Assigned Homework", hidden.data)
+        denied = self.client.post("/assignments", data={
+            "action": "grade", "submission_id": str(submission_id),
+            "score": "85", "feedback": "Good work",
+        })
+        self.assertEqual(denied.status_code, 403)
+
+    def test_school_leader_can_assign_and_revoke_teacher_class_subject(self):
+        connection = portal.get_db_connection()
+        try:
+            teacher_id = connection.execute("SELECT id FROM users WHERE username = 'teacher_route_test'").fetchone()["id"]
+        finally:
+            connection.close()
+        self.login_as("principal_route_test")
+        assigned = self.client.post("/staff", data={
+            "action": "assign_teacher", "teacher_id": str(teacher_id),
+            "class_level": "Grade 7", "subject": "Mathematics",
+        }, follow_redirects=True)
+        self.assertEqual(assigned.status_code, 200)
+        connection = portal.get_db_connection()
+        try:
+            row = connection.execute("""SELECT id, active FROM teacher_class_assignments
+                WHERE school_id=1 AND teacher_id=? AND class_level='Grade 7' AND subject='Mathematics'""",
+                (teacher_id,)).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row["active"], 1)
+            assignment_id = row["id"]
+        finally:
+            connection.close()
+        revoked = self.client.post("/staff", data={
+            "action": "revoke_teacher_assignment", "assignment_id": str(assignment_id),
+        }, follow_redirects=True)
+        self.assertEqual(revoked.status_code, 200)
+        connection = portal.get_db_connection()
+        try:
+            row = connection.execute("SELECT active FROM teacher_class_assignments WHERE id=?",
+                                     (assignment_id,)).fetchone()
+            self.assertEqual(row["active"], 0)
+            actions = {r["action"] for r in connection.execute(
+                "SELECT action FROM audit_log WHERE target_username='teacher_route_test'").fetchall()}
+            self.assertIn("teacher_assignment_activated", actions)
+            self.assertIn("teacher_assignment_revoked", actions)
+        finally:
+            connection.close()
+
+    def test_suspending_teacher_revokes_all_active_class_subject_assignments(self):
+        connection = portal.get_db_connection()
+        try:
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username='teacher_route_test'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO teacher_class_assignments
+                   (school_id, teacher_id, class_level, subject, active, created_by)
+                   VALUES (1, ?, 'Grade 7', 'Mathematics', 1, ?)""",
+                (teacher_id, teacher_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        self.login_as("principal_route_test")
+        response = self.client.post("/staff", data={
+            "action": "suspend", "user_id": str(teacher_id),
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        try:
+            active_count = connection.execute(
+                "SELECT COUNT(*) FROM teacher_class_assignments WHERE teacher_id=? AND active=1",
+                (teacher_id,),
+            ).fetchone()[0]
+            self.assertEqual(active_count, 0)
+            self.assertIsNotNone(connection.execute(
+                """SELECT 1 FROM audit_log
+                   WHERE target_username='teacher_route_test'
+                     AND action='teacher_assignments_revoked_account_suspended'"""
+            ).fetchone())
+        finally:
+            connection.close()
+
+    def test_changing_teacher_role_revokes_class_subject_assignments(self):
+        connection = portal.get_db_connection()
+        try:
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username='teacher_route_test'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO teacher_class_assignments
+                   (school_id, teacher_id, class_level, subject, active, created_by)
+                   VALUES (1, ?, 'Grade 7', 'Mathematics', 1, ?)""",
+                (teacher_id, teacher_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        self.login_as("principal_route_test")
+        response = self.client.post("/staff", data={
+            "action": "change_role", "user_id": str(teacher_id),
+            "role": "attendance_officer",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        try:
+            role = connection.execute(
+                "SELECT role FROM users WHERE id=?", (teacher_id,)
+            ).fetchone()["role"]
+            self.assertEqual(role, "attendance_officer")
+            active_count = connection.execute(
+                "SELECT COUNT(*) FROM teacher_class_assignments WHERE teacher_id=? AND active=1",
+                (teacher_id,),
+            ).fetchone()[0]
+            self.assertEqual(active_count, 0)
+            self.assertIsNotNone(connection.execute(
+                """SELECT 1 FROM audit_log
+                   WHERE target_username='teacher_route_test'
+                     AND action='teacher_assignments_revoked_role_changed'"""
+            ).fetchone())
+        finally:
+            connection.close()
+
+    def test_teacher_cannot_assign_or_revoke_teacher_permissions(self):
+        self.login_as("teacher_route_test")
+        response = self.client.post("/staff", data={
+            "action": "assign_teacher", "teacher_id": "1",
+            "class_level": "Grade 7", "subject": "Mathematics",
+        })
+        self.assertEqual(response.status_code, 403)
 
     def test_parent_account_creation_requires_identity_verification(self):
         connection = portal.get_db_connection()
@@ -482,6 +773,13 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
                 "SELECT id FROM users WHERE username = 'teacher_route_test'"
             ).fetchone()["id"]
             connection.execute(
+                """INSERT INTO class_timetable
+                   (school_id, class_level, subject, teacher_id, weekday, start_time,
+                    end_time, room, created_by)
+                   VALUES (1, 'Grade 7', 'Mathematics', ?, 'Monday', '08:00', '09:00', '', ?)""",
+                (teacher_id, teacher_id),
+            )
+            connection.execute(
                 """INSERT INTO student_finances
                    (student_id, academic_year, total_fee, amount_paid, updated_by, school_id)
                    VALUES (?, '2026-2027', 1200, 300, ?, 1)""",
@@ -820,6 +1118,55 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         )
         self.assertIn(b"Invalid username or password", response.data)
         self.assertNotIn(b"Dashboard Overview", response.data)
+
+
+    def test_finance_dashboard_exposes_only_financial_metrics_to_finance_admin(self):
+        connection = portal.get_db_connection()
+        try:
+            finance_user_id = connection.execute(
+                "SELECT id FROM users WHERE username='finance_route_test'"
+            ).fetchone()["id"]
+            student_id = connection.execute(
+                """INSERT INTO students
+                   (admission_number, full_name, class_level, school_id)
+                   VALUES ('PERF-FINANCE-001', 'Fictional Finance Student', 'Grade 7', 1)"""
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id, academic_year, total_fee, amount_paid, updated_by, school_id)
+                   VALUES (?, '2026-2027', 1000, 400, ?, 1)""",
+                (student_id, finance_user_id),
+            )
+            connection.execute(
+                """INSERT INTO grades
+                   (student_id, subject, assessment, score, max_score, recorded_by,
+                    academic_year, term, school_id)
+                   VALUES (?, 'Private Subject Metric', 'Quiz', 9, 10, ?,
+                           '2026-2027', 'Term 1', 1)""",
+                (student_id, finance_user_id),
+            )
+            connection.execute(
+                """INSERT INTO attendance
+                   (student_id, attendance_date, status, recorded_by, school_id)
+                   VALUES (?, date('now'), 'present', ?, 1)""",
+                (student_id, finance_user_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("finance_route_test")
+        response = self.client.get("/school-performance")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"600.00", response.data)
+        self.assertNotIn(b"Private Subject Metric", response.data)
+        self.assertNotIn(b"Fictional Finance Student", response.data)
+        self.assertNotIn(b"Attendance Overview", response.data)
+        self.assertNotIn(b"Academic Performance", response.data)
+
+    def test_teacher_cannot_open_school_wide_performance_dashboard(self):
+        self.login_as("teacher_route_test")
+        self.assertEqual(self.client.get("/school-performance").status_code, 403)
 
 class StartupMigrationTests(unittest.TestCase):
     def test_legacy_database_migrates_without_losing_records_and_is_idempotent(self):

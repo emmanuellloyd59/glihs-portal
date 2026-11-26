@@ -77,3 +77,51 @@ Create two schools, School A and School B, with separate administrators, teacher
 Version 0.3 must first deliver secure multi-school foundations. Parent portals, staff workflows, timetables, notifications, and additional finance features must not be advertised as production-ready until each module has server-side permissions, tenant-scoped queries, and automated tests.
 
 **Do not merge or deploy this planning document as proof that tenant isolation is implemented.**
+
+---
+
+## Complete Version 0.3 platform upgrade scope
+
+Version 0.3 is the complete integrated school-platform upgrade, not only the multi-school database foundation or teacher permissions. The scope carries forward the existing modules and closes the gaps between them.
+
+### Functional modules
+
+- **School and tenant foundation:** school lifecycle, school context selection, tenant-owned data, cross-school query and mutation isolation, migration safety.
+- **Staff and access administration:** staff requests, approval, school-scoped account provisioning, role assignment, activation/suspension, audit history, least-privilege role matrix.
+- **Teacher workspace:** assigned classes and subjects, assigned student roster, attendance, grade entry, homework, teaching resources, own timetable, personal teaching summary.
+- **Student records and registration:** validated registration, student profiles, controlled official-record edits, safe account linking.
+- **Academics:** gradebooks, attendance entry and reports, term-based report cards, controlled publication.
+- **Timetable:** schedule management, conflict detection, teacher-specific timetable views.
+- **Homework and assignments:** teacher-owned assignments, class-scoped student submissions, owner-authorized grading and feedback.
+- **Learning resources and announcements:** validated file storage/download, class/school scope, controlled publishing and archiving.
+- **Finance:** role-restricted fees, payment records, receipts, balances, and audit trail.
+- **Parent portal:** verified guardian-child links and child-only access.
+- **School leadership dashboard:** school-wide aggregate enrollment, attendance, academic and operational indicators, with no cross-school or unnecessary personal-data exposure.
+- **Responsive UI and operations:** consistent navigation, mobile usability, print/PDF, health checks, monitoring, persistent storage, backup/restore, CI and rollback.
+
+### Current implementation inventory from repository inspection
+
+The current codebase and automated test names confirm existing development implementations for student registration/records, academic grades and attendance, report cards, finance payments, school-scoped staff account workflows, attendance reporting with CSV export, parent-child links, homework submissions/grading, timetable management/conflict checks, learning materials, and announcements.
+
+These are implementation-presence findings only. A route or test name is not proof of complete behavior or release readiness. The following items need focused verification or completion:
+
+- A canonical teacher-to-class and teacher-to-subject assignment model must be enforced consistently across student lists, academics, attendance, grades, homework, materials, and timetable.
+- Teacher student lists and report-card previews must not expose students outside assigned classes.
+- Teachers must not publish school-wide announcements or access finance/staff administration unless a narrowly scoped delegated permission explicitly allows it.
+- A distinct school leadership performance dashboard with safe, school-scoped aggregate indicators must be verified or implemented; the current dashboard route inspected is a role-aware landing page, not evidence of those analytics.
+- School staff-management operations must be school-scoped and must not expose platform-wide users or audit records to a school-level administrator.
+- File downloads, exports, and direct object-ID actions require the same authorization checks as page views.
+- README, feature-center text, dashboard navigation, and release documentation must accurately distinguish implemented, tested, preview-only, and planned modules.
+
+### Integrated delivery batches
+
+1. **Baseline and inventory:** map routes, templates, SQL queries, roles, migrations, scheduled jobs, downloads, exports, and tests. Record existing behavior before changing it.
+2. **Authorization foundation:** centralize role/capability decisions and school/assignment scope checks; preserve existing account and data models unless a safe additive migration is necessary.
+3. **Teaching workflow:** make class/subject assignments authoritative and apply them consistently to rosters, grade entry, attendance, homework, resources, report previews, and timetable views.
+4. **School operations:** verify staff management, registration, finance, announcements, learning resources, and parent portal boundaries.
+5. **Leadership analytics and interface:** implement/verify aggregate school performance indicators and align role-specific dashboards/navigation with server permissions.
+6. **Reliability and release:** full test suite, cross-school and role-negative tests, migration rehearsal, backup/restore, mobile/desktop browser checks, PDF/export checks, staging verification, monitoring, and rollback documentation.
+
+### Version 0.3 completion definition
+
+The platform is not Version 0.3 release-ready merely because all modules appear in the navigation. Each workflow must be usable, school-scoped, role-authorized at the server boundary, covered by positive and negative tests, documented accurately, and verified in a staging environment. The existing production database and live service must remain untouched until the project owner explicitly approves a release.

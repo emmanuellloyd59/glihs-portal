@@ -32,6 +32,23 @@
     <div class="col-12"><button class="btn btn-primary" type="submit">Create Staff Account</button></div>
   </form>
 </section>
+<section class="surface-card p-4 p-md-5 mb-4">
+  <p class="eyebrow text-primary mb-1">Academic access control</p>
+  <h2 class="h4 fw-bold mb-2">Teacher class and subject assignments</h2>
+  <p class="text-secondary small">Only authorized school leaders can grant or revoke access. Assignments are independent of timetable lessons and every change is audit logged.</p>
+  <form method="post" action="{{ url_for('staff_management') }}" class="row g-3 mb-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="assign_teacher">
+    <div class="col-12 col-md-4"><label class="form-label" for="assignment-teacher">Active teacher</label><select class="form-select" id="assignment-teacher" name="teacher_id" required><option value="">Choose teacher</option>{% for teacher in teachers %}<option value="{{ teacher.id }}">{{ teacher.full_name or teacher.username }} (@{{ teacher.username }})</option>{% endfor %}</select></div>
+    <div class="col-12 col-md-3"><label class="form-label" for="assignment-class">Class</label><select class="form-select" id="assignment-class" name="class_level" required><option value="">Choose class</option>{% for level in class_levels %}<option value="{{ level }}">{{ level }}</option>{% endfor %}</select></div>
+    <div class="col-12 col-md-3"><label class="form-label" for="assignment-subject">Subject</label><input class="form-control" id="assignment-subject" name="subject" maxlength="80" required></div>
+    <div class="col-12 col-md-2 d-flex align-items-end"><button class="btn btn-primary w-100" type="submit">Save assignment</button></div>
+  </form>
+  {% if teacher_assignments %}
+  <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Teacher</th><th>Class</th><th>Subject</th><th>Action</th></tr></thead><tbody>
+  {% for assignment in teacher_assignments %}<tr><td>{{ assignment.full_name or assignment.username }}<div class="small text-secondary">@{{ assignment.username }}</div></td><td>{{ assignment.class_level }}</td><td>{{ assignment.subject }}</td><td><form method="post" action="{{ url_for('staff_management') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="revoke_teacher_assignment"><input type="hidden" name="assignment_id" value="{{ assignment.id }}"><button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Revoke this teacher assignment?')">Revoke</button></form></td></tr>{% endfor %}
+  </tbody></table></div>
+  {% else %}<p class="text-secondary mb-0">No active teacher assignments have been configured for this school.</p>{% endif %}
+</section>
 <section class="surface-card p-3 p-md-4">
   <div class="d-flex flex-column flex-sm-row justify-content-between gap-2 mb-3"><div><p class="eyebrow text-primary mb-1">Current school only</p><h2 class="h4 fw-bold mb-0">Staff directory</h2></div><span class="badge rounded-pill border bg-white text-secondary align-self-start">{{ users|length }} accounts</span></div>
   {% if users %}

@@ -12,7 +12,7 @@ class StudentFinanceTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_student_registration_generates_unique_student_id(self):
-        self.login_as("teacher_demo", "test-teacher-password")
+        self.login_as("registrar_demo", "test-registrar-password")
         response = self.client.post("/students/register", data={
             "admission_number": "ID-DEMO-001",
             "full_name": "Taylor Example",

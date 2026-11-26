@@ -581,6 +581,46 @@ def initialize_database():
             "CREATE INDEX IF NOT EXISTS idx_timetable_school_day_time "
             "ON class_timetable(school_id, weekday, start_time, end_time)"
         )
+        # Teacher authorization is independent from timetable scheduling. The
+        # timetable remains the source for lesson slots; assignments persist when
+        # an individual lesson is edited or deleted.
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS teacher_class_assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                school_id INTEGER NOT NULL REFERENCES schools(id),
+                teacher_id INTEGER NOT NULL REFERENCES users(id),
+                class_level TEXT NOT NULL,
+                subject TEXT NOT NULL COLLATE NOCASE,
+                active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+                created_by INTEGER REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(school_id, teacher_id, class_level, subject)
+            )
+        """)
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_teacher_assignments_lookup "
+            "ON teacher_class_assignments(school_id, teacher_id, active, class_level)"
+        )
+        # Idempotently preserve all legacy timetable-derived teacher permissions.
+        connection.execute("""
+            INSERT OR IGNORE INTO teacher_class_assignments
+                (school_id, teacher_id, class_level, subject, created_by)
+            SELECT DISTINCT school_id, teacher_id, class_level, subject, created_by
+            FROM class_timetable
+        """)
+        # Keep direct timetable creation paths and older integrations compatible.
+        # Deliberately no delete trigger: removing a lesson must not revoke access.
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_timetable_teacher_assignment_insert
+            AFTER INSERT ON class_timetable
+            BEGIN
+                INSERT OR IGNORE INTO teacher_class_assignments
+                    (school_id, teacher_id, class_level, subject, created_by)
+                VALUES (NEW.school_id, NEW.teacher_id, NEW.class_level,
+                        NEW.subject, NEW.created_by);
+            END
+        """)
         connection.commit()
         connection.execute("PRAGMA foreign_keys = ON")
     finally:
@@ -775,6 +815,27 @@ def require_school_context():
     if school is None or school["status"] != "active":
         abort(403)
     return school_id
+
+
+def teacher_assigned_class_levels(connection, teacher_id, school_id):
+    """Return active class levels from the canonical school-scoped assignment table."""
+    rows = connection.execute(
+        """SELECT DISTINCT class_level FROM teacher_class_assignments
+           WHERE school_id = ? AND teacher_id = ? AND active = 1""",
+        (int(school_id), int(teacher_id)),
+    ).fetchall()
+    return {row["class_level"] for row in rows}
+
+
+def teacher_has_class_subject(connection, teacher_id, school_id, class_level, subject=None):
+    """Check canonical teacher assignment; never trust posted IDs or timetable slots."""
+    sql = """SELECT 1 FROM teacher_class_assignments
+             WHERE school_id = ? AND teacher_id = ? AND class_level = ? AND active = 1"""
+    params = [int(school_id), int(teacher_id), str(class_level)]
+    if subject is not None:
+        sql += " AND lower(subject) = lower(?)"
+        params.append(str(subject))
+    return connection.execute(sql + " LIMIT 1", params).fetchone() is not None
 
 
 class User(UserMixin):
@@ -1396,8 +1457,14 @@ def academics():
     connection = get_db_connection()
     try:
         students = connection.execute(
-            "SELECT id, admission_number, full_name, class_level FROM students WHERE school_id = ? AND status = 'active' ORDER BY class_level, full_name",
-            (school_id,),
+            """SELECT id, admission_number, full_name, class_level FROM students
+               WHERE school_id = ? AND status = 'active'
+                 AND (? <> 'teacher' OR class_level IN (
+                     SELECT class_level FROM teacher_class_assignments
+                     WHERE school_id = ? AND teacher_id = ? AND active = 1
+                 ))
+               ORDER BY class_level, full_name""",
+            (school_id, current_user.role, school_id, int(current_user.id)),
         ).fetchall()
         if request.method == "POST":
             if current_user.role not in ACADEMIC_ENTRY_ROLES:
@@ -1408,8 +1475,13 @@ def academics():
                 abort(403)
             student_id = request.form.get("student_id", "").strip()
             student = connection.execute(
-                "SELECT id FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
-                (student_id, school_id),
+                """SELECT id, class_level FROM students
+                   WHERE id = ? AND school_id = ? AND status = 'active'
+                     AND (? <> 'teacher' OR class_level IN (
+                         SELECT class_level FROM teacher_class_assignments
+                         WHERE school_id = ? AND teacher_id = ? AND active = 1
+                     ))""",
+                (student_id, school_id, current_user.role, school_id, int(current_user.id)),
             ).fetchone()
             if not student:
                 flash("Choose a valid active student.", "danger")
@@ -1417,6 +1489,10 @@ def academics():
 
             if action == "grade":
                 subject = request.form.get("subject", "").strip()
+                if current_user.role == "teacher" and not teacher_has_class_subject(
+                    connection, current_user.id, school_id, student["class_level"], subject
+                ):
+                    abort(403)
                 assessment = request.form.get("assessment", "").strip()
                 academic_year = request.form.get("academic_year", "").strip()
                 term = request.form.get("term", "").strip()
@@ -1460,6 +1536,10 @@ def academics():
                 except sqlite3.IntegrityError:
                     flash("This student already has that assessment in the selected subject, academic year, and term.", "danger")
             elif action == "attendance":
+                if current_user.role == "teacher" and not teacher_has_class_subject(
+                    connection, current_user.id, school_id, student["class_level"]
+                ):
+                    abort(403)
                 attendance_date = request.form.get("attendance_date", "").strip()
                 status = request.form.get("status", "").strip()
                 note = request.form.get("note", "").strip()
@@ -1493,8 +1573,19 @@ def academics():
                FROM grades g JOIN students s ON s.id = g.student_id
                JOIN users u ON u.id = g.recorded_by AND u.school_id = g.school_id
                WHERE g.school_id = ? AND s.school_id = ?
+                 AND (? <> 'teacher' OR (
+                     s.class_level IN (
+                         SELECT class_level FROM teacher_class_assignments
+                         WHERE school_id = g.school_id AND teacher_id = ? AND active = 1
+                     )
+                     AND lower(g.subject) IN (
+                         SELECT lower(subject) FROM teacher_class_assignments
+                         WHERE school_id = g.school_id AND teacher_id = ? AND active = 1
+                           AND class_level = s.class_level
+                     )
+                 ))
                ORDER BY g.id DESC LIMIT 100""",
-            (require_school_context(), require_school_context()),
+            (school_id, school_id, current_user.role, int(current_user.id), int(current_user.id)),
         ).fetchall()
         attendance_rows = connection.execute(
             """SELECT a.id, s.full_name, s.admission_number, s.class_level,
@@ -1502,8 +1593,12 @@ def academics():
                FROM attendance a JOIN students s ON s.id = a.student_id
                JOIN users u ON u.id = a.recorded_by AND u.school_id = a.school_id
                WHERE a.school_id = ? AND s.school_id = ?
+                 AND (? <> 'teacher' OR s.class_level IN (
+                     SELECT class_level FROM teacher_class_assignments
+                     WHERE school_id = a.school_id AND teacher_id = ? AND active = 1
+                 ))
                ORDER BY a.attendance_date DESC, a.id DESC LIMIT 100""",
-            (require_school_context(), require_school_context()),
+            (school_id, school_id, current_user.role, int(current_user.id)),
         ).fetchall()
     finally:
         connection.close()
@@ -1633,11 +1728,12 @@ def timetable():
                FROM class_timetable t
                JOIN users u ON u.id = t.teacher_id AND u.school_id = t.school_id
                WHERE t.school_id = ?
+                 AND (? <> 'teacher' OR t.teacher_id = ?)
                ORDER BY CASE t.weekday
                     WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2 WHEN 'Wednesday' THEN 3
                     WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 ELSE 6 END,
                     t.start_time, t.class_level""",
-            (school_id,),
+            (school_id, current_user.role, int(current_user.id)),
         ).fetchall()
         teachers = []
         if can_manage:
@@ -1708,9 +1804,16 @@ def report_cards():
 
     connection = get_db_connection()
     try:
+        report_school_id = require_school_context()
         students = connection.execute(
-            "SELECT id, admission_number, full_name, class_level FROM students WHERE school_id = ? AND status = 'active' ORDER BY class_level, full_name",
-            (require_school_context(),),
+            """SELECT id, admission_number, full_name, class_level FROM students
+               WHERE school_id = ? AND status = 'active'
+                 AND (? <> 'teacher' OR class_level IN (
+                     SELECT class_level FROM teacher_class_assignments
+                     WHERE school_id = ? AND teacher_id = ? AND active = 1
+                 ))
+               ORDER BY class_level, full_name""",
+            (report_school_id, current_user.role, report_school_id, int(current_user.id)),
         ).fetchall()
         student_id = request.values.get("student_id", "").strip()
         academic_year = request.values.get("academic_year", "").strip()
@@ -1721,8 +1824,13 @@ def report_cards():
 
         if student_id and academic_year and term in {"Term 1", "Term 2", "Term 3"}:
             selected_student = connection.execute(
-                "SELECT id, admission_number, full_name, class_level FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
-                (student_id, require_school_context()),
+                """SELECT id, admission_number, full_name, class_level FROM students
+                   WHERE id = ? AND school_id = ? AND status = 'active'
+                     AND (? <> 'teacher' OR class_level IN (
+                         SELECT class_level FROM teacher_class_assignments
+                         WHERE school_id = ? AND teacher_id = ? AND active = 1
+                     ))""",
+                (student_id, report_school_id, current_user.role, report_school_id, int(current_user.id)),
             ).fetchone()
 
         if request.method == "POST":
@@ -1765,8 +1873,13 @@ def report_cards():
             raw_grades = connection.execute(
                 """SELECT subject, score, max_score, assessment FROM grades
                    WHERE student_id = ? AND school_id = ? AND academic_year = ? AND term = ?
+                     AND (? <> 'teacher' OR lower(subject) IN (
+                         SELECT lower(subject) FROM teacher_class_assignments
+                         WHERE school_id = ? AND teacher_id = ? AND active = 1 AND class_level = ?
+                     ))
                    ORDER BY subject COLLATE NOCASE, assessment COLLATE NOCASE""",
-                (student_id, require_school_context(), academic_year, term),
+                (student_id, report_school_id, academic_year, term, current_user.role,
+                 report_school_id, int(current_user.id), selected_student["class_level"]),
             ).fetchall()
             by_subject = {}
             for grade in raw_grades:
@@ -1797,7 +1910,7 @@ def report_cards():
 @app.route("/students/register", methods=["GET", "POST"])
 @login_required
 def register_student():
-    if current_user.role not in ("super_admin", "school_admin", "registrar", "admissions_officer", "teacher"):
+    if current_user.role not in ("super_admin", "school_admin", "registrar", "admissions_officer"):
         flash("You are not authorized to register students.", "danger")
         return redirect(url_for("dashboard"))
     # Enforce tenant context on GET as well as POST so platform admins cannot
@@ -1910,13 +2023,18 @@ def student_detail(student_id):
                  "NULL AS guardian_phone, NULL AS emergency_contact_name, "
                  "NULL AS emergency_contact_phone, NULL AS record_notes"
         )
+        detail_school_id = require_school_context()
         student = connection.execute(
             f"""SELECT s.id, s.student_id_number, s.admission_number, s.full_name,
                        s.class_level, {private_profile_fields}, s.enrollment_date,
                        s.created_at, s.status
                 FROM students s
-                WHERE s.id = ? AND s.school_id = ?""",
-            (student_id, require_school_context()),
+                WHERE s.id = ? AND s.school_id = ?
+                  AND (? <> 'teacher' OR s.class_level IN (
+                      SELECT class_level FROM teacher_class_assignments
+                      WHERE school_id = s.school_id AND teacher_id = ? AND active = 1
+                  ))""",
+            (student_id, detail_school_id, current_user.role, int(current_user.id)),
         ).fetchone()
         if student is None:
             abort(404)
@@ -1936,7 +2054,13 @@ def student_detail(student_id):
         recent_grades = connection.execute(
             """SELECT subject, assessment, score, max_score, academic_year, term, created_at
                FROM grades WHERE student_id = ? AND school_id = ?
-               ORDER BY created_at DESC, id DESC LIMIT 12""", (student_id, require_school_context())
+                 AND (? <> 'teacher' OR lower(subject) IN (
+                     SELECT lower(subject) FROM teacher_class_assignments
+                     WHERE school_id = ? AND teacher_id = ? AND active = 1 AND class_level = ?
+                 ))
+               ORDER BY created_at DESC, id DESC LIMIT 12""",
+            (student_id, detail_school_id, current_user.role, detail_school_id,
+             int(current_user.id), student["class_level"]),
         ).fetchall()
         recent_attendance = connection.execute(
             """SELECT attendance_date, status, note FROM attendance
@@ -2063,6 +2187,7 @@ def list_students():
         query_params.extend([
             require_school_context(), class_filter, class_filter,
             search_query, f"%{search_query}%", f"%{search_query}%", f"%{search_query}%",
+            current_user.role, int(current_user.id),
         ])
         students = connection.execute(
             f"""
@@ -2073,13 +2198,23 @@ def list_students():
             WHERE s.school_id = ? AND (? = '' OR s.class_level = ?)
               AND (? = '' OR s.full_name LIKE ? OR s.admission_number LIKE ?
                    OR COALESCE(s.student_id_number, '') LIKE ?)
+              AND (? <> 'teacher' OR s.class_level IN (
+                  SELECT class_level FROM teacher_class_assignments
+                  WHERE school_id = s.school_id AND teacher_id = ? AND active = 1
+              ))
             ORDER BY s.class_level, s.full_name COLLATE NOCASE
             """,
             query_params,
         ).fetchall()
         classes = connection.execute(
-            "SELECT DISTINCT class_level FROM students WHERE school_id = ? ORDER BY class_level COLLATE NOCASE",
-            (require_school_context(),),
+            """SELECT DISTINCT s.class_level FROM students s
+               WHERE s.school_id = ?
+                 AND (? <> 'teacher' OR s.class_level IN (
+                     SELECT class_level FROM teacher_class_assignments
+                     WHERE school_id = s.school_id AND teacher_id = ? AND active = 1
+                 ))
+               ORDER BY s.class_level COLLATE NOCASE""",
+            (require_school_context(), current_user.role, int(current_user.id)),
         ).fetchall()
     finally:
         connection.close()
@@ -2174,13 +2309,13 @@ RESOURCE_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_RESOURCE_EXTENSIONS = {".pdf", ".txt", ".png", ".jpg", ".jpeg"}
 CONTENT_PUBLISH_ROLES = {
     "super_admin", "school_admin", "principal", "vice_principal",
-    "academic_admin", "registrar", "teacher",
+    "academic_admin", "registrar",
 }
 CONTENT_MANAGE_ROLES = {
     "super_admin", "school_admin", "principal", "vice_principal",
     "academic_admin", "registrar",
 }
-MATERIALS_PUBLISH_ROLES = CONTENT_PUBLISH_ROLES | {"librarian"}
+MATERIALS_PUBLISH_ROLES = CONTENT_PUBLISH_ROLES | {"librarian", "teacher"}
 MATERIALS_MANAGE_ROLES = CONTENT_MANAGE_ROLES | {"librarian"}
 
 def ensure_content_tables(connection):
@@ -2263,6 +2398,10 @@ def learning_materials():
                 or not original or suffix not in ALLOWED_RESOURCE_EXTENSIONS):
                 flash("Enter a title and class, and upload a PDF, TXT, PNG or JPG file.", "danger")
                 return redirect(url_for("learning_materials"))
+            if role == "teacher" and not teacher_has_class_subject(
+                connection, current_user.id, school_id, class_level
+            ):
+                abort(403)
             # Store under a random server-generated name; never use user paths.
             stored_name = uuid.uuid4().hex + suffix
             target = RESOURCE_DIR / stored_name
@@ -2285,6 +2424,13 @@ def learning_materials():
                ORDER BY archived, created_at DESC, id DESC""", (school_id,)
         ).fetchall()
         visible = [row for row in rows if can_view_material(role, row["class_level"], bool(row["archived"]))]
+        if role == "teacher":
+            assigned_levels = teacher_assigned_class_levels(connection, current_user.id, school_id)
+            visible = [
+                row for row in visible
+                if row["class_level"].lower() in {"all classes", "school-wide"}
+                or row["class_level"] in assigned_levels
+            ]
     finally:
         connection.close()
     return render_template("learning_materials.html", materials=visible,
@@ -2306,6 +2452,13 @@ def download_learning_material(material_id):
             current_user.role, material["class_level"], bool(material["archived"])
         ):
             abort(404)
+        if current_user.role == "teacher":
+            assigned_levels = teacher_assigned_class_levels(connection, current_user.id, school_id)
+            if (
+                material["class_level"].lower() not in {"all classes", "school-wide"}
+                and material["class_level"] not in assigned_levels
+            ):
+                abort(404)
         path = RESOURCE_DIR / material["stored_name"]
         if not path.is_file() or path.parent.resolve() != RESOURCE_DIR.resolve():
             abort(404)

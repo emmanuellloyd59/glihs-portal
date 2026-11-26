@@ -38,7 +38,7 @@ class PortalTestSupport:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
         }
-        for table_name in ("homework_submissions", "homework_assignments", "parent_student_links", "finance_payments", "school_announcements", "learning_materials", "class_timetable"):
+        for table_name in ("homework_submissions", "homework_assignments", "parent_student_links", "finance_payments", "school_announcements", "learning_materials", "teacher_class_assignments", "class_timetable"):
             if table_name in existing_tables:
                 connection.execute("DELETE FROM " + table_name)
         connection.execute("DELETE FROM grades")
@@ -84,6 +84,21 @@ class PortalTestSupport:
             data={"username": username, "password": password},
             follow_redirects=True,
         )
+
+    def _assign_teacher(self, class_level="Grade 7", subject="Mathematics"):
+        connection = portal.get_db_connection()
+        teacher = connection.execute(
+            "SELECT id FROM users WHERE username='teacher_demo'"
+        ).fetchone()
+        connection.execute(
+            """INSERT INTO class_timetable
+               (school_id, class_level, subject, teacher_id, weekday, start_time,
+                end_time, room, created_by)
+               VALUES (1, ?, ?, ?, 'Monday', '08:00', '09:00', '', ?)""",
+            (class_level, subject, teacher["id"], teacher["id"]),
+        )
+        connection.commit()
+        connection.close()
 
 
 
@@ -203,7 +218,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertIn(b"not authorized to view student records", response.data)
         self.assertNotIn(b"Registered Students", response.data)
 
-    def test_teacher_can_register_and_search_student_record(self):
+    def test_teacher_cannot_register_official_student_records(self):
         self.login_as("teacher_demo", "test-teacher-password")
         response = self.client.post(
             "/students/register",
@@ -211,15 +226,17 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
                 "admission_number": "DEMO-001",
                 "full_name": "Jordan Example",
                 "class_level": "Grade 7",
-                "date_of_birth": "",
-                "guardian_name": "Casey Example",
-                "guardian_phone": "000-000-0000",
             },
             follow_redirects=True,
         )
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Jordan Example", response.data)
-        self.assertIn(b"studentSearch", response.data)
+        self.assertIn(b"You are not authorized to register students.", response.data)
+        connection = portal.get_db_connection()
+        count = connection.execute(
+            "SELECT COUNT(*) FROM students WHERE admission_number='DEMO-001'"
+        ).fetchone()[0]
+        connection.close()
+        self.assertEqual(count, 0)
 
     def test_initial_admin_bootstrap_creates_account_only_when_username_is_unused(self):
         from unittest.mock import patch
@@ -441,7 +458,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertIn(b"Planned", response.data)
 
     def test_duplicate_admission_number_is_rejected_gracefully(self):
-        self.login_as("teacher_demo", "test-teacher-password")
+        self.login_as("registrar_demo", "test-registrar-password")
         data = {
             "admission_number": "DEMO-DUPLICATE",
             "full_name": "Taylor Example",
@@ -456,6 +473,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
 
 
     def test_teacher_can_save_grade_and_attendance(self):
+        self._assign_teacher("Grade 7", "Mathematics")
         self.login_as("teacher_demo", "test-teacher-password")
         connection = portal.get_db_connection()
         connection.execute(
@@ -485,6 +503,198 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertIn(b"Attendance saved successfully", attendance_response.data)
         self.assertIn(b"Present", attendance_response.data)
 
+    def test_teacher_cannot_access_unassigned_class_student_or_grade(self):
+        self._assign_teacher("Grade 7", "Mathematics")
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
+            ("UNASSIGNED-001", "Unassigned Class Student", "Grade 8"),
+        )
+        student_id = connection.execute(
+            "SELECT id FROM students WHERE admission_number='UNASSIGNED-001'"
+        ).fetchone()["id"]
+        connection.commit()
+        connection.close()
+        self.login_as("teacher_demo", "test-teacher-password")
+        roster = self.client.get("/students")
+        self.assertEqual(roster.status_code, 200)
+        self.assertNotIn(b"Unassigned Class Student", roster.data)
+        self.assertEqual(self.client.get(f"/students/{student_id}").status_code, 404)
+        self.client.post("/academics", data={
+            "action": "grade", "student_id": str(student_id), "subject": "Mathematics",
+            "assessment": "Quiz", "score": "8", "max_score": "10",
+            "academic_year": "2026-2027", "term": "Term 1",
+        })
+        connection = portal.get_db_connection()
+        grade_count = connection.execute(
+            "SELECT COUNT(*) FROM grades WHERE student_id=?", (student_id,)
+        ).fetchone()[0]
+        connection.close()
+        self.assertEqual(grade_count, 0)
+
+    def test_teacher_attendance_report_is_limited_to_assigned_classes(self):
+        self._assign_teacher("Grade 7", "Mathematics")
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
+            ("TEACHER-ATT-7", "Assigned Grade Seven Student", "Grade 7"),
+        )
+        connection.execute(
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
+            ("TEACHER-ATT-8", "Unassigned Grade Eight Student", "Grade 8"),
+        )
+        teacher_id = connection.execute(
+            "SELECT id FROM users WHERE username='teacher_demo'"
+        ).fetchone()["id"]
+        ids = connection.execute(
+            "SELECT id, admission_number FROM students WHERE admission_number IN ('TEACHER-ATT-7','TEACHER-ATT-8')"
+        ).fetchall()
+        for row in ids:
+            connection.execute(
+                """INSERT INTO attendance
+                   (student_id, attendance_date, status, recorded_by, school_id)
+                   VALUES (?, '2026-10-01', 'present', ?, 1)""",
+                (row["id"], teacher_id),
+            )
+        connection.commit()
+        connection.close()
+        self.login_as("teacher_demo", "test-teacher-password")
+        page = self.client.get(
+            "/attendance-report?start_date=2026-10-01&end_date=2026-10-31"
+        )
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b"Assigned Grade Seven Student", page.data)
+        self.assertNotIn(b"Unassigned Grade Eight Student", page.data)
+        exported = self.client.get(
+            "/attendance-report?start_date=2026-10-01&end_date=2026-10-31&export=csv"
+        )
+        self.assertEqual(exported.status_code, 200)
+        self.assertIn(b"TEACHER-ATT-7", exported.data)
+        self.assertNotIn(b"TEACHER-ATT-8", exported.data)
+
+    def test_teacher_timetable_shows_only_own_assigned_lessons(self):
+        connection = portal.get_db_connection()
+        teacher_id = connection.execute(
+            "SELECT id FROM users WHERE username='teacher_demo'"
+        ).fetchone()["id"]
+        connection.execute(
+            """INSERT INTO users (username, full_name, password_hash, role, status, school_id)
+               VALUES ('second_teacher_demo', 'Second Fictional Teacher', ?, 'teacher', 'active', 1)""",
+            (generate_password_hash("test-second-teacher-password"),),
+        )
+        second_teacher_id = connection.execute(
+            "SELECT id FROM users WHERE username='second_teacher_demo'"
+        ).fetchone()["id"]
+        connection.execute(
+            """INSERT INTO class_timetable
+               (school_id,class_level,subject,teacher_id,weekday,start_time,end_time,room,created_by)
+               VALUES (1,'Grade 7','Mathematics',?,'Monday','08:00','09:00','Room A',?)""",
+            (teacher_id, teacher_id),
+        )
+        connection.execute(
+            """INSERT INTO class_timetable
+               (school_id,class_level,subject,teacher_id,weekday,start_time,end_time,room,created_by)
+               VALUES (1,'Grade 8','Biology',?,'Tuesday','09:00','10:00','Room B',?)""",
+            (second_teacher_id, teacher_id),
+        )
+        connection.commit()
+        connection.close()
+        self.login_as("teacher_demo", "test-teacher-password")
+        page = self.client.get("/timetable")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b"Mathematics", page.data)
+        self.assertNotIn(b"Biology", page.data)
+        self.assertNotIn(b"Room B", page.data)
+
+    def test_teacher_cannot_grade_or_view_an_unassigned_subject(self):
+        self._assign_teacher("Grade 7", "Mathematics")
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
+            ("SUBJECT-SCOPE-001", "Subject Scope Student", "Grade 7"),
+        )
+        student_id = connection.execute(
+            "SELECT id FROM students WHERE admission_number='SUBJECT-SCOPE-001'"
+        ).fetchone()["id"]
+        teacher_id = connection.execute(
+            "SELECT id FROM users WHERE username='teacher_demo'"
+        ).fetchone()["id"]
+        connection.execute(
+            """INSERT INTO grades
+               (student_id,subject,assessment,score,max_score,recorded_by,academic_year,term,school_id)
+               VALUES (?, 'Biology', 'Test', 9, 10, ?, '2026-2027', 'Term 1', 1)""",
+            (student_id, teacher_id),
+        )
+        connection.commit()
+        connection.close()
+        self.login_as("teacher_demo", "test-teacher-password")
+        page = self.client.get("/academics")
+        self.assertEqual(page.status_code, 200)
+        self.assertNotIn(b"Biology", page.data)
+        denied = self.client.post("/academics", data={
+            "action": "grade", "student_id": str(student_id), "subject": "Biology",
+            "assessment": "Quiz", "score": "8", "max_score": "10",
+            "academic_year": "2026-2027", "term": "Term 1",
+        })
+        self.assertEqual(denied.status_code, 403)
+
+    def test_teacher_cannot_upload_materials_for_unassigned_class(self):
+        self._assign_teacher("Grade 7", "Mathematics")
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.post("/learning-materials", data={
+            "title": "Unassigned lesson",
+            "description": "Should be denied",
+            "class_level": "Grade 8",
+            "resource_file": (io.BytesIO(b"%PDF-1.4 fictional test file"), "lesson.pdf"),
+        }, content_type="multipart/form-data")
+        self.assertEqual(response.status_code, 403)
+        connection = portal.get_db_connection()
+        count = connection.execute(
+            "SELECT COUNT(*) FROM learning_materials WHERE title='Unassigned lesson'"
+        ).fetchone()[0]
+        connection.close()
+        self.assertEqual(count, 0)
+
+    def test_teacher_cannot_download_learning_material_from_unassigned_class(self):
+        self._assign_teacher("Grade 7", "Mathematics")
+        stored_name = "teacher_scope_hidden_test.pdf"
+        target = portal.RESOURCE_DIR / stored_name
+        target.write_bytes(b"%PDF-1.4 fictional test content")
+        connection = portal.get_db_connection()
+        teacher_id = connection.execute(
+            "SELECT id FROM users WHERE username='teacher_demo'"
+        ).fetchone()["id"]
+        connection.execute(
+            """INSERT INTO learning_materials
+               (school_id,title,description,class_level,stored_name,original_name,uploaded_by)
+               VALUES (1,'Private Grade Eight Material','', 'Grade 8', ?, 'lesson.pdf', ?)""",
+            (stored_name, teacher_id),
+        )
+        material_id = connection.execute(
+            "SELECT id FROM learning_materials WHERE stored_name=?", (stored_name,)
+        ).fetchone()["id"]
+        connection.commit()
+        connection.close()
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.get(f"/learning-materials/{material_id}/download")
+        self.assertEqual(response.status_code, 404)
+        target.unlink(missing_ok=True)
+
+    def test_teacher_cannot_publish_school_announcement(self):
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.post("/announcements", data={
+            "title": "Unauthorized announcement",
+            "body": "This should not be published by a teacher.",
+            "audience": "all",
+        })
+        self.assertEqual(response.status_code, 403)
+        connection = portal.get_db_connection()
+        count = connection.execute(
+            "SELECT COUNT(*) FROM school_announcements WHERE title='Unauthorized announcement'"
+        ).fetchone()[0]
+        connection.close()
+        self.assertEqual(count, 0)
+
     def test_student_and_finance_roles_cannot_open_academics(self):
         self.login_as("student_demo", "test-student-password")
         self.assertEqual(self.client.get("/academics").status_code, 403)
@@ -500,6 +710,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(self.client.get("/academics").status_code, 403)
 
     def test_duplicate_attendance_and_invalid_grade_are_rejected(self):
+        self._assign_teacher("Grade 8", "Science")
         self.login_as("teacher_demo", "test-teacher-password")
         connection = portal.get_db_connection()
         connection.execute(
@@ -533,7 +744,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
             connection.close()
 
     def test_registration_rejects_invalid_guardian_phone_without_saving(self):
-        self.login_as("teacher_demo", "test-teacher-password")
+        self.login_as("registrar_demo", "test-registrar-password")
         response = self.client.post("/students/register", data={
             "admission_number": "SEC-001", "full_name": "Jordan Example",
             "class_level": "Grade 7", "guardian_phone": "call-me-now",
@@ -542,7 +753,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(self._student_count(), 0)
 
     def test_registration_rejects_future_birth_date_and_invalid_admission_number(self):
-        self.login_as("teacher_demo", "test-teacher-password")
+        self.login_as("registrar_demo", "test-registrar-password")
         for admission, dob in (("SEC-002", "2999-01-01"), ("bad admission!", "2012-05-04")):
             response = self.client.post("/students/register", data={
                 "admission_number": admission, "full_name": "Jordan Example",
@@ -552,7 +763,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(self._student_count(), 0)
 
     def test_student_registration_rejects_invalid_enrollment_date_and_emergency_phone(self):
-        self.login_as("teacher_demo", "test-teacher-password")
+        self.login_as("registrar_demo", "test-registrar-password")
         base_data = {
             "admission_number": "REG-VALIDATION-001",
             "full_name": "Avery Fiction",
@@ -651,6 +862,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
             connection.close()
 
     def test_teacher_student_list_hides_private_fields(self):
+        self._assign_teacher("Grade 7", "Mathematics")
         connection = portal.get_db_connection()
         connection.execute(
             """INSERT INTO students
@@ -1635,6 +1847,7 @@ class HomeworkAssignmentTests(PortalTestSupport, unittest.TestCase):
         return row["id"]
 
     def test_teacher_can_publish_assignment(self):
+        self._assign_teacher("Grade 7", "Mathematics")
         self.login_as("teacher_demo", "test-teacher-password")
         response = self._create_assignment()
         self.assertEqual(response.status_code, 200)
@@ -1666,6 +1879,7 @@ class HomeworkAssignmentTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(row["school_id"],1)
 
     def test_teacher_can_mark_submission_with_feedback(self):
+        self._assign_teacher("Grade 7", "Mathematics")
         self.login_as("teacher_demo", "test-teacher-password")
         self._create_assignment()
         assignment_id = self._assignment_id("Fractions Practice")
