@@ -1708,6 +1708,13 @@ def admin_users():
                         """,
                         (generate_password_hash(temporary_password), current_user.id, target_id_int),
                     )
+                    if target["role"] == "school_admin" and target["school_id"] is not None:
+                        connection.execute(
+                            """INSERT INTO school_admin_assignments
+                               (school_id,user_id,assigned_by,active)
+                               VALUES (?,?,?,1)""",
+                            (target["school_id"], target_id_int, current_user.id),
+                        )
                     connection.execute(
                         """
                         INSERT INTO audit_log (actor_user_id, action, target_username, details, school_id)
@@ -1752,6 +1759,13 @@ def admin_users():
                         "DELETE FROM parent_student_links WHERE parent_user_id = ? AND school_id = ?",
                         (target_id_int, target["school_id"]),
                     )
+                    if target["role"] == "school_admin":
+                        connection.execute(
+                            """UPDATE school_admin_assignments
+                               SET active=0,revoked_by=?,revoked_at=CURRENT_TIMESTAMP
+                               WHERE user_id=? AND school_id=? AND active=1""",
+                            (current_user.id, target_id_int, target["school_id"]),
+                        )
                     tombstone = "deactivated-" + str(target_id_int) + "-" + secrets.token_hex(4)
                     connection.execute(
                         "UPDATE users SET username = ?, full_name = 'Deactivated account', password_hash = ?, status = 'suspended' WHERE id = ? AND is_super_admin = 0",
@@ -1770,10 +1784,24 @@ def admin_users():
                     flash("Super Administrator accounts cannot be suspended or reactivated from this page.", "danger")
                     return redirect(url_for("admin_users"))
                 new_status = "suspended" if action == "suspend" else "active"
+                if action == "suspend" and target["role"] == "school_admin":
+                    connection.execute(
+                        """UPDATE school_admin_assignments
+                           SET active=0,revoked_by=?,revoked_at=CURRENT_TIMESTAMP
+                           WHERE user_id=? AND school_id=? AND active=1""",
+                        (current_user.id, target_id_int, target["school_id"]),
+                    )
                 connection.execute(
                     "UPDATE users SET status = ? WHERE id = ?",
                     (new_status, target_id_int),
                 )
+                if action == "reactivate" and target["role"] == "school_admin":
+                    connection.execute(
+                        """INSERT INTO school_admin_assignments
+                           (school_id,user_id,assigned_by,active)
+                           VALUES (?,?,?,1)""",
+                        (target["school_id"], target_id_int, current_user.id),
+                    )
                 connection.execute(
                     """
                     INSERT INTO audit_log (actor_user_id, action, target_username, details, school_id)
