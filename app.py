@@ -659,7 +659,14 @@ def initialize_database():
              "EXISTS (SELECT 1 FROM students WHERE account_user_id=OLD.id AND school_id IS NOT NEW.school_id) "
              "OR EXISTS (SELECT 1 FROM parent_student_links WHERE parent_user_id=OLD.id AND school_id IS NOT NEW.school_id) "
              "OR EXISTS (SELECT 1 FROM teacher_class_assignments WHERE teacher_id=OLD.id AND school_id IS NOT NEW.school_id) "
-             "OR EXISTS (SELECT 1 FROM class_timetable WHERE teacher_id=OLD.id AND school_id IS NOT NEW.school_id)"),
+             "OR EXISTS (SELECT 1 FROM class_timetable WHERE teacher_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM student_finances WHERE updated_by=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM grades WHERE recorded_by=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM attendance WHERE recorded_by=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM report_cards WHERE published_by=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM parent_student_links WHERE created_by=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM teacher_class_assignments WHERE created_by=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM class_timetable WHERE created_by=OLD.id AND school_id IS NOT NEW.school_id)"),
             ("trg_parent_link_school_insert", "BEFORE INSERT ON parent_student_links",
              "(SELECT school_id FROM users WHERE id=NEW.parent_user_id) IS NOT NEW.school_id "
              "OR (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
@@ -667,29 +674,47 @@ def initialize_database():
              "(SELECT school_id FROM users WHERE id=NEW.parent_user_id) IS NOT NEW.school_id "
              "OR (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
             ("trg_student_finance_school_insert", "BEFORE INSERT ON student_finances",
-             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (NEW.created_by IS NOT NULL AND (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)"),
             ("trg_student_finance_school_update", "BEFORE UPDATE OF student_id, school_id ON student_finances",
-             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1"),
             ("trg_grade_school_insert", "BEFORE INSERT ON grades",
-             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (SELECT school_id FROM users WHERE id=NEW.recorded_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.recorded_by),0) <> 1"),
             ("trg_grade_school_update", "BEFORE UPDATE OF student_id, school_id ON grades",
-             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (SELECT school_id FROM users WHERE id=NEW.recorded_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.recorded_by),0) <> 1"),
             ("trg_attendance_school_insert", "BEFORE INSERT ON attendance",
              "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
             ("trg_attendance_school_update", "BEFORE UPDATE OF student_id, school_id ON attendance",
-             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (SELECT school_id FROM users WHERE id=NEW.recorded_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.recorded_by),0) <> 1"),
             ("trg_report_card_school_insert", "BEFORE INSERT ON report_cards",
-             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (NEW.published_by IS NOT NULL AND (SELECT school_id FROM users WHERE id=NEW.published_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.published_by),0) <> 1)"),
             ("trg_report_card_school_update", "BEFORE UPDATE OF student_id, school_id ON report_cards",
              "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
             ("trg_teacher_assignment_school_insert", "BEFORE INSERT ON teacher_class_assignments",
-             "(SELECT school_id FROM users WHERE id=NEW.teacher_id) IS NOT NEW.school_id"),
+             "(SELECT school_id FROM users WHERE id=NEW.teacher_id) IS NOT NEW.school_id "
+             "OR (NEW.created_by IS NOT NULL AND (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)"),
             ("trg_teacher_assignment_school_update", "BEFORE UPDATE OF teacher_id, school_id ON teacher_class_assignments",
-             "(SELECT school_id FROM users WHERE id=NEW.teacher_id) IS NOT NEW.school_id"),
+             "(SELECT school_id FROM users WHERE id=NEW.teacher_id) IS NOT NEW.school_id "
+             "OR (NEW.created_by IS NOT NULL AND (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)"),
             ("trg_timetable_teacher_school_insert", "BEFORE INSERT ON class_timetable",
              "(SELECT school_id FROM users WHERE id=NEW.teacher_id) IS NOT NEW.school_id"),
             ("trg_timetable_teacher_school_update", "BEFORE UPDATE OF teacher_id, school_id ON class_timetable",
-             "(SELECT school_id FROM users WHERE id=NEW.teacher_id) IS NOT NEW.school_id"),
+             "(SELECT school_id FROM users WHERE id=NEW.teacher_id) IS NOT NEW.school_id "
+             "OR (NEW.created_by IS NOT NULL AND (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)"),
         )
         for trigger_name, trigger_event, invalid_condition in tenant_guards:
             connection.execute(
