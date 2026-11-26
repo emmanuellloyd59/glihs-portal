@@ -270,6 +270,41 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_suspending_teacher_revokes_all_active_class_subject_assignments(self):
+        connection = portal.get_db_connection()
+        try:
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username='teacher_route_test'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO teacher_class_assignments
+                   (school_id, teacher_id, class_level, subject, active, created_by)
+                   VALUES (1, ?, 'Grade 7', 'Mathematics', 1, ?)""",
+                (teacher_id, teacher_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        self.login_as("principal_route_test")
+        response = self.client.post("/staff", data={
+            "action": "suspend", "user_id": str(teacher_id),
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        connection = portal.get_db_connection()
+        try:
+            active_count = connection.execute(
+                "SELECT COUNT(*) FROM teacher_class_assignments WHERE teacher_id=? AND active=1",
+                (teacher_id,),
+            ).fetchone()[0]
+            self.assertEqual(active_count, 0)
+            self.assertIsNotNone(connection.execute(
+                """SELECT 1 FROM audit_log
+                   WHERE target_username='teacher_route_test'
+                     AND action='teacher_assignments_revoked_account_suspended'"""
+            ).fetchone())
+        finally:
+            connection.close()
+
     def test_teacher_cannot_assign_or_revoke_teacher_permissions(self):
         self.login_as("teacher_route_test")
         response = self.client.post("/staff", data={
