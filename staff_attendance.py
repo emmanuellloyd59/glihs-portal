@@ -204,8 +204,8 @@ def register_staff_attendance_routes(ns):
                 """SELECT DISTINCT s.class_level FROM students s
                    WHERE s.school_id = ? AND s.status = 'active'
                      AND (? <> 'teacher' OR s.class_level IN (
-                         SELECT class_level FROM class_timetable
-                         WHERE school_id = s.school_id AND teacher_id = ?
+                         SELECT class_level FROM teacher_class_assignments
+                         WHERE school_id = s.school_id AND teacher_id = ? AND active = 1
                      ))
                    ORDER BY s.class_level COLLATE NOCASE""",
                 (school_id, current_user.role, int(current_user.id)),
@@ -224,8 +224,8 @@ def register_staff_attendance_routes(ns):
                    WHERE s.school_id = ? AND s.status = 'active'
                      AND (? = '' OR s.class_level = ?)
                      AND (? <> 'teacher' OR s.class_level IN (
-                         SELECT class_level FROM class_timetable
-                         WHERE school_id = s.school_id AND teacher_id = ?
+                         SELECT class_level FROM teacher_class_assignments
+                         WHERE school_id = s.school_id AND teacher_id = ? AND active = 1
                      ))
                    GROUP BY s.id, s.full_name, s.admission_number, s.class_level
                    ORDER BY s.class_level COLLATE NOCASE, s.full_name COLLATE NOCASE""",
@@ -244,8 +244,8 @@ def register_staff_attendance_routes(ns):
                     AND a.attendance_date BETWEEN ? AND ?
                    WHERE s.school_id=? AND s.status='active' AND (?='' OR s.class_level=?)
                      AND (? <> 'teacher' OR s.class_level IN (
-                         SELECT class_level FROM class_timetable
-                         WHERE school_id = s.school_id AND teacher_id = ?
+                         SELECT class_level FROM teacher_class_assignments
+                         WHERE school_id = s.school_id AND teacher_id = ? AND active = 1
                      ))""",
                 (start_text, end_text, school_id, class_filter, class_filter,
                  current_user.role, int(current_user.id)),
@@ -263,8 +263,8 @@ def register_staff_attendance_routes(ns):
                      AND a.attendance_date BETWEEN ? AND ?
                      AND (?='' OR s.class_level=?)
                      AND (? <> 'teacher' OR s.class_level IN (
-                         SELECT class_level FROM class_timetable
-                         WHERE school_id = s.school_id AND teacher_id = ?
+                         SELECT class_level FROM teacher_class_assignments
+                         WHERE school_id = s.school_id AND teacher_id = ? AND active = 1
                      ))
                    GROUP BY a.attendance_date ORDER BY a.attendance_date DESC""",
                 (school_id, start_text, end_text, class_filter, class_filter,
