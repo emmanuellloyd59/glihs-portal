@@ -57,6 +57,24 @@ class SQLiteBackupTests(unittest.TestCase):
             copy_database(corrupt, destination, overwrite=True)
         self.assertEqual(destination.read_bytes(), b"existing")
 
+    def test_backup_rejects_foreign_key_violations(self):
+        broken = self.root / "broken.sqlite3"
+        connection = sqlite3.connect(broken)
+        connection.executescript("""
+            CREATE TABLE parent (id INTEGER PRIMARY KEY);
+            CREATE TABLE child (parent_id INTEGER REFERENCES parent(id));
+            PRAGMA foreign_keys=OFF;
+            INSERT INTO child VALUES (404);
+        """)
+        connection.commit()
+        connection.close()
+
+        destination = self.root / "must-not-publish.sqlite3"
+        with self.assertRaises(ValueError):
+            copy_database(broken, destination)
+        self.assertFalse(destination.exists())
+        self.assertEqual(list(self.root.glob(".must-not-publish.sqlite3.*.tmp")), [])
+
     def test_source_and_destination_must_differ(self):
         with self.assertRaises(ValueError):
             copy_database(self.source, self.source)
