@@ -40,6 +40,9 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             ).fetchall()
         }
         for table in (
+            "school_admin_assignments",
+            "school_settings",
+            "school_academic_calendars",
             "parent_student_links",
             "homework_submissions",
             "homework_assignments",
