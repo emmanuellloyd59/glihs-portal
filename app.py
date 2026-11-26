@@ -759,19 +759,39 @@ def initialize_database():
             ("parent-child link", """SELECT COUNT(*) FROM parent_student_links l
                 JOIN users p ON p.id=l.parent_user_id
                 JOIN students s ON s.id=l.student_id
-                WHERE p.school_id IS NOT l.school_id OR s.school_id IS NOT l.school_id"""),
+                LEFT JOIN users creator ON creator.id=l.created_by
+                WHERE p.school_id IS NOT l.school_id OR s.school_id IS NOT l.school_id
+                   OR (l.created_by IS NOT NULL AND creator.school_id IS NOT l.school_id
+                       AND COALESCE(creator.is_super_admin,0) <> 1)"""),
             ("student finance", """SELECT COUNT(*) FROM student_finances f
-                JOIN students s ON s.id=f.student_id WHERE s.school_id IS NOT f.school_id"""),
-            ("grade", """SELECT COUNT(*) FROM grades g JOIN students s
-                ON s.id=g.student_id WHERE s.school_id IS NOT g.school_id"""),
-            ("attendance", """SELECT COUNT(*) FROM attendance a JOIN students s
-                ON s.id=a.student_id WHERE s.school_id IS NOT a.school_id"""),
-            ("report card", """SELECT COUNT(*) FROM report_cards r JOIN students s
-                ON s.id=r.student_id WHERE s.school_id IS NOT r.school_id"""),
+                JOIN students s ON s.id=f.student_id
+                JOIN users u ON u.id=f.updated_by
+                WHERE s.school_id IS NOT f.school_id
+                   OR (u.school_id IS NOT f.school_id AND COALESCE(u.is_super_admin,0) <> 1)"""),
+            ("grade", """SELECT COUNT(*) FROM grades g JOIN students s ON s.id=g.student_id
+                JOIN users u ON u.id=g.recorded_by
+                WHERE s.school_id IS NOT g.school_id
+                   OR (u.school_id IS NOT g.school_id AND COALESCE(u.is_super_admin,0) <> 1)"""),
+            ("attendance", """SELECT COUNT(*) FROM attendance a JOIN students s ON s.id=a.student_id
+                JOIN users u ON u.id=a.recorded_by
+                WHERE s.school_id IS NOT a.school_id
+                   OR (u.school_id IS NOT a.school_id AND COALESCE(u.is_super_admin,0) <> 1)"""),
+            ("report card", """SELECT COUNT(*) FROM report_cards r JOIN students s ON s.id=r.student_id
+                LEFT JOIN users u ON u.id=r.published_by
+                WHERE s.school_id IS NOT r.school_id
+                   OR (r.published_by IS NOT NULL AND u.school_id IS NOT r.school_id
+                       AND COALESCE(u.is_super_admin,0) <> 1)"""),
             ("teacher assignment", """SELECT COUNT(*) FROM teacher_class_assignments a
-                JOIN users u ON u.id=a.teacher_id WHERE u.school_id IS NOT a.school_id"""),
+                JOIN users u ON u.id=a.teacher_id
+                LEFT JOIN users creator ON creator.id=a.created_by
+                WHERE u.school_id IS NOT a.school_id
+                   OR (a.created_by IS NOT NULL AND creator.school_id IS NOT a.school_id
+                       AND COALESCE(creator.is_super_admin,0) <> 1)"""),
             ("timetable", """SELECT COUNT(*) FROM class_timetable t
-                JOIN users u ON u.id=t.teacher_id WHERE u.school_id IS NOT t.school_id"""),
+                JOIN users u ON u.id=t.teacher_id
+                JOIN users creator ON creator.id=t.created_by
+                WHERE u.school_id IS NOT t.school_id
+                   OR (creator.school_id IS NOT t.school_id AND COALESCE(creator.is_super_admin,0) <> 1)"""),
         )
         for relationship_name, query in tenant_integrity_checks:
             mismatch_count = connection.execute(query).fetchone()[0]
