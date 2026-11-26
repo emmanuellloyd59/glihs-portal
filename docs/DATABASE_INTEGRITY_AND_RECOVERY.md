@@ -22,6 +22,7 @@ Database triggers now reject inconsistent school ownership for:
 - Teacher assignments and timetable entries.
 - Finance payment rows, including the receiving user.
 - Learning-material uploads and announcement authors/editors.
+- Homework assignment authors, student submissions, graders and the assignment/student school and class relationship.
 - Attempts to reassign a linked student or parent/teacher account to another school while dependent records still exist.
 
 Application route checks remain required. These triggers are a second integrity boundary, not a substitute for authorization and tenant-scoped queries. Existing rows should still be audited before any production migration.
@@ -41,9 +42,9 @@ These are tested helper functions, not a configured production backup scheduler 
 The disposable-database tests cover:
 - Legacy record preservation during upgrade.
 - Migration rollback when a legacy record cannot be copied into the new schema.
-- Repeatable initialization and migration-ledger idempotency.
+- Repeatable initialization and migration-ledger idempotency, including the homework schema milestone.
 - Preservation of parent-child relationships.
-- Rejection of cross-school parent, student-account, finance and finance-payment relationships.
+- Rejection of cross-school parent, student-account, finance, finance-payment, homework-author and homework-submission relationships.
 - SQLite integrity and foreign-key checks after restore.
 - Refusal to overwrite existing backup or restore files.
 - Rejection and cleanup of backups containing foreign-key violations.
