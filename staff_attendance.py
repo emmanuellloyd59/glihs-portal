@@ -132,7 +132,7 @@ def register_staff_attendance_routes(ns):
                         flash("Enter a valid name, username, permitted role, and temporary password of 12–256 characters.", "danger")
                         return redirect(url_for("staff_management"))
                     try:
-                        connection.execute(
+                        created_user = connection.execute(
                             """INSERT INTO users
                                (username, full_name, password_hash, role, status, is_super_admin,
                                 school_id, approved_by, approved_at)
@@ -140,6 +140,15 @@ def register_staff_attendance_routes(ns):
                             (username, full_name, generate_password_hash(password), role,
                              school_id, int(current_user.id)),
                         )
+                        if role == "school_admin":
+                            connection.execute(
+                                """INSERT INTO school_admin_assignments
+                                   (school_id,user_id,assigned_by,active)
+                                   VALUES (?,?,?,1)""",
+                                (school_id, created_user.lastrowid, int(current_user.id)),
+                            )
+                            audit_for_school(connection, "school_admin_assigned", username,
+                                             "School administrator assignment created", school_id)
                         audit_for_school(connection, "staff_account_created", username,
                                          "Role: " + role, school_id)
                         connection.commit()
@@ -177,11 +186,38 @@ def register_staff_attendance_routes(ns):
                     elif action == "reactivate" and target["status"] != "suspended":
                         flash("Only suspended accounts can be reactivated.", "info")
                     else:
+                        if target["role"] == "school_admin":
+                            school_status = connection.execute(
+                                "SELECT status FROM schools WHERE id=?", (school_id,)
+                            ).fetchone()
+                            active_admin_count = connection.execute(
+                                """SELECT COUNT(*) FROM school_admin_assignments
+                                   WHERE school_id=? AND active=1""", (school_id,)
+                            ).fetchone()[0]
+                            if action == "suspend" and school_status and school_status["status"] == "active" and active_admin_count <= 1:
+                                flash("Cannot suspend the last administrator of an active school.", "danger")
+                                return redirect(url_for("staff_management"))
+                            if action == "suspend":
+                                connection.execute(
+                                    """UPDATE school_admin_assignments
+                                       SET active=0,revoked_by=?,revoked_at=CURRENT_TIMESTAMP
+                                       WHERE school_id=? AND user_id=? AND active=1""",
+                                    (int(current_user.id), school_id, target["id"]),
+                                )
                         status = "suspended" if action == "suspend" else "active"
                         connection.execute(
                             "UPDATE users SET status = ? WHERE id = ? AND school_id = ? AND is_super_admin = 0",
                             (status, target["id"], school_id),
                         )
+                        if action == "reactivate" and target["role"] == "school_admin":
+                            connection.execute(
+                                """INSERT INTO school_admin_assignments
+                                   (school_id,user_id,assigned_by,active)
+                                   VALUES (?,?,?,1)""",
+                                (school_id, target["id"], int(current_user.id)),
+                            )
+                            audit_for_school(connection, "school_admin_assigned", target["username"],
+                                             "School administrator assignment restored", school_id)
                         if action == "suspend" and target["role"] == "teacher":
                             revoked_count = connection.execute(
                                 """UPDATE teacher_class_assignments
@@ -204,10 +240,36 @@ def register_staff_attendance_routes(ns):
                         abort(403)
                     if target["role"] in {"student", "parent"}:
                         abort(403)
+                    if target["role"] == "school_admin" and role != "school_admin":
+                        school_status = connection.execute(
+                            "SELECT status FROM schools WHERE id=?", (school_id,)
+                        ).fetchone()
+                        active_admin_count = connection.execute(
+                            """SELECT COUNT(*) FROM school_admin_assignments
+                               WHERE school_id=? AND active=1""", (school_id,)
+                        ).fetchone()[0]
+                        if school_status and school_status["status"] == "active" and active_admin_count <= 1:
+                            flash("Cannot remove the last administrator role from an active school.", "danger")
+                            return redirect(url_for("staff_management"))
+                        connection.execute(
+                            """UPDATE school_admin_assignments
+                               SET active=0,revoked_by=?,revoked_at=CURRENT_TIMESTAMP
+                               WHERE school_id=? AND user_id=? AND active=1""",
+                            (int(current_user.id), school_id, target["id"]),
+                        )
                     connection.execute(
                         "UPDATE users SET role = ? WHERE id = ? AND school_id = ? AND is_super_admin = 0",
                         (role, target["id"], school_id),
                     )
+                    if role == "school_admin" and target["role"] != "school_admin" and target["status"] == "active":
+                        connection.execute(
+                            """INSERT INTO school_admin_assignments
+                               (school_id,user_id,assigned_by,active)
+                               VALUES (?,?,?,1)""",
+                            (school_id, target["id"], int(current_user.id)),
+                        )
+                        audit_for_school(connection, "school_admin_assigned", target["username"],
+                                         "School administrator assignment created by role change", school_id)
                     if target["role"] == "teacher" and role != "teacher":
                         revoked_count = connection.execute(
                             """UPDATE teacher_class_assignments
