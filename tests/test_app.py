@@ -558,6 +558,68 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertIn(b"Attendance saved successfully", attendance_response.data)
         self.assertIn(b"Present", attendance_response.data)
 
+
+    def test_grade_and_attendance_roll_back_when_audit_insert_fails(self):
+        self._assign_teacher("Grade 7", "Mathematics")
+        connection = portal.get_db_connection()
+        try:
+            student_id = connection.execute(
+                """INSERT INTO students
+                   (admission_number,full_name,class_level,school_id)
+                   VALUES ('AUDIT-ROLLBACK-001','Fictional Audit Student','Grade 7',1)"""
+            ).lastrowid
+            connection.execute("""
+                CREATE TRIGGER fail_academic_audit
+                BEFORE INSERT ON audit_log
+                WHEN NEW.action IN ('grade_recorded','attendance_recorded')
+                BEGIN
+                    SELECT RAISE(ABORT,'simulated academic audit failure');
+                END
+            """)
+            connection.commit()
+        finally:
+            connection.close()
+
+        try:
+            self.login_as("teacher_demo", "test-teacher-password")
+            self.client.post("/academics", data={
+                "action": "grade", "student_id": str(student_id),
+                "subject": "Mathematics", "assessment": "Audit Failure Quiz",
+                "score": "18", "max_score": "20",
+                "academic_year": "2026-2027", "term": "Term 1",
+            }, follow_redirects=True)
+            self.client.post("/academics", data={
+                "action": "attendance", "student_id": str(student_id),
+                "attendance_date": "2026-10-21", "status": "present",
+                "note": "Audit failure test",
+            }, follow_redirects=True)
+            connection = portal.get_db_connection()
+            try:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM grades WHERE student_id=? AND assessment='Audit Failure Quiz'",
+                        (student_id,),
+                    ).fetchone()[0],
+                    0,
+                )
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM attendance WHERE student_id=? AND attendance_date='2026-10-21'",
+                        (student_id,),
+                    ).fetchone()[0],
+                    0,
+                )
+            finally:
+                connection.close()
+        finally:
+            connection = portal.get_db_connection()
+            try:
+                connection.execute("DROP TRIGGER IF EXISTS fail_academic_audit")
+                connection.commit()
+            finally:
+                connection.close()
+
+
     def test_teacher_cannot_access_unassigned_class_student_or_grade(self):
         self._assign_teacher("Grade 7", "Mathematics")
         connection = portal.get_db_connection()
