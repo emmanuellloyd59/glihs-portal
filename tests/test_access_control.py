@@ -38,6 +38,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             "parent_student_links",
             "homework_submissions",
             "homework_assignments",
+            "teacher_class_assignments",
             "class_timetable",
             "learning_materials",
             "school_announcements",
@@ -78,6 +79,85 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             data={"username": username, "password": "test-password-for-route"},
             follow_redirects=True,
         )
+
+    def test_teacher_assignment_survives_timetable_entry_deletion(self):
+        connection = portal.get_db_connection()
+        try:
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username = 'teacher_route_test'"
+            ).fetchone()["id"]
+            student_id = connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('ASSIGNMENT-PERSIST-001', 'Fictional Assignment Student', 'Grade 7', 1)"""
+            ).lastrowid
+            timetable_id = connection.execute(
+                """INSERT INTO class_timetable
+                   (school_id, class_level, subject, teacher_id, weekday, start_time,
+                    end_time, room, created_by)
+                   VALUES (1, 'Grade 7', 'Mathematics', ?, 'Monday', '08:00', '09:00', '', ?)""",
+                (teacher_id, teacher_id),
+            ).lastrowid
+            connection.commit()
+            assignment = connection.execute(
+                """SELECT active FROM teacher_class_assignments
+                   WHERE school_id = 1 AND teacher_id = ?
+                     AND class_level = 'Grade 7' AND subject = 'Mathematics'""",
+                (teacher_id,),
+            ).fetchone()
+            self.assertIsNotNone(assignment)
+            self.assertEqual(assignment["active"], 1)
+            connection.execute(
+                "DELETE FROM class_timetable WHERE id = ? AND school_id = 1",
+                (timetable_id,),
+            )
+            connection.commit()
+            remaining = connection.execute(
+                """SELECT active FROM teacher_class_assignments
+                   WHERE school_id = 1 AND teacher_id = ?
+                     AND class_level = 'Grade 7' AND subject = 'Mathematics'""",
+                (teacher_id,),
+            ).fetchone()
+            self.assertIsNotNone(remaining)
+            self.assertEqual(remaining["active"], 1)
+        finally:
+            connection.close()
+
+        self.login_as("teacher_route_test")
+        response = self.client.get("/students")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Fictional Assignment Student", response.data)
+
+    def test_teacher_assignment_is_school_scoped_and_revocation_is_enforced(self):
+        connection = portal.get_db_connection()
+        try:
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username = 'teacher_route_test'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO teacher_class_assignments
+                   (school_id, teacher_id, class_level, subject, active, created_by)
+                   VALUES (1, ?, 'Grade 8', 'Science', 1, ?)""",
+                (teacher_id, teacher_id),
+            )
+            connection.execute(
+                """INSERT INTO students (admission_number, full_name, class_level, school_id)
+                   VALUES ('ASSIGNMENT-REVOKE-001', 'Fictional Revoked Student', 'Grade 8', 1)"""
+            )
+            connection.commit()
+            connection.execute(
+                """UPDATE teacher_class_assignments SET active = 0, updated_at = CURRENT_TIMESTAMP
+                   WHERE school_id = 1 AND teacher_id = ? AND class_level = 'Grade 8'
+                     AND subject = 'Science'""",
+                (teacher_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("teacher_route_test")
+        response = self.client.get("/students")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b"Fictional Revoked Student", response.data)
 
     def test_parent_account_creation_requires_identity_verification(self):
         connection = portal.get_db_connection()
