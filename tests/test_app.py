@@ -218,8 +218,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertIn(b"not authorized to view student records", response.data)
         self.assertNotIn(b"Registered Students", response.data)
 
-    def test_teacher_can_register_and_search_student_record(self):
-        self._assign_teacher("Grade 7", "Mathematics")
+    def test_teacher_cannot_register_official_student_records(self):
         self.login_as("teacher_demo", "test-teacher-password")
         response = self.client.post(
             "/students/register",
@@ -227,15 +226,17 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
                 "admission_number": "DEMO-001",
                 "full_name": "Jordan Example",
                 "class_level": "Grade 7",
-                "date_of_birth": "",
-                "guardian_name": "Casey Example",
-                "guardian_phone": "000-000-0000",
             },
             follow_redirects=True,
         )
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Jordan Example", response.data)
-        self.assertIn(b"studentSearch", response.data)
+        self.assertIn(b"You are not authorized to register students.", response.data)
+        connection = portal.get_db_connection()
+        count = connection.execute(
+            "SELECT COUNT(*) FROM students WHERE admission_number='DEMO-001'"
+        ).fetchone()[0]
+        connection.close()
+        self.assertEqual(count, 0)
 
     def test_initial_admin_bootstrap_creates_account_only_when_username_is_unused(self):
         from unittest.mock import patch
