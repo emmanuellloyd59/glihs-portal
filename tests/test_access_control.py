@@ -482,6 +482,13 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
                 "SELECT id FROM users WHERE username = 'teacher_route_test'"
             ).fetchone()["id"]
             connection.execute(
+                """INSERT INTO class_timetable
+                   (school_id, class_level, subject, teacher_id, weekday, start_time,
+                    end_time, room, created_by)
+                   VALUES (1, 'Grade 7', 'Mathematics', ?, 'Monday', '08:00', '09:00', '', ?)""",
+                (teacher_id, teacher_id),
+            )
+            connection.execute(
                 """INSERT INTO student_finances
                    (student_id, academic_year, total_fee, amount_paid, updated_by, school_id)
                    VALUES (?, '2026-2027', 1200, 300, ?, 1)""",
