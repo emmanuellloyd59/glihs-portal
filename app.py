@@ -309,6 +309,13 @@ def initialize_database():
         # SQLite DDL is transactional when enclosed in an explicit transaction;
         # this prevents a failed table rebuild from leaving half-migrated tables.
         connection.execute("BEGIN IMMEDIATE")
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -683,6 +690,22 @@ def initialize_database():
                     END"""
             )
 
+        # Record the idempotent legacy upgrade baseline and database-level
+        # tenant-relationship guard release. The schema setup remains safe to
+        # re-run; the ledger makes the deployed schema history inspectable.
+        connection.execute(
+            """INSERT OR IGNORE INTO schema_migrations (version,name)
+               VALUES (1,'legacy-to-multi-school-schema-baseline')"""
+        )
+        connection.execute(
+            """INSERT OR IGNORE INTO schema_migrations (version,name)
+               VALUES (2,'school-ownership-integrity-guards')"""
+        )
+        foreign_key_issues = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if foreign_key_issues:
+            raise sqlite3.DatabaseError(
+                f"Migration stopped: {len(foreign_key_issues)} foreign-key integrity issue(s)"
+            )
         connection.commit()
         connection.execute("PRAGMA foreign_keys = ON")
     except Exception:
@@ -2596,6 +2619,24 @@ def ensure_content_tables(connection):
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(student_id) REFERENCES students(id)
         )
+    """)
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_finance_payment_school_insert
+        BEFORE INSERT ON finance_payments
+        WHEN (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id
+          OR (SELECT school_id FROM users WHERE id=NEW.received_by) IS NOT NEW.school_id
+        BEGIN
+            SELECT RAISE(ABORT, 'school ownership mismatch');
+        END
+    """)
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_finance_payment_school_update
+        BEFORE UPDATE OF student_id, received_by, school_id ON finance_payments
+        WHEN (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id
+          OR (SELECT school_id FROM users WHERE id=NEW.received_by) IS NOT NEW.school_id
+        BEGIN
+            SELECT RAISE(ABORT, 'school ownership mismatch');
+        END
     """)
     connection.commit()
 
