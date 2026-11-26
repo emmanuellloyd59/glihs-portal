@@ -143,8 +143,12 @@ class DatabaseMigrationTests(unittest.TestCase):
                     migrating_table = check.execute(
                         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='users_migrating'"
                     ).fetchone()[0]
+                    ledger_table = check.execute(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
+                    ).fetchone()[0]
                     self.assertEqual(user, (9, "legacy_bad", "hash", "invalid_role"))
                     self.assertEqual(migrating_table, 0)
+                    self.assertEqual(ledger_table, 0)
                 finally:
                     check.close()
             finally:
