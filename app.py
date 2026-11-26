@@ -825,6 +825,61 @@ def initialize_database():
                     END"""
             )
 
+        school_management_triggers = (
+            ("trg_school_admin_assignment_insert", "BEFORE INSERT ON school_admin_assignments",
+             "(SELECT role FROM users WHERE id=NEW.user_id) IS NOT 'school_admin' "
+             "OR (SELECT school_id FROM users WHERE id=NEW.user_id) IS NOT NEW.school_id "
+             "OR (SELECT status FROM users WHERE id=NEW.user_id) IS NOT 'active' "
+             "OR (NEW.assigned_by IS NOT NULL AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.assigned_by),0) <> 1)"),
+            ("trg_school_admin_assignment_update", "BEFORE UPDATE OF school_id,user_id,assigned_by,active,revoked_by ON school_admin_assignments",
+             "(NEW.active=1 AND ((SELECT role FROM users WHERE id=NEW.user_id) IS NOT 'school_admin' "
+             "OR (SELECT school_id FROM users WHERE id=NEW.user_id) IS NOT NEW.school_id "
+             "OR (SELECT status FROM users WHERE id=NEW.user_id) IS NOT 'active')) "
+             "OR (NEW.active=1 AND NEW.assigned_by IS NOT NULL "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.assigned_by),0) <> 1) "
+             "OR (NEW.active=0 AND NEW.revoked_by IS NOT NULL "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.revoked_by),0) <> 1)"),
+            ("trg_school_settings_actor_insert", "BEFORE INSERT ON school_settings",
+             "(SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1"),
+            ("trg_school_settings_actor_update", "BEFORE UPDATE OF school_id,updated_by ON school_settings",
+             "(SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1"),
+            ("trg_school_calendar_actor_insert", "BEFORE INSERT ON school_academic_calendars",
+             "((SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1) "
+             "OR ((SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1)"),
+            ("trg_school_calendar_actor_update", "BEFORE UPDATE OF school_id,created_by,updated_by ON school_academic_calendars",
+             "((SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1) "
+             "OR ((SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1)"),
+        )
+        for trigger_name, trigger_event, invalid_condition in school_management_triggers:
+            connection.execute(
+                f"""CREATE TRIGGER IF NOT EXISTS {trigger_name}
+                    {trigger_event}
+                    WHEN {invalid_condition}
+                    BEGIN
+                        SELECT RAISE(ABORT, 'school ownership mismatch');
+                    END"""
+            )
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_user_school_admin_assignment_update
+            BEFORE UPDATE OF school_id,role,status ON users
+            WHEN EXISTS (
+                SELECT 1 FROM school_admin_assignments a
+                WHERE a.user_id=OLD.id AND a.active=1
+                  AND (NEW.role IS NOT 'school_admin'
+                       OR NEW.school_id IS NOT a.school_id
+                       OR NEW.status IS NOT 'active')
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'active school administrator assignment must be revoked first');
+            END
+        """)
+
         # Record the idempotent legacy upgrade baseline and database-level
         # tenant-relationship guard release. The schema setup remains safe to
         # re-run; the ledger makes the deployed schema history inspectable.
@@ -835,6 +890,10 @@ def initialize_database():
         connection.execute(
             """INSERT OR IGNORE INTO schema_migrations (version,name)
                VALUES (2,'school-ownership-integrity-guards')"""
+        )
+        connection.execute(
+            """INSERT OR IGNORE INTO schema_migrations (version,name)
+               VALUES (5,'school-profile-calendar-admin-assignment-foundation')"""
         )
         foreign_key_issues = connection.execute("PRAGMA foreign_key_check").fetchall()
         if foreign_key_issues:
@@ -881,6 +940,17 @@ def initialize_database():
                 JOIN users creator ON creator.id=t.created_by
                 WHERE u.school_id IS NOT t.school_id
                    OR (creator.school_id IS NOT t.school_id AND COALESCE(creator.is_super_admin,0) <> 1)"""),
+            ("school administrator assignment", """SELECT COUNT(*) FROM school_admin_assignments a
+                JOIN users u ON u.id=a.user_id
+                WHERE a.active=1 AND (u.role IS NOT 'school_admin'
+                   OR u.school_id IS NOT a.school_id OR u.status IS NOT 'active')"""),
+            ("school setting", """SELECT COUNT(*) FROM school_settings s JOIN users u ON u.id=s.updated_by
+                WHERE u.school_id IS NOT s.school_id AND COALESCE(u.is_super_admin,0) <> 1"""),
+            ("school academic calendar", """SELECT COUNT(*) FROM school_academic_calendars c
+                JOIN users creator ON creator.id=c.created_by
+                JOIN users editor ON editor.id=c.updated_by
+                WHERE (creator.school_id IS NOT c.school_id AND COALESCE(creator.is_super_admin,0) <> 1)
+                   OR (editor.school_id IS NOT c.school_id AND COALESCE(editor.is_super_admin,0) <> 1)"""),
         )
         for relationship_name, query in tenant_integrity_checks:
             mismatch_count = connection.execute(query).fetchone()[0]
