@@ -47,6 +47,20 @@
     </form>
 </section>
 
+<section class="surface-card p-4 mb-4">
+    <h2 class="h4 fw-bold mb-2">Create a school administrator account</h2>
+    <p class="text-secondary small">Use this platform-only workflow to provision the first administrator for a newly registered school. Share the temporary password privately. A suspended school remains inaccessible until activated.</p>
+    <form method="POST" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="create_admin_account">
+        <div class="col-12 col-md-4"><label class="form-label" for="admin-school">School</label><select class="form-select" id="admin-school" name="school_id" required><option value="">Choose a school</option>{% for school in schools %}<option value="{{ school.id }}">{{ school.name }} — {{ school.status|title }}</option>{% endfor %}</select></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="admin-full-name">Administrator full name</label><input class="form-control" id="admin-full-name" name="full_name" maxlength="120" required></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="admin-username">Username</label><input class="form-control" id="admin-username" name="username" pattern="[A-Za-z0-9_-]{3,64}" maxlength="64" autocomplete="off" required></div>
+        <div class="col-12 col-md-6"><label class="form-label" for="admin-temporary-password">Temporary password</label><input class="form-control" id="admin-temporary-password" name="temporary_password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></div>
+        <div class="col-12"><button class="btn btn-primary" type="submit">Create and assign school administrator</button></div>
+    </form>
+</section>
+
 <section>
     <div class="d-flex justify-content-between align-items-end mb-3">
         <div><p class="eyebrow text-primary mb-1">TENANT DIRECTORY</p><h2 class="h4 fw-bold mb-0">Registered schools</h2></div>
