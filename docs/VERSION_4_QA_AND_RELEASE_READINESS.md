@@ -7,7 +7,7 @@
 
 ## Executive result
 
-Version 4 remains **not approved for production**. The consolidated branch has substantial automated regression coverage and new database, authorization and audit safeguards, but the latest full CI run is queued and authenticated end-to-end testing against a V4 staging deployment has not been performed.
+Version 4 remains **not approved for production**. The consolidated branch has substantial automated regression coverage and new database, authorization and audit safeguards. The latest full regression run passed on Python 3.11 and 3.14, but authenticated end-to-end testing against a V4 staging deployment has not been performed.
 
 The public Render service currently serves the earlier **Version 0.3 preview**, not the unmerged Version 4 branch. Browser observations below therefore describe the current live preview only, not the V4 candidate.
 
@@ -28,7 +28,7 @@ The current branch contains **176 test methods** across the following suites:
 | `test_student_profiles.py` | 4 | Student privacy and profile editing |
 | `test_stylesheet_cascade.py` | 2 | CSS order and accessible page landmarks |
 
-The CI workflow is configured for Python 3.11 and 3.14. The latest run associated with this branch revision is queued; the current candidate must not be called green until both jobs complete successfully. Earlier CI runs passed before the latest database and QA changes, and two later failures exposed stale test fixtures that have since been updated. Those earlier passes do not certify the current branch.
+The CI workflow is configured for Python 3.11 and 3.14. The latest full regression run, GitHub Actions run [#45908697169](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45908697169), passed on both versions. It ran after the cross-school fixture corrections and the database, backup, audit-atomicity and accessibility regression changes. Earlier runs exposed stale fixtures that were corrected before this passing run.
 
 ## Browser compatibility observations — live Version 0.3 preview only
 
@@ -49,11 +49,11 @@ Visual inspection was performed without signing in, submitting forms or changing
 - Footer remained visible when scrolling.
 - Document scroll width was 375 px against a 390 px viewport; no horizontal overflow was observed.
 
-These checks cover only the public login page. They do not verify authenticated role dashboards, student registration, finance, reports, homework or other staff workflows on the V4 branch.
+Additional public-route smoke checks confirmed that the home page, Features page and linked Request Staff Access page (`/admin/request-access`) loaded. The access form's visible controls were inspected but never submitted. These checks cover only public pages on the live Version 0.3 preview. They do not verify authenticated role dashboards, student registration, finance, reports, homework or other staff workflows on the V4 branch.
 
 ## Accessibility finding
 
-An axe-core audit of the live Version 0.3 login page found one moderate `region` violation: the `.release-notice` content was outside a landmark.
+Axe-core audits of the live Version 0.3 login, Features and Request Staff Access pages each found one moderate `region` violation: the `.release-notice` content was outside a landmark.
 
 The V4 branch changes that notice to a top-level `header` banner landmark and adds a template regression test asserting the banner, navigation, main and footer landmarks. This code has not been deployed, so the live service may continue to show the original issue until a separately approved release. Re-run axe on the deployed V4 build before release.
 
@@ -65,7 +65,7 @@ The V4 branch changes that notice to a top-level `header` banner landmark and ad
 | QA-02 | Critical | Scheduled, encrypted, off-host backup retention and operational restore drills are not configured | Open — helper and automated tests only |
 | QA-03 | High | Complete route-by-route authorization and cross-school review, including counselor and full parent/student workflows, is unfinished | Open — role matrix and regression tests added |
 | QA-04 | High | Authenticated desktop/mobile browser testing of the V4 candidate has not been run against a staging deployment | Open — live public login page only was inspected |
-| QA-05 | High | Latest full regression run for current candidate is queued; both Python versions must pass | Open — pending CI |
+| QA-05 | High | Latest full regression run for current candidate | Passed — Python 3.11 and 3.14 in run #45908697169 |
 | QA-06 | Medium | Historical schema upgrades remain consolidated in the startup migration function; ledger milestones do not yet represent one migration file per historical change | Documented limitation |
 | QA-07 | Moderate | Live Version 0.3 release notice is outside an accessibility landmark | V4 branch fix and regression test added; live service not changed |
 
@@ -89,7 +89,7 @@ This is not yet a production disaster-recovery service. Scheduling, encrypted ba
 **Status: BLOCKED — do not merge or deploy yet.**
 
 Required before production approval:
-1. Both current Python 3.11 and 3.14 CI jobs pass.
+1. Both current Python 3.11 and 3.14 CI jobs pass (latest run passed; repeat after any code changes).
 2. Complete route-by-route authorization review and tests for all roles and cross-school object access.
 3. A staging environment with durable database storage is configured and verified.
 4. Authenticated desktop/mobile end-to-end testing is completed using fictional test accounts and records.
