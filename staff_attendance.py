@@ -15,6 +15,7 @@ def register_staff_attendance_routes(ns):
     require_school_context = ns["require_school_context"]
     generate_password_hash = ns["generate_password_hash"]
     staff_roles = ns["STAFF_ROLES"]
+    class_levels = ns["TIMETABLE_CLASS_LEVELS"]
 
     staff_manage_roles = {"super_admin", "school_admin", "principal", "vice_principal"}
     attendance_report_roles = {
@@ -61,6 +62,63 @@ def register_staff_attendance_routes(ns):
             action = request.form.get("action", "").strip()
             connection = get_db_connection()
             try:
+                if action == "assign_teacher":
+                    teacher_text = request.form.get("teacher_id", "").strip()
+                    class_level = request.form.get("class_level", "").strip()
+                    subject = request.form.get("subject", "").strip()
+                    if (not teacher_text.isdigit() or class_level not in class_levels
+                            or not subject or len(subject) > 80
+                            or any(ord(ch) < 32 or ord(ch) == 127 for ch in subject)):
+                        abort(400)
+                    teacher = connection.execute(
+                        """SELECT id, username FROM users
+                           WHERE id = ? AND school_id = ? AND role = 'teacher'
+                             AND status = 'active' AND is_super_admin = 0""",
+                        (int(teacher_text), school_id),
+                    ).fetchone()
+                    if teacher is None:
+                        abort(404)
+                    connection.execute(
+                        """INSERT INTO teacher_class_assignments
+                           (school_id, teacher_id, class_level, subject, active, created_by)
+                           VALUES (?, ?, ?, ?, 1, ?)
+                           ON CONFLICT(school_id, teacher_id, class_level, subject)
+                           DO UPDATE SET active = 1, created_by = excluded.created_by,
+                                         updated_at = CURRENT_TIMESTAMP""",
+                        (school_id, teacher["id"], class_level, subject, int(current_user.id)),
+                    )
+                    audit_for_school(connection, "teacher_assignment_activated",
+                                     teacher["username"],
+                                     "class=" + class_level + "; subject=" + subject, school_id)
+                    connection.commit()
+                    flash("Teacher class and subject assignment saved.", "success")
+                    return redirect(url_for("staff_management"))
+
+                if action == "revoke_teacher_assignment":
+                    assignment_text = request.form.get("assignment_id", "").strip()
+                    if not assignment_text.isdigit():
+                        abort(400)
+                    assignment = connection.execute(
+                        """SELECT a.id, u.username FROM teacher_class_assignments a
+                           JOIN users u ON u.id = a.teacher_id AND u.school_id = a.school_id
+                           WHERE a.id = ? AND a.school_id = ? AND a.active = 1""",
+                        (int(assignment_text), school_id),
+                    ).fetchone()
+                    if assignment is None:
+                        abort(404)
+                    connection.execute(
+                        """UPDATE teacher_class_assignments
+                           SET active = 0, updated_at = CURRENT_TIMESTAMP
+                           WHERE id = ? AND school_id = ? AND active = 1""",
+                        (assignment["id"], school_id),
+                    )
+                    audit_for_school(connection, "teacher_assignment_revoked",
+                                     assignment["username"], "assignment_id=" + str(assignment["id"]),
+                                     school_id)
+                    connection.commit()
+                    flash("Teacher assignment revoked. Historical audit records are preserved.", "success")
+                    return redirect(url_for("staff_management"))
+
                 if action == "create":
                     username = request.form.get("username", "").strip()
                     full_name = request.form.get("full_name", "").strip()
@@ -167,12 +225,30 @@ def register_staff_attendance_routes(ns):
                 (school_id,),
             ).fetchone()
             school = connection.execute("SELECT name FROM schools WHERE id = ?", (school_id,)).fetchone()
+            teacher_assignments = connection.execute(
+                """SELECT a.id, a.class_level, a.subject, a.created_at, a.updated_at,
+                          u.id AS teacher_id, u.username, u.full_name
+                   FROM teacher_class_assignments a
+                   JOIN users u ON u.id = a.teacher_id AND u.school_id = a.school_id
+                   WHERE a.school_id = ? AND a.active = 1 AND u.role = 'teacher'
+                   ORDER BY a.class_level COLLATE NOCASE, a.subject COLLATE NOCASE,
+                            u.full_name COLLATE NOCASE""",
+                (school_id,),
+            ).fetchall()
+            teachers = connection.execute(
+                """SELECT id, username, full_name FROM users
+                   WHERE school_id = ? AND role = 'teacher' AND status = 'active'
+                     AND is_super_admin = 0
+                   ORDER BY full_name COLLATE NOCASE, username COLLATE NOCASE""",
+                (school_id,),
+            ).fetchall()
         finally:
             connection.close()
         return render_template(
             "staff_management.html", users=users, counts=counts, school=school,
             assignable_roles={key: staff_roles[key] for key in sorted(assignable) if key in staff_roles},
             manageable_roles=manageable, can_manage_roles=current_user.role in {"super_admin", "school_admin"},
+            teachers=teachers, teacher_assignments=teacher_assignments, class_levels=class_levels,
         )
 
     @app.route("/attendance-report", methods=["GET"])
