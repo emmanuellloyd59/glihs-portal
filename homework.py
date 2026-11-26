@@ -8,11 +8,19 @@ def register_homework_routes(ns):
     redirect, url_for = ns["redirect"], ns["url_for"]
     render_template, flash, abort = ns["render_template"], ns["flash"], ns["abort"]
     get_db_connection = ns["get_db_connection"]
-    require_school_context, write_audit = ns["require_school_context"], ns["write_audit"]
+    require_school_context = ns["require_school_context"]
     teacher_has_class_subject = ns["teacher_has_class_subject"]
     class_levels = ns["TIMETABLE_CLASS_LEVELS"]
     staff_roles = {"super_admin", "school_admin", "principal", "vice_principal", "academic_admin", "registrar", "teacher"}
     admin_roles = {"super_admin", "school_admin", "principal", "vice_principal", "academic_admin"}
+
+    def audit_in_transaction(connection, action, target, details, school_id):
+        connection.execute(
+            """INSERT INTO audit_log
+               (actor_user_id,action,target_username,details,school_id)
+               VALUES (?,?,?,?,?)""",
+            (int(current_user.id), action, target, details, school_id),
+        )
 
     # Additive tables only; existing school and student records are not reset.
     connection = get_db_connection()
@@ -146,8 +154,11 @@ def register_homework_routes(ns):
                         (school_id,class_level,subject,title,instructions,due_date,created_by)
                         VALUES (?,?,?,?,?,?,?)""",
                         (school_id,level,subject,title,instructions,due_date,int(current_user.id)))
+                    audit_in_transaction(
+                        connection, "homework_assignment_created", title,
+                        f"class={level}; due={due_date}", school_id,
+                    )
                     connection.commit()
-                    write_audit(current_user.id,"homework_assignment_created",title,f"class={level}; due={due_date}")
                     flash("Homework assignment published.","success")
                     return redirect(url_for("assignments"))
 
@@ -178,8 +189,10 @@ def register_homework_routes(ns):
                         score=NULL, feedback='', graded_by=NULL, graded_at=NULL
                         WHERE homework_submissions.school_id=excluded.school_id""",
                         (school_id,int(aid),student["id"],answer))
+                    audit_in_transaction(
+                        connection, "homework_submitted", aid, None, school_id,
+                    )
                     connection.commit()
-                    write_audit(current_user.id,"homework_submitted",aid)
                     flash("Your homework has been submitted.","success")
                     return redirect(url_for("assignments"))
 
@@ -218,10 +231,13 @@ def register_homework_routes(ns):
                         SET score=?,feedback=?,graded_by=?,graded_at=CURRENT_TIMESTAMP
                         WHERE id=? AND school_id=? AND assignment_id=?""",
                         (score, feedback, int(current_user.id), int(sid), school_id, assignment["id"]))
-                    connection.commit()
                     if result.rowcount != 1:
                         abort(404)
-                    write_audit(current_user.id,"homework_submission_graded",sid,f"score={score:g}")
+                    audit_in_transaction(
+                        connection, "homework_submission_graded", sid,
+                        f"score={score:g}", school_id,
+                    )
+                    connection.commit()
                     flash("Homework marked and feedback saved.","success")
                     return redirect(url_for("assignments"))
                 abort(400)
