@@ -187,6 +187,7 @@ def ensure_staff_hr_schema(connection):
                 CHECK (status IN ('pending','approved','rejected','cancelled')),
             requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             reviewed_by INTEGER REFERENCES users(id),
+            cancelled_by INTEGER REFERENCES users(id),
             reviewed_at TEXT,
             reviewer_note TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -195,6 +196,11 @@ def ensure_staff_hr_schema(connection):
             CHECK (reviewed_by IS NULL OR reviewed_by <> user_id)
         )
     """)
+    leave_columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(staff_leave_requests)").fetchall()
+    }
+    if "cancelled_by" not in leave_columns:
+        connection.execute("ALTER TABLE staff_leave_requests ADD COLUMN cancelled_by INTEGER REFERENCES users(id)")
     connection.execute("""
         CREATE INDEX IF NOT EXISTS idx_staff_leave_school_status
         ON staff_leave_requests(school_id,status,start_date,end_date)
@@ -343,6 +349,17 @@ def ensure_staff_hr_schema(connection):
               OR (NEW.updated_by IS NOT NULL AND
                   (SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
                   AND NOT ({_platform_actor_sql('NEW.updated_by')}))
+              OR (NEW.updated_by=NEW.user_id AND (
+                  NEW.employee_number IS NOT OLD.employee_number
+                  OR NEW.department_id IS NOT OLD.department_id
+                  OR NEW.position_id IS NOT OLD.position_id
+                  OR NEW.employment_type IS NOT OLD.employment_type
+                  OR NEW.employment_status IS NOT OLD.employment_status
+                  OR NEW.hire_date IS NOT OLD.hire_date
+                  OR NEW.contract_start_date IS NOT OLD.contract_start_date
+                  OR NEW.contract_end_date IS NOT OLD.contract_end_date
+                  OR NEW.verification_status IS NOT OLD.verification_status
+              ))
             BEGIN SELECT RAISE(ABORT,'staff profile school ownership mismatch'); END
         """),
         ("trg_staff_department_actor", f"""
@@ -353,12 +370,28 @@ def ensure_staff_hr_schema(connection):
                   AND NOT ({_platform_actor_sql('NEW.created_by')}))
             BEGIN SELECT RAISE(ABORT,'department actor school mismatch'); END
         """),
+        ("trg_staff_department_actor_update", f"""
+            CREATE TRIGGER trg_staff_department_actor_update
+            BEFORE UPDATE OF school_id,updated_by ON staff_departments
+            WHEN (NEW.updated_by IS NOT NULL AND
+                  (SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
+                  AND NOT ({_platform_actor_sql('NEW.updated_by')}))
+            BEGIN SELECT RAISE(ABORT,'department actor school mismatch'); END
+        """),
         ("trg_staff_position_actor", f"""
             CREATE TRIGGER trg_staff_position_actor
             BEFORE INSERT ON staff_positions
             WHEN (NEW.created_by IS NOT NULL AND
                   (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
                   AND NOT ({_platform_actor_sql('NEW.created_by')}))
+            BEGIN SELECT RAISE(ABORT,'position actor school mismatch'); END
+        """),
+        ("trg_staff_position_actor_update", f"""
+            CREATE TRIGGER trg_staff_position_actor_update
+            BEFORE UPDATE OF school_id,updated_by ON staff_positions
+            WHEN (NEW.updated_by IS NOT NULL AND
+                  (SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
+                  AND NOT ({_platform_actor_sql('NEW.updated_by')}))
             BEGIN SELECT RAISE(ABORT,'position actor school mismatch'); END
         """),
         ("trg_staff_employment_insert_guard", f"""
@@ -385,16 +418,29 @@ def ensure_staff_hr_schema(connection):
             BEFORE INSERT ON staff_attendance
             WHEN (SELECT school_id FROM users WHERE id=NEW.user_id) IS NOT NEW.school_id
               OR (SELECT role FROM users WHERE id=NEW.user_id) IN ('super_admin','student','parent')
-              OR (SELECT school_id FROM users WHERE id=NEW.recorded_by) IS NOT NEW.school_id
-                 AND NOT ({_platform_actor_sql('NEW.recorded_by')})
+              OR ((SELECT school_id FROM users WHERE id=NEW.recorded_by) IS NOT NEW.school_id
+                  AND NOT ({_platform_actor_sql('NEW.recorded_by')}))
+              OR (NEW.recorded_by=NEW.user_id AND
+                  (NEW.status IS NOT 'present' OR NEW.check_in_at IS NULL OR NEW.check_out_at IS NOT NULL))
+              OR (NEW.recorded_by<>NEW.user_id AND
+                  (SELECT role FROM users WHERE id=NEW.recorded_by) NOT IN
+                    ('super_admin','school_admin','principal','vice_principal','attendance_officer'))
             BEGIN SELECT RAISE(ABORT,'staff attendance school mismatch'); END
         """),
         ("trg_staff_attendance_update_guard", f"""
             CREATE TRIGGER trg_staff_attendance_update_guard
-            BEFORE UPDATE OF school_id,user_id,recorded_by ON staff_attendance
+            BEFORE UPDATE ON staff_attendance
             WHEN (SELECT school_id FROM users WHERE id=NEW.user_id) IS NOT NEW.school_id
-              OR (SELECT school_id FROM users WHERE id=NEW.recorded_by) IS NOT NEW.school_id
-                 AND NOT ({_platform_actor_sql('NEW.recorded_by')})
+              OR ((SELECT school_id FROM users WHERE id=NEW.recorded_by) IS NOT NEW.school_id
+                  AND NOT ({_platform_actor_sql('NEW.recorded_by')}))
+              OR (NEW.recorded_by=NEW.user_id AND (
+                  NEW.status IS NOT OLD.status OR NEW.note IS NOT OLD.note
+                  OR NEW.check_in_at IS NOT OLD.check_in_at
+                  OR NEW.school_id IS NOT OLD.school_id OR NEW.user_id IS NOT OLD.user_id
+              ))
+              OR (NEW.recorded_by<>NEW.user_id AND
+                  (SELECT role FROM users WHERE id=NEW.recorded_by) NOT IN
+                    ('super_admin','school_admin','principal','vice_principal','attendance_officer'))
             BEGIN SELECT RAISE(ABORT,'staff attendance school mismatch'); END
         """),
         ("trg_staff_leave_insert_guard", """
@@ -412,6 +458,18 @@ def ensure_staff_hr_schema(connection):
               OR (NEW.reviewed_by IS NOT NULL AND
                   (SELECT school_id FROM users WHERE id=NEW.reviewed_by) IS NOT NEW.school_id
                   AND NOT ({_platform_actor_sql('NEW.reviewed_by')}))
+              OR (NEW.status IN ('approved','rejected') AND (
+                  NEW.reviewed_by IS NULL
+                  OR (SELECT role FROM users WHERE id=NEW.reviewed_by) NOT IN
+                     ('super_admin','school_admin','principal','vice_principal')
+              ))
+              OR (NEW.status='cancelled' AND
+                  (NEW.cancelled_by IS NULL OR NEW.cancelled_by<>NEW.user_id))
+              OR (OLD.status<>'pending' AND NEW.status<>OLD.status)
+              OR (NEW.user_id IS NOT OLD.user_id OR NEW.school_id IS NOT OLD.school_id
+                  OR NEW.leave_type IS NOT OLD.leave_type
+                  OR NEW.start_date IS NOT OLD.start_date OR NEW.end_date IS NOT OLD.end_date
+                  OR NEW.reason IS NOT OLD.reason)
             BEGIN SELECT RAISE(ABORT,'staff leave reviewer school mismatch'); END
         """),
         ("trg_staff_reset_insert_guard", """
@@ -429,6 +487,14 @@ def ensure_staff_hr_schema(connection):
                   (SELECT school_id FROM users WHERE id=NEW.reviewed_by) IS NOT NEW.school_id
                   AND NOT ({_platform_actor_sql('NEW.reviewed_by')}))
             BEGIN SELECT RAISE(ABORT,'staff reset reviewer school mismatch'); END
+        """),
+        ("trg_school_role_permission_actor_update", f"""
+            CREATE TRIGGER trg_school_role_permission_actor_update
+            BEFORE UPDATE OF school_id,role,permission_key,updated_by ON school_role_permissions
+            WHEN NEW.updated_by IS NOT NULL
+             AND (SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
+             AND NOT ({_platform_actor_sql('NEW.updated_by')})
+            BEGIN SELECT RAISE(ABORT,'staff permission actor school mismatch'); END
         """),
         ("trg_school_role_permission_actor", f"""
             CREATE TRIGGER trg_school_role_permission_actor
