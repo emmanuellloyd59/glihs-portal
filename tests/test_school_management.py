@@ -57,6 +57,7 @@ class SchoolManagementTests(unittest.TestCase):
             session.clear()
 
     def login_as(self, username, password):
+        self.client.post("/logout")
         return self.client.post(
             "/login",
             data={"username": username, "password": password},
