@@ -1793,6 +1793,17 @@ def school_settings():
                 ):
                     flash("Academic-year start month must be between 1 and 12.", "danger")
                     return redirect(url_for("school_settings"))
+                if key == "currency_code":
+                    value = value.upper()
+                    if not re.fullmatch(r"[A-Z]{3}", value):
+                        flash("Currency must be a three-letter code.", "danger")
+                        return redirect(url_for("school_settings"))
+                if key == "timezone" and len(value) > 80:
+                    flash("Time zone must be at most 80 characters.", "danger")
+                    return redirect(url_for("school_settings"))
+                if key == "school_website" and not value.startswith(("https://", "http://")):
+                    flash("School website must start with http:// or https://.", "danger")
+                    return redirect(url_for("school_settings"))
                 if key == "school_email" and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
                     flash("Enter a valid school email address.", "danger")
                     return redirect(url_for("school_settings"))
