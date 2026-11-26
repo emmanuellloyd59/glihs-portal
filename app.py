@@ -2,6 +2,7 @@ import os
 import csv
 import secrets
 import sqlite3
+import re
 from pathlib import Path
 import uuid
 from werkzeug.utils import secure_filename
@@ -570,6 +571,10 @@ def initialize_database():
         connection.execute("""
             CREATE INDEX IF NOT EXISTS idx_school_calendar_school_year
             ON school_academic_calendars(school_id,academic_year,start_date)
+        """)
+        connection.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_school_calendar_one_active
+            ON school_academic_calendars(school_id) WHERE status='active'
         """)
         # Preserve existing approved school-admin accounts by recording their
         # current school assignment without changing user IDs or school ownership.
