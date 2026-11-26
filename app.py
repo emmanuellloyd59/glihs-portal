@@ -1568,6 +1568,50 @@ def platform_schools():
                 flash("School profile created in suspended state. Assign its school administrator, review its profile, then activate it.", "success")
                 return redirect(url_for("platform_schools"))
 
+            if action == "create_admin_account":
+                if not school_text.isdigit():
+                    flash("Select a school for the new administrator.", "danger")
+                    return redirect(url_for("platform_schools"))
+                school_id = int(school_text)
+                full_name = request.form.get("full_name", "").strip()
+                username = request.form.get("username", "").strip()
+                password = request.form.get("temporary_password", "")
+                if (
+                    not full_name or len(full_name) > 120
+                    or not re.fullmatch(r"[A-Za-z0-9_-]{3,64}", username)
+                    or len(password) < 12 or len(password) > 128
+                ):
+                    flash("Enter a full name, a 3–64 character username and a temporary password of 12–128 characters.", "danger")
+                    return redirect(url_for("platform_schools"))
+                connection.execute("BEGIN IMMEDIATE")
+                school_exists = connection.execute(
+                    "SELECT id FROM schools WHERE id=?", (school_id,)
+                ).fetchone()
+                if school_exists is None:
+                    connection.rollback()
+                    abort(404)
+                cursor = connection.execute(
+                    """INSERT INTO users
+                       (username,password_hash,role,status,is_super_admin,school_id,full_name,approved_by,approved_at)
+                       VALUES (?,?, 'school_admin','active',0,?,?,?,CURRENT_TIMESTAMP)""",
+                    (username, generate_password_hash(password), school_id,
+                     full_name, current_user.id),
+                )
+                user_id = cursor.lastrowid
+                connection.execute(
+                    """INSERT INTO school_admin_assignments
+                       (school_id,user_id,assigned_by,active)
+                       VALUES (?,?,?,1)""",
+                    (school_id, user_id, current_user.id),
+                )
+                write_audit_in_transaction(
+                    connection, current_user.id, "school_admin_account_created", username,
+                    "School administrator account and assignment created", school_id,
+                )
+                connection.commit()
+                flash("School administrator account created. Share the temporary password privately; access remains blocked while the school is suspended.", "success")
+                return redirect(url_for("platform_schools"))
+
             if not school_text.isdigit():
                 flash("Select a valid school.", "danger")
                 return redirect(url_for("platform_schools"))
