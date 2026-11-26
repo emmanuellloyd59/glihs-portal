@@ -1738,6 +1738,10 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
                 connection.close()
 
     def test_public_staff_request_cannot_bypass_student_parent_linking(self):
+        page = self.client.get("/admin/request-access")
+        self.assertEqual(page.status_code, 200)
+        self.assertNotIn(b'value="student"', page.data)
+        self.assertNotIn(b'value="parent"', page.data)
         for role in ("student", "parent"):
             username = "unverified_" + role
             response = self.client.post("/admin/request-access", data={
