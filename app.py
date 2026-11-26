@@ -1189,14 +1189,14 @@ def request_staff_access():
 
         if not full_name or not username or requested_role not in STAFF_REQUEST_ROLES:
             flash("Complete all fields and choose a valid staff role.", "danger")
-            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
+            return render_template("admin_request.html", roles=STAFF_REQUEST_ROLES, schools=schools)
 
         if len(full_name) > 120 or len(username) > 64:
             flash("Name or username is too long.", "danger")
-            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
+            return render_template("admin_request.html", roles=STAFF_REQUEST_ROLES, schools=schools)
         if not username.replace("_", "").replace("-", "").isalnum():
             flash("Use only letters, numbers, underscores or hyphens in the username.", "danger")
-            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
+            return render_template("admin_request.html", roles=STAFF_REQUEST_ROLES, schools=schools)
 
         # The server resolves the submitted slug against active schools. The client
         # never supplies a school ID, and requests remain pending until approval.
@@ -1215,11 +1215,11 @@ def request_staff_access():
             return redirect(url_for("login"))
         except sqlite3.IntegrityError:
             flash("That username is already in use or has a request pending.", "danger")
-            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
+            return render_template("admin_request.html", roles=STAFF_REQUEST_ROLES, schools=schools)
         finally:
             connection.close()
 
-    return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
+    return render_template("admin_request.html", roles=STAFF_REQUEST_ROLES, schools=schools)
 
 
 @app.route("/admin/users", methods=["GET", "POST"])
@@ -2794,6 +2794,16 @@ def finance_payments():
             if not finance:
                 flash("Set up the student's fee record before recording a payment.", "danger")
                 return redirect(url_for("student_finances", academic_year=academic_year))
+            ledger = connection.execute(
+                """SELECT COUNT(*) AS payment_count,
+                          COALESCE(SUM(CAST(ROUND(amount * 100) AS INTEGER)), 0) AS paid_cents
+                   FROM finance_payments
+                   WHERE student_id=? AND school_id=? AND academic_year=?""",
+                (student_id, school_id, academic_year),
+            ).fetchone()
+            if ledger["payment_count"] and paid_cents != ledger["paid_cents"]:
+                flash("The payment ledger does not match the fee summary. Reconcile the existing record before accepting another payment.", "danger")
+                return redirect(url_for("finance_payments"))
             # Compare integer cents rather than binary floats, preventing a
             # fractional-cent overpayment from slipping through a tolerance.
             total_fee_cents = int(round(float(finance["total_fee"]) * 100))
