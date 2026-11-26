@@ -112,5 +112,131 @@ class DatabaseMigrationTests(unittest.TestCase):
                 portal.DATABASE = original_database
 
 
+    def test_migration_is_atomic_when_legacy_user_copy_fails(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "interrupted_migration.db"
+            connection = sqlite3.connect(database_path)
+            connection.execute(
+                """CREATE TABLE users (
+                    id INTEGER PRIMARY KEY,
+                    username TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL
+                )"""
+            )
+            connection.execute(
+                "INSERT INTO users (id,username,password_hash,role) VALUES (9,'legacy_bad','hash','invalid_role')"
+            )
+            connection.commit()
+            connection.close()
+
+            original_database = portal.DATABASE
+            portal.DATABASE = database_path
+            try:
+                with self.assertRaises(sqlite3.IntegrityError):
+                    portal.initialize_database()
+                check = sqlite3.connect(database_path)
+                try:
+                    user = check.execute(
+                        "SELECT id,username,password_hash,role FROM users WHERE id=9"
+                    ).fetchone()
+                    migrating_table = check.execute(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='users_migrating'"
+                    ).fetchone()[0]
+                    self.assertEqual(user, (9, "legacy_bad", "hash", "invalid_role"))
+                    self.assertEqual(migrating_table, 0)
+                finally:
+                    check.close()
+            finally:
+                portal.DATABASE = original_database
+
+    def test_migration_is_idempotent_and_school_relationships_are_enforced(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "tenant_integrity.db"
+            original_database = portal.DATABASE
+            portal.DATABASE = database_path
+            try:
+                portal.initialize_database()
+                connection = portal.get_db_connection()
+                try:
+                    connection.execute(
+                        "INSERT INTO schools (id,name,slug) VALUES (2,'Second School','second-school')"
+                    )
+                    parent_one = connection.execute(
+                        """INSERT INTO users (username,password_hash,role,status,is_super_admin,school_id)
+                           VALUES ('parent_one','hash','parent','active',0,1)"""
+                    ).lastrowid
+                    parent_two = connection.execute(
+                        """INSERT INTO users (username,password_hash,role,status,is_super_admin,school_id)
+                           VALUES ('parent_two','hash','parent','active',0,2)"""
+                    ).lastrowid
+                    student = connection.execute(
+                        """INSERT INTO students
+                           (admission_number,full_name,class_level,school_id)
+                           VALUES ('TENANT-001','Fictional Tenant Student','Grade 7',1)"""
+                    ).lastrowid
+                    updater = connection.execute(
+                        "SELECT id FROM users WHERE school_id=1 LIMIT 1"
+                    ).fetchone()["id"]
+                    connection.execute(
+                        """INSERT INTO parent_student_links (parent_user_id,student_id,school_id,created_by)
+                           VALUES (?,?,1,?)""",
+                        (parent_one, student, updater),
+                    )
+                    connection.commit()
+
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            """INSERT INTO parent_student_links
+                               (parent_user_id,student_id,school_id,created_by)
+                               VALUES (?,?,1,?)""",
+                            (parent_two, student, updater),
+                        )
+                    connection.rollback()
+
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            """INSERT INTO student_finances
+                               (student_id,academic_year,total_fee,amount_paid,updated_by,school_id)
+                               VALUES (?,'2026-2027',8000,0,?,2)""",
+                            (student, updater),
+                        )
+                    connection.rollback()
+
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            "UPDATE students SET account_user_id=? WHERE id=?",
+                            (parent_two, student),
+                        )
+                    connection.rollback()
+                finally:
+                    connection.close()
+
+                # A second startup migration must preserve the parent-child link.
+                portal.initialize_database()
+                verify = portal.get_db_connection()
+                try:
+                    self.assertEqual(
+                        verify.execute(
+                            "SELECT COUNT(*) FROM parent_student_links WHERE school_id=1"
+                        ).fetchone()[0],
+                        1,
+                    )
+                    self.assertEqual(
+                        verify.execute("PRAGMA foreign_key_check").fetchall(),
+                        [],
+                    )
+                    self.assertEqual(
+                        verify.execute(
+                            "SELECT COUNT(*) FROM students WHERE admission_number='TENANT-001'"
+                        ).fetchone()[0],
+                        1,
+                    )
+                finally:
+                    verify.close()
+            finally:
+                portal.DATABASE = original_database
+
+
 if __name__ == "__main__":
     unittest.main()
