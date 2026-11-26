@@ -2801,13 +2801,13 @@ def finance_payments():
                    WHERE student_id=? AND school_id=? AND academic_year=?""",
                 (student_id, school_id, academic_year),
             ).fetchone()
-            if ledger["payment_count"] and paid_cents != ledger["paid_cents"]:
-                flash("The payment ledger does not match the fee summary. Reconcile the existing record before accepting another payment.", "danger")
-                return redirect(url_for("finance_payments"))
             # Compare integer cents rather than binary floats, preventing a
             # fractional-cent overpayment from slipping through a tolerance.
             total_fee_cents = int(round(float(finance["total_fee"]) * 100))
             paid_cents = int(round(float(finance["amount_paid"]) * 100))
+            if ledger["payment_count"] and paid_cents != ledger["paid_cents"]:
+                flash("The payment ledger does not match the fee summary. Reconcile the existing record before accepting another payment.", "danger")
+                return redirect(url_for("finance_payments"))
             if amount_cents > total_fee_cents - paid_cents:
                 flash("Payment exceeds the outstanding balance. Reconcile the fee record first.", "danger")
                 return redirect(url_for("finance_payments"))
