@@ -1254,6 +1254,66 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             connection.close()
 
 
+    def test_homework_assignment_and_audit_event_roll_back_together(self):
+        connection = portal.get_db_connection()
+        try:
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username='teacher_route_test'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO teacher_class_assignments
+                   (school_id,teacher_id,class_level,subject,active,created_by)
+                   VALUES (1,?,'Grade 7','Mathematics',1,?)""",
+                (teacher_id, teacher_id),
+            )
+            connection.execute("""
+                CREATE TRIGGER fail_homework_audit
+                BEFORE INSERT ON audit_log
+                WHEN NEW.action='homework_assignment_created'
+                BEGIN
+                    SELECT RAISE(ABORT,'simulated homework audit failure');
+                END
+            """)
+            connection.commit()
+        finally:
+            connection.close()
+
+        try:
+            self.login_as("teacher_route_test")
+            with self.assertRaises(sqlite3.IntegrityError):
+                self.client.post("/assignments", data={
+                    "action": "create",
+                    "class_level": "Grade 7",
+                    "subject": "Mathematics",
+                    "title": "Fictional rollback assignment",
+                    "instructions": "This should not persist without its audit event.",
+                    "due_date": "2099-01-01",
+                })
+            connection = portal.get_db_connection()
+            try:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM homework_assignments WHERE title='Fictional rollback assignment'"
+                    ).fetchone()[0],
+                    0,
+                )
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM audit_log WHERE action='homework_assignment_created'"
+                    ).fetchone()[0],
+                    0,
+                )
+            finally:
+                connection.close()
+        finally:
+            connection = portal.get_db_connection()
+            try:
+                connection.execute("DROP TRIGGER IF EXISTS fail_homework_audit")
+                connection.commit()
+            finally:
+                connection.close()
+
+
     def test_homework_database_guards_reject_cross_school_author_and_submission_links(self):
         connection = portal.get_db_connection()
         try:
