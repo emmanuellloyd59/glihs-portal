@@ -251,6 +251,66 @@ class SchoolManagementTests(unittest.TestCase):
         self.assertEqual(self.client.get("/school/settings").status_code, 403)
         self.assertEqual(self.client.get("/school/academic-calendar").status_code, 403)
 
+    def test_last_school_admin_cannot_be_revoked_or_suspended_while_school_is_active(self):
+        self.login_as("v5_platform_admin", "V5-Platform-Admin-Password!")
+        school_id, admin_id = self.create_school_and_admin("v5-test-campus-a", "v5_admin_a")
+        connection = portal.get_db_connection()
+        try:
+            assignment_id = connection.execute(
+                """SELECT id FROM school_admin_assignments
+                   WHERE school_id=? AND user_id=? AND active=1""",
+                (school_id, admin_id),
+            ).fetchone()["id"]
+        finally:
+            connection.close()
+        self.client.post("/platform/schools", data={
+            "action": "revoke_admin", "school_id": str(school_id),
+            "assignment_id": str(assignment_id),
+        })
+        self.client.post("/admin/users", data={
+            "action": "suspend", "user_id": str(admin_id),
+        })
+        connection = portal.get_db_connection()
+        try:
+            assignment = connection.execute(
+                """SELECT active FROM school_admin_assignments
+                   WHERE id=?""", (assignment_id,)
+            ).fetchone()
+            user = connection.execute(
+                "SELECT status FROM users WHERE id=?", (admin_id,)
+            ).fetchone()
+            self.assertEqual(assignment["active"], 1)
+            self.assertEqual(user["status"], "active")
+        finally:
+            connection.close()
+
+    def test_school_admin_without_active_assignment_is_denied(self):
+        self.login_as("v5_platform_admin", "V5-Platform-Admin-Password!")
+        self.client.post("/platform/schools", data={
+            "action": "create", "name": "Unassigned School",
+            "slug": "v5-test-unassigned", "country_code": "LR",
+            "timezone": "Africa/Monrovia", "currency_code": "LRD",
+            "contact_email": "",
+        })
+        connection = portal.get_db_connection()
+        try:
+            school_id = connection.execute(
+                "SELECT id FROM schools WHERE slug='v5-test-unassigned'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO users
+                   (username,password_hash,role,status,is_super_admin,school_id)
+                   VALUES ('v5_unassigned_admin',?,'school_admin','active',0,?)""",
+                (generate_password_hash("V5-Temporary-Password!"), school_id),
+            )
+            connection.execute("UPDATE schools SET status='active' WHERE id=?", (school_id,))
+            connection.commit()
+        finally:
+            connection.close()
+        self.login_as("v5_unassigned_admin", "V5-Temporary-Password!")
+        self.assertEqual(self.client.get("/school/settings").status_code, 403)
+        self.assertEqual(self.client.get("/school/academic-calendar").status_code, 403)
+
     def test_default_cmhs_school_cannot_be_suspended(self):
         self.login_as("v5_platform_admin", "V5-Platform-Admin-Password!")
         self.client.post("/platform/schools", data={
