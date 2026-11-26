@@ -2352,6 +2352,13 @@ class StaffAndAttendanceReportTests(PortalTestSupport, unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(b"Other School Student", response.data)
+        exported = self.client.get(
+            "/attendance-report?start_date=2026-10-01&end_date=2026-10-22&export=csv"
+        )
+        self.assertEqual(exported.status_code, 200)
+        self.assertIn("text/csv", exported.content_type)
+        self.assertNotIn(b"Other School Student", exported.data)
+        self.assertNotIn(b"OTHER-001", exported.data)
 
     def test_staff_manager_cannot_change_account_in_another_school(self):
         connection = portal.get_db_connection()
