@@ -649,6 +649,17 @@ def initialize_database():
             ("trg_student_account_school_update", "BEFORE UPDATE OF account_user_id, school_id ON students",
              "NEW.account_user_id IS NOT NULL AND "
              "(SELECT school_id FROM users WHERE id=NEW.account_user_id) IS NOT NEW.school_id"),
+            ("trg_student_school_dependents_update", "BEFORE UPDATE OF school_id ON students",
+             "EXISTS (SELECT 1 FROM parent_student_links WHERE student_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM student_finances WHERE student_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM grades WHERE student_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM attendance WHERE student_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM report_cards WHERE student_id=OLD.id AND school_id IS NOT NEW.school_id)"),
+            ("trg_user_school_dependents_update", "BEFORE UPDATE OF school_id ON users",
+             "EXISTS (SELECT 1 FROM students WHERE account_user_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM parent_student_links WHERE parent_user_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM teacher_class_assignments WHERE teacher_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM class_timetable WHERE teacher_id=OLD.id AND school_id IS NOT NEW.school_id)"),
             ("trg_parent_link_school_insert", "BEFORE INSERT ON parent_student_links",
              "(SELECT school_id FROM users WHERE id=NEW.parent_user_id) IS NOT NEW.school_id "
              "OR (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id"),
