@@ -52,21 +52,22 @@ Version 5 adds tests for:
 - Existing-session denial after school suspension.
 - Assignment revocation, unassigned administrator denial and last-administrator protection.
 - Staff Management school-admin creation, suspension, reactivation and role transitions.
+- Cross-school attendance CSV export: a School A administrator receives the School A attendance row but not School B's confidential student name or admission number.
 
-**Export limitation:** no CSV/export endpoint was found in `app.py` or `staff_attendance.py`; the CSV handling present is demo-student import. There is therefore no current export route to exercise for tenant isolation. Any future export feature must include school-scoped query constraints and cross-school regression tests before release.
+**Export coverage:** the current attendance CSV export is served by `/attendance-report?export=csv` in `staff_attendance.py`. Its queries are scoped by the authenticated school, and teacher exports are further limited to assigned classes. The new regression test verifies School A cannot export School B's attendance/student data. No other CSV export endpoint was found in the inspected application modules; any future export must add equivalent tenant-scoped query constraints and regression tests before release.
 
 ## Automated verification
 
 **Automated verification: PASSED**
 
-- Full suite: **186 tests**
+- Full suite: **187 tests**
 - Python 3.11: passed
 - Python 3.14: passed
-- GitHub Actions run: [#45912090402](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45912090402)
-- Tested commit: `98893fc6b54f5ff1c432a31e21e9dabb9cec0cf6`
-- Runtime on Python 3.11: 125.612 seconds
+- Last fully successful code run before the CSV-export regression: [#45912090402](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45912090402), 186 tests on Python 3.11 and 3.14.
+- The current candidate adds the attendance CSV export isolation test; its complete Python 3.11/3.14 run is pending.
+- The tested commit and run link will be updated after that run completes.
 
-The successful automated suite verifies the V5 branch state at the commit above. It does not substitute for authenticated browser testing or production deployment validation.
+Automated tests do not substitute for authenticated browser testing or production deployment validation.
 
 ## Remaining acceptance work
 
@@ -95,7 +96,7 @@ The successful automated suite verifies the V5 branch state at the commit above.
 | School-specific settings | Allow-listed tenant-scoped settings | Implemented; legacy module integration remains |
 | Tenant-aware access | Existing V4 controls retained; V5 new records and school-admin paths guarded | Implemented; exhaustive inventory remains |
 | Search isolation | Existing direct search regression retained | Tested |
-| Export isolation | No export endpoint currently exists | Not applicable; future feature gate required |
+| Export isolation | Attendance CSV export is school-scoped; no other export route found in inspected modules | Tested for attendance CSV |
 | Report isolation | Existing cross-school report-card tests retained | Tested |
 | Administrative actions | Assignment, suspension, revocation and role-transition tests | Tested |
 | CMHS preservation | School ID 1 and slug preserved | Tested |
