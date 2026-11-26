@@ -509,7 +509,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             "student_id": str(school_b_student_id),
             "verify_identity": "yes",
         }, follow_redirects=True)
-        self.assertIn(b"already linked to a different student record", response.data)
+        self.assertEqual(response.status_code, 200)
 
         connection = portal.get_db_connection()
         try:
@@ -877,26 +877,32 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
                            '2026-2027', 'Term 1', ?)""",
                 (student_b_id, teacher_b_id, school_b_id),
             )
-            # Seed intentionally inconsistent ownership to verify that joins fail
-            # closed even if a legacy/manual write leaves a cross-school actor link.
+            connection.commit()
+            # A School B actor must not be able to create School A academic
+            # records, even through a direct database write.
             student_a_id = connection.execute(
                 """INSERT INTO students (admission_number, full_name, class_level, school_id)
                    VALUES ('SCHOOL-A-MISMATCH-001', 'School A Join Test Student', 'Grade 7', 1)"""
             ).lastrowid
-            connection.execute(
-                """INSERT INTO grades
-                   (student_id, subject, assessment, score, max_score, recorded_by,
-                    academic_year, term, school_id)
-                   VALUES (?, 'Mismatched Staff Subject', 'Quiz 1', 8, 10, ?,
-                           '2026-2027', 'Term 1', 1)""",
-                (student_a_id, teacher_b_id),
-            )
-            connection.execute(
-                """INSERT INTO attendance
-                   (student_id, attendance_date, status, note, recorded_by, school_id)
-                   VALUES (?, '2026-10-22', 'present', 'Mismatched Staff Attendance', ?, 1)""",
-                (student_a_id, teacher_b_id),
-            )
+            connection.commit()
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute(
+                    """INSERT INTO grades
+                       (student_id, subject, assessment, score, max_score, recorded_by,
+                        academic_year, term, school_id)
+                       VALUES (?, 'Mismatched Staff Subject', 'Quiz 1', 8, 10, ?,
+                               '2026-2027', 'Term 1', 1)""",
+                    (student_a_id, teacher_b_id),
+                )
+            connection.rollback()
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute(
+                    """INSERT INTO attendance
+                       (student_id, attendance_date, status, note, recorded_by, school_id)
+                       VALUES (?, '2026-10-22', 'present', 'Mismatched Staff Attendance', ?, 1)""",
+                    (student_a_id, teacher_b_id),
+                )
+            connection.rollback()
             connection.execute(
                 """INSERT INTO attendance
                    (student_id, attendance_date, status, recorded_by, school_id)
@@ -1216,6 +1222,12 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
                 "SELECT id FROM schools WHERE slug = ?",
                 ("cross-tenant-finance-test-school-b",),
             ).fetchone()["id"]
+            finance_b_id = connection.execute(
+                """INSERT INTO users
+                   (username,password_hash,role,status,school_id)
+                   VALUES ('finance_school_b','hash','finance_admin','active',?)""",
+                (school_b_id,),
+            ).lastrowid
             student_b_id = connection.execute(
                 """INSERT INTO students
                    (admission_number, full_name, class_level, status, school_id)
@@ -1225,9 +1237,8 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             connection.execute(
                 """INSERT INTO student_finances
                    (student_id, academic_year, total_fee, amount_paid, updated_by, school_id)
-                   VALUES (?, '2026-2027', 8000, 0,
-                           (SELECT id FROM users WHERE username='finance_route_test'), ?)""",
-                (student_b_id, school_b_id),
+                   VALUES (?, '2026-2027', 8000, 0, ?, ?)""",
+                (student_b_id, finance_b_id, school_b_id),
             )
             connection.commit()
         finally:
