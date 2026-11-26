@@ -581,6 +581,46 @@ def initialize_database():
             "CREATE INDEX IF NOT EXISTS idx_timetable_school_day_time "
             "ON class_timetable(school_id, weekday, start_time, end_time)"
         )
+        # Teacher authorization is independent from timetable scheduling. The
+        # timetable remains the source for lesson slots; assignments persist when
+        # an individual lesson is edited or deleted.
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS teacher_class_assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                school_id INTEGER NOT NULL REFERENCES schools(id),
+                teacher_id INTEGER NOT NULL REFERENCES users(id),
+                class_level TEXT NOT NULL,
+                subject TEXT NOT NULL COLLATE NOCASE,
+                active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+                created_by INTEGER REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(school_id, teacher_id, class_level, subject)
+            )
+        """)
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_teacher_assignments_lookup "
+            "ON teacher_class_assignments(school_id, teacher_id, active, class_level)"
+        )
+        # Idempotently preserve all legacy timetable-derived teacher permissions.
+        connection.execute("""
+            INSERT OR IGNORE INTO teacher_class_assignments
+                (school_id, teacher_id, class_level, subject, created_by)
+            SELECT DISTINCT school_id, teacher_id, class_level, subject, created_by
+            FROM class_timetable
+        """)
+        # Keep direct timetable creation paths and older integrations compatible.
+        # Deliberately no delete trigger: removing a lesson must not revoke access.
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_timetable_teacher_assignment_insert
+            AFTER INSERT ON class_timetable
+            BEGIN
+                INSERT OR IGNORE INTO teacher_class_assignments
+                    (school_id, teacher_id, class_level, subject, created_by)
+                VALUES (NEW.school_id, NEW.teacher_id, NEW.class_level,
+                        NEW.subject, NEW.created_by);
+            END
+        """)
         connection.commit()
         connection.execute("PRAGMA foreign_keys = ON")
     finally:
@@ -778,19 +818,19 @@ def require_school_context():
 
 
 def teacher_assigned_class_levels(connection, teacher_id, school_id):
-    """Return class levels explicitly assigned to a teacher through the approved timetable."""
+    """Return active class levels from the canonical school-scoped assignment table."""
     rows = connection.execute(
-        """SELECT DISTINCT class_level FROM class_timetable
-           WHERE school_id = ? AND teacher_id = ?""",
+        """SELECT DISTINCT class_level FROM teacher_class_assignments
+           WHERE school_id = ? AND teacher_id = ? AND active = 1 AND active = 1""",
         (int(school_id), int(teacher_id)),
     ).fetchall()
     return {row["class_level"] for row in rows}
 
 
 def teacher_has_class_subject(connection, teacher_id, school_id, class_level, subject=None):
-    """Check the teacher's server-side class/subject assignment; never trust posted IDs alone."""
-    sql = """SELECT 1 FROM class_timetable
-             WHERE school_id = ? AND teacher_id = ? AND class_level = ?"""
+    """Check canonical teacher assignment; never trust posted IDs or timetable slots."""
+    sql = """SELECT 1 FROM teacher_class_assignments
+             WHERE school_id = ? AND teacher_id = ? AND active = 1 AND class_level = ? AND active = 1"""
     params = [int(school_id), int(teacher_id), str(class_level)]
     if subject is not None:
         sql += " AND lower(subject) = lower(?)"
@@ -1420,8 +1460,8 @@ def academics():
             """SELECT id, admission_number, full_name, class_level FROM students
                WHERE school_id = ? AND status = 'active'
                  AND (? <> 'teacher' OR class_level IN (
-                     SELECT class_level FROM class_timetable
-                     WHERE school_id = ? AND teacher_id = ?
+                     SELECT class_level FROM teacher_class_assignments
+                     WHERE school_id = ? AND teacher_id = ? AND active = 1
                  ))
                ORDER BY class_level, full_name""",
             (school_id, current_user.role, school_id, int(current_user.id)),
@@ -1438,8 +1478,8 @@ def academics():
                 """SELECT id, class_level FROM students
                    WHERE id = ? AND school_id = ? AND status = 'active'
                      AND (? <> 'teacher' OR class_level IN (
-                         SELECT class_level FROM class_timetable
-                         WHERE school_id = ? AND teacher_id = ?
+                         SELECT class_level FROM teacher_class_assignments
+                         WHERE school_id = ? AND teacher_id = ? AND active = 1
                      ))""",
                 (student_id, school_id, current_user.role, school_id, int(current_user.id)),
             ).fetchone()
@@ -1535,12 +1575,12 @@ def academics():
                WHERE g.school_id = ? AND s.school_id = ?
                  AND (? <> 'teacher' OR (
                      s.class_level IN (
-                         SELECT class_level FROM class_timetable
-                         WHERE school_id = g.school_id AND teacher_id = ?
+                         SELECT class_level FROM teacher_class_assignments
+                         WHERE school_id = g.school_id AND teacher_id = ? AND active = 1
                      )
                      AND lower(g.subject) IN (
-                         SELECT lower(subject) FROM class_timetable
-                         WHERE school_id = g.school_id AND teacher_id = ?
+                         SELECT lower(subject) FROM teacher_class_assignments
+                         WHERE school_id = g.school_id AND teacher_id = ? AND active = 1
                            AND class_level = s.class_level
                      )
                  ))
@@ -1554,8 +1594,8 @@ def academics():
                JOIN users u ON u.id = a.recorded_by AND u.school_id = a.school_id
                WHERE a.school_id = ? AND s.school_id = ?
                  AND (? <> 'teacher' OR s.class_level IN (
-                     SELECT class_level FROM class_timetable
-                     WHERE school_id = a.school_id AND teacher_id = ?
+                     SELECT class_level FROM teacher_class_assignments
+                     WHERE school_id = a.school_id AND teacher_id = ? AND active = 1
                  ))
                ORDER BY a.attendance_date DESC, a.id DESC LIMIT 100""",
             (school_id, school_id, current_user.role, int(current_user.id)),
@@ -1769,8 +1809,8 @@ def report_cards():
             """SELECT id, admission_number, full_name, class_level FROM students
                WHERE school_id = ? AND status = 'active'
                  AND (? <> 'teacher' OR class_level IN (
-                     SELECT class_level FROM class_timetable
-                     WHERE school_id = ? AND teacher_id = ?
+                     SELECT class_level FROM teacher_class_assignments
+                     WHERE school_id = ? AND teacher_id = ? AND active = 1
                  ))
                ORDER BY class_level, full_name""",
             (report_school_id, current_user.role, report_school_id, int(current_user.id)),
@@ -1787,8 +1827,8 @@ def report_cards():
                 """SELECT id, admission_number, full_name, class_level FROM students
                    WHERE id = ? AND school_id = ? AND status = 'active'
                      AND (? <> 'teacher' OR class_level IN (
-                         SELECT class_level FROM class_timetable
-                         WHERE school_id = ? AND teacher_id = ?
+                         SELECT class_level FROM teacher_class_assignments
+                         WHERE school_id = ? AND teacher_id = ? AND active = 1
                      ))""",
                 (student_id, report_school_id, current_user.role, report_school_id, int(current_user.id)),
             ).fetchone()
@@ -1834,8 +1874,8 @@ def report_cards():
                 """SELECT subject, score, max_score, assessment FROM grades
                    WHERE student_id = ? AND school_id = ? AND academic_year = ? AND term = ?
                      AND (? <> 'teacher' OR lower(subject) IN (
-                         SELECT lower(subject) FROM class_timetable
-                         WHERE school_id = ? AND teacher_id = ? AND class_level = ?
+                         SELECT lower(subject) FROM teacher_class_assignments
+                         WHERE school_id = ? AND teacher_id = ? AND active = 1 AND class_level = ?
                      ))
                    ORDER BY subject COLLATE NOCASE, assessment COLLATE NOCASE""",
                 (student_id, report_school_id, academic_year, term, current_user.role,
@@ -1991,8 +2031,8 @@ def student_detail(student_id):
                 FROM students s
                 WHERE s.id = ? AND s.school_id = ?
                   AND (? <> 'teacher' OR s.class_level IN (
-                      SELECT class_level FROM class_timetable
-                      WHERE school_id = s.school_id AND teacher_id = ?
+                      SELECT class_level FROM teacher_class_assignments
+                      WHERE school_id = s.school_id AND teacher_id = ? AND active = 1
                   ))""",
             (student_id, detail_school_id, current_user.role, int(current_user.id)),
         ).fetchone()
@@ -2015,8 +2055,8 @@ def student_detail(student_id):
             """SELECT subject, assessment, score, max_score, academic_year, term, created_at
                FROM grades WHERE student_id = ? AND school_id = ?
                  AND (? <> 'teacher' OR lower(subject) IN (
-                     SELECT lower(subject) FROM class_timetable
-                     WHERE school_id = ? AND teacher_id = ? AND class_level = ?
+                     SELECT lower(subject) FROM teacher_class_assignments
+                     WHERE school_id = ? AND teacher_id = ? AND active = 1 AND class_level = ?
                  ))
                ORDER BY created_at DESC, id DESC LIMIT 12""",
             (student_id, detail_school_id, current_user.role, detail_school_id,
@@ -2159,8 +2199,8 @@ def list_students():
               AND (? = '' OR s.full_name LIKE ? OR s.admission_number LIKE ?
                    OR COALESCE(s.student_id_number, '') LIKE ?)
               AND (? <> 'teacher' OR s.class_level IN (
-                  SELECT class_level FROM class_timetable
-                  WHERE school_id = s.school_id AND teacher_id = ?
+                  SELECT class_level FROM teacher_class_assignments
+                  WHERE school_id = s.school_id AND teacher_id = ? AND active = 1
               ))
             ORDER BY s.class_level, s.full_name COLLATE NOCASE
             """,
@@ -2170,8 +2210,8 @@ def list_students():
             """SELECT DISTINCT s.class_level FROM students s
                WHERE s.school_id = ?
                  AND (? <> 'teacher' OR s.class_level IN (
-                     SELECT class_level FROM class_timetable
-                     WHERE school_id = s.school_id AND teacher_id = ?
+                     SELECT class_level FROM teacher_class_assignments
+                     WHERE school_id = s.school_id AND teacher_id = ? AND active = 1
                  ))
                ORDER BY s.class_level COLLATE NOCASE""",
             (require_school_context(), current_user.role, int(current_user.id)),
