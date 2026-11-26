@@ -1550,6 +1550,9 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         for username, password in accounts:
             self.client.post("/logout")
             self.login_as(username, password)
+            dashboard = self.client.get("/dashboard")
+            self.assertEqual(dashboard.status_code, 200, username)
+            self.assertIn(b"Register Student", dashboard.data, username)
             response = self.client.get("/students/register")
             self.assertEqual(response.status_code, 200, username)
             self.assertIn(b"Register Student", response.data, username)
