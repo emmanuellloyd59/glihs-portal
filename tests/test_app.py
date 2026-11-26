@@ -85,6 +85,21 @@ class PortalTestSupport:
             follow_redirects=True,
         )
 
+    def _assign_teacher(self, class_level="Grade 7", subject="Mathematics"):
+        connection = portal.get_db_connection()
+        teacher = connection.execute(
+            "SELECT id FROM users WHERE username='teacher_demo'"
+        ).fetchone()
+        connection.execute(
+            """INSERT INTO class_timetable
+               (school_id, class_level, subject, teacher_id, weekday, start_time,
+                end_time, room, created_by)
+               VALUES (1, ?, ?, ?, 'Monday', '08:00', '09:00', '', ?)""",
+            (class_level, subject, teacher["id"], teacher["id"]),
+        )
+        connection.commit()
+        connection.close()
+
 
 
 
@@ -204,6 +219,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertNotIn(b"Registered Students", response.data)
 
     def test_teacher_can_register_and_search_student_record(self):
+        self._assign_teacher("Grade 7", "Mathematics")
         self.login_as("teacher_demo", "test-teacher-password")
         response = self.client.post(
             "/students/register",
@@ -456,6 +472,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
 
 
     def test_teacher_can_save_grade_and_attendance(self):
+        self._assign_teacher("Grade 7", "Mathematics")
         self.login_as("teacher_demo", "test-teacher-password")
         connection = portal.get_db_connection()
         connection.execute(
@@ -651,6 +668,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
             connection.close()
 
     def test_teacher_student_list_hides_private_fields(self):
+        self._assign_teacher("Grade 7", "Mathematics")
         connection = portal.get_db_connection()
         connection.execute(
             """INSERT INTO students
@@ -1635,6 +1653,7 @@ class HomeworkAssignmentTests(PortalTestSupport, unittest.TestCase):
         return row["id"]
 
     def test_teacher_can_publish_assignment(self):
+        self._assign_teacher("Grade 7", "Mathematics")
         self.login_as("teacher_demo", "test-teacher-password")
         response = self._create_assignment()
         self.assertEqual(response.status_code, 200)
@@ -1666,6 +1685,7 @@ class HomeworkAssignmentTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(row["school_id"],1)
 
     def test_teacher_can_mark_submission_with_feedback(self):
+        self._assign_teacher("Grade 7", "Mathematics")
         self.login_as("teacher_demo", "test-teacher-password")
         self._create_assignment()
         assignment_id = self._assignment_id("Fractions Practice")
