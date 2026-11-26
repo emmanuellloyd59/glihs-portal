@@ -2,7 +2,7 @@
 
 ## Scope and safety
 
-All migration, failure-injection, backup and restore tests use temporary SQLite databases with fictional records. No live school database is reset, copied, restored over, or otherwise modified by these tests. Restore helpers always create a new destination and refuse to overwrite an existing file.
+All migration, failure-injection, backup and restore tests use temporary SQLite databases with fictional records. No live school database is reset, copied, restored over, or otherwise modified by these tests. The tested and documented restore workflow creates a new destination and refuses to overwrite an existing file by default; the CLI exposes an explicit `--overwrite` flag for separately approved maintenance operations.
 
 ## Migration safety
 
@@ -30,7 +30,7 @@ Application route checks remain required. These triggers are a second integrity 
 
 `scripts/sqlite_backup.py` provides:
 - `copy_database(source, destination)`: uses SQLite's online backup API, publishes atomically, and validates integrity and foreign keys.
-- `copy_database(backup, restore_destination)`: verifies the source backup and restores to a new file only (without `--overwrite`).
+- The same `copy_database(backup, restore_destination)` function restores a verified backup to a new file when called without `--overwrite`.
 
 The script verifies `PRAGMA integrity_check` and `PRAGMA foreign_key_check`, refuses same-path operations and existing destinations by default, and cleans up incomplete temporary output.
 
