@@ -31,8 +31,25 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
 
     def setUp(self):
         connection = portal.get_db_connection()
-        connection.execute("DELETE FROM parent_student_links")
-        for table in ("grades", "attendance", "report_cards", "student_finances", "audit_log", "students", "users"):
+        # Clear dependent records before their referenced parents. This fixture
+        # shares the initialized test database with timetable, content, finance,
+        # and homework tables, all of which may retain user/student references.
+        for table in (
+            "parent_student_links",
+            "homework_submissions",
+            "homework_assignments",
+            "class_timetable",
+            "learning_materials",
+            "school_announcements",
+            "finance_payments",
+            "grades",
+            "attendance",
+            "report_cards",
+            "student_finances",
+            "audit_log",
+            "students",
+            "users",
+        ):
             connection.execute(f"DELETE FROM {table}")
         accounts = [
             ("teacher_route_test", "teacher"),
