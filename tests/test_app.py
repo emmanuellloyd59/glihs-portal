@@ -532,6 +532,80 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         connection.close()
         self.assertEqual(grade_count, 0)
 
+    def test_teacher_attendance_report_is_limited_to_assigned_classes(self):
+        self._assign_teacher("Grade 7", "Mathematics")
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
+            ("TEACHER-ATT-7", "Assigned Grade Seven Student", "Grade 7"),
+        )
+        connection.execute(
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
+            ("TEACHER-ATT-8", "Unassigned Grade Eight Student", "Grade 8"),
+        )
+        teacher_id = connection.execute(
+            "SELECT id FROM users WHERE username='teacher_demo'"
+        ).fetchone()["id"]
+        ids = connection.execute(
+            "SELECT id, admission_number FROM students WHERE admission_number IN ('TEACHER-ATT-7','TEACHER-ATT-8')"
+        ).fetchall()
+        for row in ids:
+            connection.execute(
+                """INSERT INTO attendance
+                   (student_id, attendance_date, status, recorded_by, school_id)
+                   VALUES (?, '2026-10-01', 'present', ?, 1)""",
+                (row["id"], teacher_id),
+            )
+        connection.commit()
+        connection.close()
+        self.login_as("teacher_demo", "test-teacher-password")
+        page = self.client.get(
+            "/attendance-report?start_date=2026-10-01&end_date=2026-10-31"
+        )
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b"Assigned Grade Seven Student", page.data)
+        self.assertNotIn(b"Unassigned Grade Eight Student", page.data)
+        exported = self.client.get(
+            "/attendance-report?start_date=2026-10-01&end_date=2026-10-31&export=csv"
+        )
+        self.assertEqual(exported.status_code, 200)
+        self.assertIn(b"TEACHER-ATT-7", exported.data)
+        self.assertNotIn(b"TEACHER-ATT-8", exported.data)
+
+    def test_teacher_timetable_shows_only_own_assigned_lessons(self):
+        connection = portal.get_db_connection()
+        teacher_id = connection.execute(
+            "SELECT id FROM users WHERE username='teacher_demo'"
+        ).fetchone()["id"]
+        connection.execute(
+            """INSERT INTO users (username, full_name, password_hash, role, status, school_id)
+               VALUES ('second_teacher_demo', 'Second Fictional Teacher', ?, 'teacher', 'active', 1)""",
+            (generate_password_hash("test-second-teacher-password"),),
+        )
+        second_teacher_id = connection.execute(
+            "SELECT id FROM users WHERE username='second_teacher_demo'"
+        ).fetchone()["id"]
+        connection.execute(
+            """INSERT INTO class_timetable
+               (school_id,class_level,subject,teacher_id,weekday,start_time,end_time,room,created_by)
+               VALUES (1,'Grade 7','Mathematics',?,'Monday','08:00','09:00','Room A',?)""",
+            (teacher_id, teacher_id),
+        )
+        connection.execute(
+            """INSERT INTO class_timetable
+               (school_id,class_level,subject,teacher_id,weekday,start_time,end_time,room,created_by)
+               VALUES (1,'Grade 8','Biology',?,'Tuesday','09:00','10:00','Room B',?)""",
+            (second_teacher_id, teacher_id),
+        )
+        connection.commit()
+        connection.close()
+        self.login_as("teacher_demo", "test-teacher-password")
+        page = self.client.get("/timetable")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b"Mathematics", page.data)
+        self.assertNotIn(b"Biology", page.data)
+        self.assertNotIn(b"Room B", page.data)
+
     def test_teacher_cannot_publish_school_announcement(self):
         self.login_as("teacher_demo", "test-teacher-password")
         response = self.client.post("/announcements", data={
