@@ -9,7 +9,7 @@ All migration, failure-injection, backup and restore tests use temporary SQLite 
 - `initialize_database()` now executes schema and data changes inside an explicit `BEGIN IMMEDIATE` transaction.
 - On any migration exception, the transaction is rolled back and the connection restores foreign-key enforcement before closing.
 - The schema setup remains idempotent and records the baseline and tenant-ownership guard versions in `schema_migrations`.
-- Startup verifies `PRAGMA foreign_key_check` and audits existing student-account, parent-child, finance, grade, attendance, report-card, teacher-assignment and timetable school ownership before committing. A broken relationship blocks the migration rather than silently accepting corruption.
+- Startup verifies `PRAGMA foreign_key_check` and audits existing student-account, parent-child, finance, grade, attendance, report-card, teacher-assignment and timetable school ownership—including the school ownership of the staff actors who created or updated those records—before committing. A broken relationship blocks the migration rather than silently accepting corruption.
 - Existing student IDs, user IDs, grade IDs and legacy records are retained by the existing table-copy migrations; the regression suite exercises a legacy upgrade and repeat initialization.
 
 ## School relationship integrity
@@ -21,6 +21,7 @@ Database triggers now reject inconsistent school ownership for:
 - Grades, attendance and report cards.
 - Teacher assignments and timetable entries.
 - Finance payment rows, including the receiving user.
+- School-scoped staff actors who record or publish academic, finance, timetable and parent-link records; explicitly selected platform super-admin actions are handled as a privileged exception.
 - Learning-material uploads and announcement authors/editors.
 - Homework assignment authors, student submissions, graders and the assignment/student school and class relationship.
 - Attempts to reassign a linked student or parent/teacher account to another school while dependent records still exist.
