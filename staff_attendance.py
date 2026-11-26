@@ -182,6 +182,18 @@ def register_staff_attendance_routes(ns):
                             "UPDATE users SET status = ? WHERE id = ? AND school_id = ? AND is_super_admin = 0",
                             (status, target["id"], school_id),
                         )
+                        if action == "suspend" and target["role"] == "teacher":
+                            revoked_count = connection.execute(
+                                """UPDATE teacher_class_assignments
+                                   SET active = 0, updated_at = CURRENT_TIMESTAMP
+                                   WHERE school_id = ? AND teacher_id = ? AND active = 1""",
+                                (school_id, target["id"]),
+                            ).rowcount
+                            if revoked_count:
+                                audit_for_school(
+                                    connection, "teacher_assignments_revoked_account_suspended",
+                                    target["username"], "revoked_assignments=" + str(revoked_count), school_id,
+                                )
                         audit_for_school(connection, "staff_account_" + action, target["username"],
                                          "Status changed to " + status, school_id)
                         connection.commit()
@@ -196,6 +208,18 @@ def register_staff_attendance_routes(ns):
                         "UPDATE users SET role = ? WHERE id = ? AND school_id = ? AND is_super_admin = 0",
                         (role, target["id"], school_id),
                     )
+                    if target["role"] == "teacher" and role != "teacher":
+                        revoked_count = connection.execute(
+                            """UPDATE teacher_class_assignments
+                               SET active = 0, updated_at = CURRENT_TIMESTAMP
+                               WHERE school_id = ? AND teacher_id = ? AND active = 1""",
+                            (school_id, target["id"]),
+                        ).rowcount
+                        if revoked_count:
+                            audit_for_school(
+                                connection, "teacher_assignments_revoked_role_changed",
+                                target["username"], "revoked_assignments=" + str(revoked_count), school_id,
+                            )
                     audit_for_school(connection, "staff_role_changed", target["username"],
                                      "Role changed from " + target["role"] + " to " + role, school_id)
                     connection.commit()
