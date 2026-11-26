@@ -94,6 +94,17 @@ def register_homework_routes(ns):
                 SELECT RAISE(ABORT, 'school ownership mismatch');
             END
         """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_user_school_homework_dependents_update
+            BEFORE UPDATE OF school_id ON users
+            WHEN EXISTS (SELECT 1 FROM homework_assignments
+                         WHERE created_by=OLD.id AND school_id IS NOT NEW.school_id)
+              OR EXISTS (SELECT 1 FROM homework_submissions
+                         WHERE graded_by=OLD.id AND school_id IS NOT NEW.school_id)
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
         mismatch_count = connection.execute("""SELECT COUNT(*) FROM homework_assignments a
             JOIN users u ON u.id=a.created_by
             WHERE u.school_id IS NOT a.school_id AND u.is_super_admin <> 1""").fetchone()[0]
