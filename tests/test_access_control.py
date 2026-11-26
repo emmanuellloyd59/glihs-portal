@@ -488,14 +488,15 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
                 "VALUES ('link_test_student_account', ?, 'student', 'active', 1)",
                 (generate_password_hash("test-password-for-route"),),
             ).lastrowid
-            connection.execute(
-                "INSERT INTO students (admission_number, full_name, class_level, school_id, account_user_id) "
-                "VALUES ('LINK-B-001', 'Fictional School B Student', 'Grade 8', ?, ?)",
-                (school_b_id, target_user_id),
-            )
             school_a_student_id = connection.execute(
+                "INSERT INTO students (admission_number, full_name, class_level, school_id, account_user_id) "
+                "VALUES ('LINK-A-001', 'Fictional School A Student', 'Grade 7', 1, ?)",
+                (target_user_id,),
+            ).lastrowid
+            school_b_student_id = connection.execute(
                 "INSERT INTO students (admission_number, full_name, class_level, school_id) "
-                "VALUES ('LINK-A-001', 'Fictional School A Student', 'Grade 7', 1)"
+                "VALUES ('LINK-B-001', 'Fictional School B Student', 'Grade 8', ?)",
+                (school_b_id,),
             ).lastrowid
             connection.commit()
         finally:
@@ -505,7 +506,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         response = self.client.post("/admin/users", data={
             "action": "link_student",
             "user_id": str(target_user_id),
-            "student_id": str(school_a_student_id),
+            "student_id": str(school_b_student_id),
             "verify_identity": "yes",
         }, follow_redirects=True)
         self.assertIn(b"already linked to a different student record", response.data)
@@ -517,8 +518,12 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
                 (target_user_id,),
             ).fetchone()
             self.assertIsNotNone(linked)
-            self.assertEqual(linked["school_id"], school_b_id)
-            self.assertNotEqual(linked["id"], school_a_student_id)
+            self.assertEqual(linked["school_id"], 1)
+            self.assertEqual(linked["id"], school_a_student_id)
+            school_b_link = connection.execute(
+                "SELECT account_user_id FROM students WHERE id = ?", (school_b_student_id,)
+            ).fetchone()
+            self.assertIsNone(school_b_link["account_user_id"])
         finally:
             connection.close()
 
