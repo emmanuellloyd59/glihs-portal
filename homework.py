@@ -190,8 +190,13 @@ def register_homework_routes(ns):
                     JOIN users u ON u.id=a.created_by AND u.school_id=a.school_id
                     WHERE a.school_id=? AND a.status='published'""" + own +
                     " ORDER BY a.due_date,a.created_at DESC",params).fetchall()
-                own_submission = " AND a.created_by=?" if role == "teacher" else ""
-                sub_params = (school_id,int(current_user.id)) if role == "teacher" else (school_id,)
+                own_submission = """ AND a.created_by=? AND EXISTS (
+                    SELECT 1 FROM teacher_class_assignments tca
+                    WHERE tca.school_id=a.school_id AND tca.teacher_id=?
+                      AND tca.class_level=a.class_level
+                      AND lower(tca.subject)=lower(a.subject) AND tca.active=1
+                )""" if role == "teacher" else ""
+                sub_params = (school_id, int(current_user.id), int(current_user.id)) if role == "teacher" else (school_id,)
                 submissions = connection.execute("""SELECT s.id AS submission_id,s.assignment_id,
                     s.response_text,s.submitted_at,s.score,s.feedback,s.graded_at,
                     st.full_name AS student_name,st.admission_number,st.class_level,
