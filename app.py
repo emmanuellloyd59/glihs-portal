@@ -863,16 +863,18 @@ def initialize_database():
              "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1)"),
         )
         for trigger_name, trigger_event, invalid_condition in school_management_triggers:
+            connection.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
             connection.execute(
-                f"""CREATE TRIGGER IF NOT EXISTS {trigger_name}
+                f"""CREATE TRIGGER {trigger_name}
                     {trigger_event}
                     WHEN {invalid_condition}
                     BEGIN
                         SELECT RAISE(ABORT, 'school ownership mismatch');
                     END"""
             )
+        connection.execute("DROP TRIGGER IF EXISTS trg_user_school_admin_assignment_update")
         connection.execute("""
-            CREATE TRIGGER IF NOT EXISTS trg_user_school_admin_assignment_update
+            CREATE TRIGGER trg_user_school_admin_assignment_update
             BEFORE UPDATE OF school_id,role,status ON users
             WHEN EXISTS (
                 SELECT 1 FROM school_admin_assignments a
