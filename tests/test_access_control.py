@@ -64,6 +64,8 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             ("finance_route_test", "finance_admin"),
             ("registrar_route_test", "registrar"),
             ("principal_route_test", "principal"),
+            ("librarian_route_test", "librarian"),
+            ("counselor_route_test", "counselor"),
             ("super_route_test", "super_admin"),
         ]
         for username, role in accounts:
@@ -1593,6 +1595,62 @@ class StartupMigrationTests(unittest.TestCase):
                     connection.close()
             finally:
                 portal.DATABASE = original_database
+
+
+    def test_librarian_and_counselor_are_denied_unrelated_sensitive_workflows(self):
+        """Specialist roles must not inherit staff, academic, student or finance access."""
+        protected_get_routes = (
+            "/students",
+            "/academics",
+            "/timetable",
+            "/report-cards",
+            "/student-finances",
+            "/finance/payments",
+            "/staff",
+            "/attendance-report",
+            "/school-performance",
+            "/assignments",
+            "/admin/users",
+            "/my-report-cards",
+            "/parent/children",
+        )
+        for username in ("librarian_route_test", "counselor_route_test"):
+            with self.subTest(username=username):
+                self.client.post("/logout")
+                self.login_as(username)
+                for path in protected_get_routes:
+                    with self.subTest(path=path):
+                        response = self.client.get(path)
+                        self.assertEqual(
+                            response.status_code, 403,
+                            msg=f"{username} unexpectedly accessed {path}",
+                        )
+                response = self.client.post("/announcements", data={
+                    "title": "Unauthorized specialist notice",
+                    "body": "This must not be published.",
+                    "audience": "all",
+                })
+                self.assertEqual(response.status_code, 403)
+                self.client.post("/logout")
+
+        connection = portal.get_db_connection()
+        try:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM school_announcements WHERE title='Unauthorized specialist notice'"
+                ).fetchone()[0],
+                0,
+            )
+        finally:
+            connection.close()
+
+    def test_librarian_can_open_learning_resources_without_finance_or_student_record_access(self):
+        self.login_as("librarian_route_test")
+        self.assertEqual(self.client.get("/learning-materials").status_code, 200)
+        self.assertEqual(self.client.get("/students").status_code, 403)
+        self.assertEqual(self.client.get("/student-finances").status_code, 403)
+        self.assertEqual(self.client.get("/finance/payments").status_code, 403)
+
 
 
 if __name__ == "__main__":
