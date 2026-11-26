@@ -257,6 +257,28 @@ class DatabaseMigrationTests(unittest.TestCase):
                     verify.rollback()
                     self.assertEqual(
                         verify.execute(
+                            "SELECT version FROM schema_migrations ORDER BY version"
+                        ).fetchall(),
+                        [(1,), (2,), (3,)],
+                    )
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        verify.execute(
+                            """INSERT INTO learning_materials
+                               (school_id,title,description,class_level,stored_name,original_name,uploaded_by)
+                               VALUES (1,'Test resource','','Grade 7','test.pdf','test.pdf',?)""",
+                            (parent_two,),
+                        )
+                    verify.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        verify.execute(
+                            """INSERT INTO school_announcements
+                               (school_id,title,body,audience,created_by,updated_by)
+                               VALUES (1,'Cross-school notice','Not allowed','all',?,?)""",
+                            (parent_two, parent_two),
+                        )
+                    verify.rollback()
+                    self.assertEqual(
+                        verify.execute(
                             "SELECT COUNT(*) FROM students WHERE admission_number='TENANT-001'"
                         ).fetchone()[0],
                         1,
