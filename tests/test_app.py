@@ -1573,6 +1573,58 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         finally:
             connection.close()
 
+    def test_payment_and_balance_roll_back_when_audit_insert_fails(self):
+        connection = portal.get_db_connection()
+        try:
+            student_id = connection.execute(
+                """INSERT INTO students
+                   (admission_number,full_name,class_level,school_id)
+                   VALUES ('PAYMENT-AUDIT-FAIL-001','Fictional Audit Failure Student','Grade 7',1)"""
+            ).lastrowid
+            connection.execute(
+                """INSERT INTO student_finances
+                   (student_id,academic_year,total_fee,amount_paid,updated_by,school_id)
+                   VALUES (?, '2026-2027', 100, 0,
+                           (SELECT id FROM users WHERE username='teacher_demo'), 1)""",
+                (student_id,),
+            )
+            connection.execute(
+                """CREATE TRIGGER reject_finance_payment_audit
+                   BEFORE INSERT ON audit_log
+                   WHEN NEW.action = 'finance_payment_recorded'
+                   BEGIN SELECT RAISE(ABORT, 'simulated audit storage failure'); END"""
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("finance_demo", "test-finance-password")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.client.post("/finance/payments", data={
+                "student_id": str(student_id), "academic_year": "2026-2027",
+                "amount": "25.00", "method": "cash",
+            })
+
+        connection = portal.get_db_connection()
+        try:
+            finance = connection.execute(
+                "SELECT amount_paid FROM student_finances WHERE student_id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()
+            payment_count = connection.execute(
+                "SELECT COUNT(*) FROM finance_payments WHERE student_id=? AND school_id=1",
+                (student_id,),
+            ).fetchone()[0]
+            audit_count = connection.execute(
+                """SELECT COUNT(*) FROM audit_log
+                   WHERE action='finance_payment_recorded'"""
+            ).fetchone()[0]
+            self.assertEqual(finance["amount_paid"], 0)
+            self.assertEqual(payment_count, 0)
+            self.assertEqual(audit_count, 0)
+        finally:
+            connection.close()
+
     def test_fee_summary_cannot_erase_recorded_payment_history(self):
         connection = portal.get_db_connection()
         try:
