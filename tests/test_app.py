@@ -38,7 +38,7 @@ class PortalTestSupport:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
         }
-        for table_name in ("homework_submissions", "homework_assignments", "parent_student_links", "finance_payments", "school_announcements", "learning_materials", "teacher_class_assignments", "class_timetable"):
+        for table_name in ("school_admin_assignments", "school_settings", "school_academic_calendars", "homework_submissions", "homework_assignments", "parent_student_links", "finance_payments", "school_announcements", "learning_materials", "teacher_class_assignments", "class_timetable"):
             if table_name in existing_tables:
                 connection.execute("DELETE FROM " + table_name)
         connection.execute("DELETE FROM grades")
@@ -2497,12 +2497,20 @@ class TimetableTests(PortalTestSupport, unittest.TestCase):
         super().setUp()
         connection = portal.get_db_connection()
         connection.execute("DELETE FROM class_timetable")
-        connection.execute(
+        school_admin_id = connection.execute(
             """INSERT INTO users
                (username, full_name, password_hash, role, status, school_id)
                VALUES (?, ?, ?, 'school_admin', 'active', 1)""",
             ("school_admin_timetable", "Timetable Administrator",
              generate_password_hash("test-school-admin-password")),
+        ).lastrowid
+        super_admin_id = connection.execute(
+            "SELECT id FROM users WHERE username='super_demo'"
+        ).fetchone()["id"]
+        connection.execute(
+            """INSERT INTO school_admin_assignments
+               (school_id,user_id,assigned_by,active) VALUES (1,?,?,1)""",
+            (school_admin_id, super_admin_id),
         )
         connection.commit()
         connection.close()
