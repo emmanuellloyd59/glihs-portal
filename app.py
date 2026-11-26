@@ -836,31 +836,47 @@ def initialize_database():
              "(SELECT role FROM users WHERE id=NEW.user_id) IS NOT 'school_admin' "
              "OR (SELECT school_id FROM users WHERE id=NEW.user_id) IS NOT NEW.school_id "
              "OR (SELECT status FROM users WHERE id=NEW.user_id) IS NOT 'active' "
-             "OR (NEW.assigned_by IS NOT NULL AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.assigned_by),0) <> 1)"),
+             "OR COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.assigned_by),0) <> 1 "
+             "OR (SELECT role FROM users WHERE id=NEW.assigned_by) IS NOT 'super_admin' "
+             "OR (SELECT school_id FROM users WHERE id=NEW.assigned_by) IS NOT NULL"),
             ("trg_school_admin_assignment_update", "BEFORE UPDATE OF school_id,user_id,assigned_by,active,revoked_by ON school_admin_assignments",
              "(NEW.active=1 AND ((SELECT role FROM users WHERE id=NEW.user_id) IS NOT 'school_admin' "
              "OR (SELECT school_id FROM users WHERE id=NEW.user_id) IS NOT NEW.school_id "
              "OR (SELECT status FROM users WHERE id=NEW.user_id) IS NOT 'active')) "
-             "OR (NEW.active=1 AND NEW.assigned_by IS NOT NULL "
-             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.assigned_by),0) <> 1) "
-             "OR (NEW.active=0 AND NEW.revoked_by IS NOT NULL "
-             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.revoked_by),0) <> 1)"),
+             "OR (NEW.active=1 AND (COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.assigned_by),0) <> 1 "
+             "OR (SELECT role FROM users WHERE id=NEW.assigned_by) IS NOT 'super_admin' "
+             "OR (SELECT school_id FROM users WHERE id=NEW.assigned_by) IS NOT NULL)) "
+             "OR (NEW.active=0 AND OLD.active=1 AND (COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.revoked_by),0) <> 1 "
+             "OR (SELECT role FROM users WHERE id=NEW.revoked_by) IS NOT 'super_admin' "
+             "OR (SELECT school_id FROM users WHERE id=NEW.revoked_by) IS NOT NULL))"),
             ("trg_school_settings_actor_insert", "BEFORE INSERT ON school_settings",
              "(SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id "
-             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1"),
+             "AND NOT (COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0)=1 "
+             "AND (SELECT role FROM users WHERE id=NEW.updated_by)='super_admin' "
+             "AND (SELECT school_id FROM users WHERE id=NEW.updated_by) IS NULL)"),
             ("trg_school_settings_actor_update", "BEFORE UPDATE OF school_id,updated_by ON school_settings",
              "(SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id "
-             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1"),
+             "AND NOT (COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0)=1 "
+             "AND (SELECT role FROM users WHERE id=NEW.updated_by)='super_admin' "
+             "AND (SELECT school_id FROM users WHERE id=NEW.updated_by) IS NULL)"),
             ("trg_school_calendar_actor_insert", "BEFORE INSERT ON school_academic_calendars",
              "((SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id "
-             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1) "
+             "AND NOT (COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0)=1 "
+             "AND (SELECT role FROM users WHERE id=NEW.created_by)='super_admin' "
+             "AND (SELECT school_id FROM users WHERE id=NEW.created_by) IS NULL)) "
              "OR ((SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id "
-             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1)"),
+             "AND NOT (COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0)=1 "
+             "AND (SELECT role FROM users WHERE id=NEW.updated_by)='super_admin' "
+             "AND (SELECT school_id FROM users WHERE id=NEW.updated_by) IS NULL))"),
             ("trg_school_calendar_actor_update", "BEFORE UPDATE OF school_id,created_by,updated_by ON school_academic_calendars",
              "((SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id "
-             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1) "
+             "AND NOT (COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0)=1 "
+             "AND (SELECT role FROM users WHERE id=NEW.created_by)='super_admin' "
+             "AND (SELECT school_id FROM users WHERE id=NEW.created_by) IS NULL)) "
              "OR ((SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id "
-             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1)"),
+             "AND NOT (COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0)=1 "
+             "AND (SELECT role FROM users WHERE id=NEW.updated_by)='super_admin' "
+             "AND (SELECT school_id FROM users WHERE id=NEW.updated_by) IS NULL))"),
         )
         for trigger_name, trigger_event, invalid_condition in school_management_triggers:
             connection.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
