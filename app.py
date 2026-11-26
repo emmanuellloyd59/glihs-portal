@@ -2762,7 +2762,8 @@ def ensure_content_tables(connection):
         CREATE TRIGGER IF NOT EXISTS trg_finance_payment_school_update
         BEFORE UPDATE OF student_id, received_by, school_id ON finance_payments
         WHEN (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id
-          OR (SELECT school_id FROM users WHERE id=NEW.received_by) IS NOT NEW.school_id
+          OR ((SELECT school_id FROM users WHERE id=NEW.received_by) IS NOT NEW.school_id
+              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.received_by),0) <> 1)
         BEGIN
             SELECT RAISE(ABORT, 'school ownership mismatch');
         END
@@ -2770,6 +2771,15 @@ def ensure_content_tables(connection):
     connection.execute("""
         CREATE TRIGGER IF NOT EXISTS trg_learning_material_school_insert
         BEFORE INSERT ON learning_materials
+        WHEN (SELECT school_id FROM users WHERE id=NEW.uploaded_by) IS NOT NEW.school_id
+          AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.uploaded_by),0) <> 1
+        BEGIN
+            SELECT RAISE(ABORT, 'school ownership mismatch');
+        END
+    """)
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_learning_material_school_update
+        BEFORE UPDATE OF school_id,uploaded_by ON learning_materials
         WHEN (SELECT school_id FROM users WHERE id=NEW.uploaded_by) IS NOT NEW.school_id
           AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.uploaded_by),0) <> 1
         BEGIN
