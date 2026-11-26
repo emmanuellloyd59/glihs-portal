@@ -44,9 +44,10 @@ The following are observed in the repository as inspected on 2026-11-26:
 3. Student-record editing is restricted to principal and registrar, not teachers. Preserve this restriction.
 4. Teachers can view the timetable, while timetable management is restricted to leadership/academic administration. Preserve this separation; additionally scope teacher views to their own lessons.
 5. Teachers can view report-card tools, but the publish/unpublish role set excludes teachers. Preserve the publication restriction and scope previews to assigned students.
-6. Teachers are currently included in homework staff roles, allowing assignment creation. Inspect ownership and class-scope checks before treating all assignment actions as safe.
-7. Teachers are currently included in learning-material publishing and announcement publishing roles. Narrow these permissions to the target policy unless a school administrator explicitly delegates them.
-8. Finance access is restricted to administrative/finance roles and does not include teachers. Preserve this restriction.
+6. Teachers are currently included in homework staff roles and can create assignments for any valid school class supplied by the request. The grading action is better restricted: teachers can grade submissions only for assignments they created. Add an assignment-to-teacher-class authorization check before creation and retain creator-only grading.
+7. Teachers are currently included in learning-material publishing. Upload requests accept a class level, but the role check does not itself prove the teacher is assigned to that class. Narrow uploads to assigned classes or an approved shared-resource workflow; keep archive/delete restricted to managers.
+8. Teachers are currently included in announcement publishing, although archive/manage roles exclude them. Make teachers read-only by default unless a school leader grants a narrowly scoped publishing permission.
+9. Finance access is restricted to administrative/finance roles and does not include teachers. Preserve this restriction.
 
 ## Required implementation and test sequence
 
