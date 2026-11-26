@@ -178,6 +178,14 @@ class DatabaseMigrationTests(unittest.TestCase):
                     updater = connection.execute(
                         "SELECT id FROM users WHERE school_id=1 LIMIT 1"
                     ).fetchone()["id"]
+                    student_account = connection.execute(
+                        """INSERT INTO users (username,password_hash,role,status,is_super_admin,school_id)
+                           VALUES ('student_account','hash','student','active',0,1)"""
+                    ).lastrowid
+                    connection.execute(
+                        "UPDATE students SET account_user_id=? WHERE id=?",
+                        (student_account, student),
+                    )
                     connection.execute(
                         """INSERT INTO parent_student_links (parent_user_id,student_id,school_id,created_by)
                            VALUES (?,?,1,?)""",
@@ -217,6 +225,12 @@ class DatabaseMigrationTests(unittest.TestCase):
                     connection.rollback()
                     with self.assertRaises(sqlite3.IntegrityError):
                         connection.execute(
+                            "UPDATE users SET school_id=2 WHERE id=?",
+                            (student_account,),
+                        )
+                    connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
                             "UPDATE students SET school_id=2 WHERE id=?",
                             (student,),
                         )
@@ -233,6 +247,12 @@ class DatabaseMigrationTests(unittest.TestCase):
                             "SELECT COUNT(*) FROM parent_student_links WHERE school_id=1"
                         ).fetchone()[0],
                         1,
+                    )
+                    self.assertEqual(
+                        verify.execute(
+                            "SELECT account_user_id FROM students WHERE admission_number='TENANT-001'"
+                        ).fetchone()[0],
+                        student_account,
                     )
                     self.assertEqual(
                         verify.execute("PRAGMA foreign_key_check").fetchall(),
