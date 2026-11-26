@@ -606,6 +606,55 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertNotIn(b"Biology", page.data)
         self.assertNotIn(b"Room B", page.data)
 
+    def test_teacher_cannot_grade_or_view_an_unassigned_subject(self):
+        self._assign_teacher("Grade 7", "Mathematics")
+        connection = portal.get_db_connection()
+        connection.execute(
+            "INSERT INTO students (admission_number, full_name, class_level, school_id) VALUES (?, ?, ?, 1)",
+            ("SUBJECT-SCOPE-001", "Subject Scope Student", "Grade 7"),
+        )
+        student_id = connection.execute(
+            "SELECT id FROM students WHERE admission_number='SUBJECT-SCOPE-001'"
+        ).fetchone()["id"]
+        teacher_id = connection.execute(
+            "SELECT id FROM users WHERE username='teacher_demo'"
+        ).fetchone()["id"]
+        connection.execute(
+            """INSERT INTO grades
+               (student_id,subject,assessment,score,max_score,recorded_by,academic_year,term,school_id)
+               VALUES (?, 'Biology', 'Test', 9, 10, ?, '2026-2027', 'Term 1', 1)""",
+            (student_id, teacher_id),
+        )
+        connection.commit()
+        connection.close()
+        self.login_as("teacher_demo", "test-teacher-password")
+        page = self.client.get("/academics")
+        self.assertEqual(page.status_code, 200)
+        self.assertNotIn(b"Biology", page.data)
+        denied = self.client.post("/academics", data={
+            "action": "grade", "student_id": str(student_id), "subject": "Biology",
+            "assessment": "Quiz", "score": "8", "max_score": "10",
+            "academic_year": "2026-2027", "term": "Term 1",
+        })
+        self.assertEqual(denied.status_code, 403)
+
+    def test_teacher_cannot_upload_materials_for_unassigned_class(self):
+        self._assign_teacher("Grade 7", "Mathematics")
+        self.login_as("teacher_demo", "test-teacher-password")
+        response = self.client.post("/learning-materials", data={
+            "title": "Unassigned lesson",
+            "description": "Should be denied",
+            "class_level": "Grade 8",
+            "resource_file": (io.BytesIO(b"%PDF-1.4 fictional test file"), "lesson.pdf"),
+        }, content_type="multipart/form-data")
+        self.assertEqual(response.status_code, 403)
+        connection = portal.get_db_connection()
+        count = connection.execute(
+            "SELECT COUNT(*) FROM learning_materials WHERE title='Unassigned lesson'"
+        ).fetchone()[0]
+        connection.close()
+        self.assertEqual(count, 0)
+
     def test_teacher_cannot_publish_school_announcement(self):
         self.login_as("teacher_demo", "test-teacher-password")
         response = self.client.post("/announcements", data={
