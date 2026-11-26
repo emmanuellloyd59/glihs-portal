@@ -40,6 +40,71 @@ def register_homework_routes(ns):
         )""")
         connection.execute("""CREATE INDEX IF NOT EXISTS idx_homework_submissions_school_assignment
             ON homework_submissions(school_id,assignment_id,submitted_at)""")
+        # Keep assignment authors, student submissions and graders inside the
+        # same school. Platform super-admin actions remain possible only through
+        # their separately authorized, explicitly selected school context.
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_homework_assignment_school_insert
+            BEFORE INSERT ON homework_assignments
+            WHEN (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
+             AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_homework_assignment_school_update
+            BEFORE UPDATE OF school_id,created_by ON homework_assignments
+            WHEN (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
+             AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        homework_submission_guard = """
+            (SELECT school_id FROM homework_assignments WHERE id=NEW.assignment_id) IS NOT NEW.school_id
+            OR (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id
+            OR (SELECT class_level FROM homework_assignments WHERE id=NEW.assignment_id)
+               IS NOT (SELECT class_level FROM students WHERE id=NEW.student_id)
+            OR (NEW.graded_by IS NOT NULL
+                AND (SELECT school_id FROM users WHERE id=NEW.graded_by) IS NOT NEW.school_id
+                AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.graded_by),0) <> 1)
+        """
+        connection.execute(f"""
+            CREATE TRIGGER IF NOT EXISTS trg_homework_submission_school_insert
+            BEFORE INSERT ON homework_submissions
+            WHEN {homework_submission_guard}
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute(f"""
+            CREATE TRIGGER IF NOT EXISTS trg_homework_submission_school_update
+            BEFORE UPDATE OF school_id,assignment_id,student_id,graded_by ON homework_submissions
+            WHEN {homework_submission_guard}
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        mismatch_count = connection.execute("""SELECT COUNT(*) FROM homework_assignments a
+            JOIN users u ON u.id=a.created_by
+            WHERE u.school_id IS NOT a.school_id AND u.is_super_admin <> 1""").fetchone()[0]
+        mismatch_count += connection.execute("""SELECT COUNT(*) FROM homework_submissions s
+            JOIN homework_assignments a ON a.id=s.assignment_id
+            JOIN students st ON st.id=s.student_id
+            LEFT JOIN users grader ON grader.id=s.graded_by
+            WHERE a.school_id IS NOT s.school_id OR st.school_id IS NOT s.school_id
+               OR a.class_level IS NOT st.class_level
+               OR (s.graded_by IS NOT NULL AND grader.school_id IS NOT s.school_id
+                   AND COALESCE(grader.is_super_admin,0) <> 1)""").fetchone()[0]
+        if mismatch_count:
+            raise RuntimeError(
+                f"Homework migration stopped: {mismatch_count} school-ownership mismatch(es)"
+            )
+        connection.execute(
+            """INSERT OR IGNORE INTO schema_migrations (version,name)
+               VALUES (4,'homework-school-ownership-guards')"""
+        )
         connection.commit()
     finally:
         connection.close()
