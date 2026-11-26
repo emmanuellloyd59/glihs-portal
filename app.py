@@ -1533,8 +1533,19 @@ def academics():
                FROM grades g JOIN students s ON s.id = g.student_id
                JOIN users u ON u.id = g.recorded_by AND u.school_id = g.school_id
                WHERE g.school_id = ? AND s.school_id = ?
+                 AND (? <> 'teacher' OR (
+                     s.class_level IN (
+                         SELECT class_level FROM class_timetable
+                         WHERE school_id = g.school_id AND teacher_id = ?
+                     )
+                     AND lower(g.subject) IN (
+                         SELECT lower(subject) FROM class_timetable
+                         WHERE school_id = g.school_id AND teacher_id = ?
+                           AND class_level = s.class_level
+                     )
+                 ))
                ORDER BY g.id DESC LIMIT 100""",
-            (require_school_context(), require_school_context()),
+            (school_id, school_id, current_user.role, int(current_user.id), int(current_user.id)),
         ).fetchall()
         attendance_rows = connection.execute(
             """SELECT a.id, s.full_name, s.admission_number, s.class_level,
@@ -1542,8 +1553,12 @@ def academics():
                FROM attendance a JOIN students s ON s.id = a.student_id
                JOIN users u ON u.id = a.recorded_by AND u.school_id = a.school_id
                WHERE a.school_id = ? AND s.school_id = ?
+                 AND (? <> 'teacher' OR s.class_level IN (
+                     SELECT class_level FROM class_timetable
+                     WHERE school_id = a.school_id AND teacher_id = ?
+                 ))
                ORDER BY a.attendance_date DESC, a.id DESC LIMIT 100""",
-            (require_school_context(), require_school_context()),
+            (school_id, school_id, current_user.role, int(current_user.id)),
         ).fetchall()
     finally:
         connection.close()
@@ -2000,7 +2015,7 @@ def student_detail(student_id):
             """SELECT subject, assessment, score, max_score, academic_year, term, created_at
                FROM grades WHERE student_id = ? AND school_id = ?
                  AND (? <> 'teacher' OR subject IN (
-                     SELECT subject FROM class_timetable
+                     SELECT lower(subject) FROM class_timetable
                      WHERE school_id = ? AND teacher_id = ? AND class_level = ?
                  ))
                ORDER BY created_at DESC, id DESC LIMIT 12""",
