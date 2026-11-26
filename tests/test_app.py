@@ -916,6 +916,63 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         finally:
             connection.close()
 
+
+    def test_student_registration_and_audit_event_roll_back_together(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute("""
+                CREATE TRIGGER fail_student_registration_audit
+                BEFORE INSERT ON audit_log
+                WHEN NEW.action='student_registered'
+                BEGIN
+                    SELECT RAISE(ABORT,'simulated student registration audit failure');
+                END
+            """)
+            connection.commit()
+        finally:
+            connection.close()
+
+        try:
+            self.login_as("registrar_demo", "test-registrar-password")
+            response = self.client.post("/students/register", data={
+                "admission_number": "AUDIT-REGISTER-001",
+                "full_name": "Fictional Registration Student",
+                "class_level": "Grade 8",
+                "date_of_birth": "2012-01-10",
+                "guardian_name": "Fictional Guardian",
+                "guardian_phone": "+231 770 000 000",
+                "enrollment_date": "2026-10-20",
+                "previous_school": "Fictional Primary School",
+                "emergency_contact_name": "Fictional Contact",
+                "emergency_contact_phone": "+231 770 000 001",
+                "record_notes": "",
+            }, follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+            connection = portal.get_db_connection()
+            try:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM students WHERE admission_number='AUDIT-REGISTER-001'"
+                    ).fetchone()[0],
+                    0,
+                )
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM audit_log WHERE action='student_registered' AND target_username='AUDIT-REGISTER-001'"
+                    ).fetchone()[0],
+                    0,
+                )
+            finally:
+                connection.close()
+        finally:
+            connection = portal.get_db_connection()
+            try:
+                connection.execute("DROP TRIGGER IF EXISTS fail_student_registration_audit")
+                connection.commit()
+            finally:
+                connection.close()
+
+
     def test_student_edit_rejects_invalid_phone_and_future_birth_date(self):
         connection = portal.get_db_connection()
         try:
