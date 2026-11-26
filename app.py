@@ -2752,7 +2752,8 @@ def ensure_content_tables(connection):
         CREATE TRIGGER IF NOT EXISTS trg_finance_payment_school_insert
         BEFORE INSERT ON finance_payments
         WHEN (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id
-          OR (SELECT school_id FROM users WHERE id=NEW.received_by) IS NOT NEW.school_id
+          OR ((SELECT school_id FROM users WHERE id=NEW.received_by) IS NOT NEW.school_id
+              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.received_by),0) <> 1)
         BEGIN
             SELECT RAISE(ABORT, 'school ownership mismatch');
         END
@@ -2770,6 +2771,7 @@ def ensure_content_tables(connection):
         CREATE TRIGGER IF NOT EXISTS trg_learning_material_school_insert
         BEFORE INSERT ON learning_materials
         WHEN (SELECT school_id FROM users WHERE id=NEW.uploaded_by) IS NOT NEW.school_id
+          AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.uploaded_by),0) <> 1
         BEGIN
             SELECT RAISE(ABORT, 'school ownership mismatch');
         END
@@ -2777,8 +2779,10 @@ def ensure_content_tables(connection):
     connection.execute("""
         CREATE TRIGGER IF NOT EXISTS trg_announcement_school_insert
         BEFORE INSERT ON school_announcements
-        WHEN (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
-          OR (SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
+        WHEN ((SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
+              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)
+          OR ((SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
+              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1)
         BEGIN
             SELECT RAISE(ABORT, 'school ownership mismatch');
         END
@@ -2786,12 +2790,49 @@ def ensure_content_tables(connection):
     connection.execute("""
         CREATE TRIGGER IF NOT EXISTS trg_announcement_school_update
         BEFORE UPDATE OF created_by, updated_by, school_id ON school_announcements
-        WHEN (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
-          OR (SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
+        WHEN ((SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
+              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)
+          OR ((SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
+              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1)
         BEGIN
             SELECT RAISE(ABORT, 'school ownership mismatch');
         END
     """)
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_user_school_content_dependents_update
+        BEFORE UPDATE OF school_id ON users
+        WHEN EXISTS (SELECT 1 FROM finance_payments
+                     WHERE received_by=OLD.id AND school_id IS NOT NEW.school_id)
+          OR EXISTS (SELECT 1 FROM learning_materials
+                     WHERE uploaded_by=OLD.id AND school_id IS NOT NEW.school_id)
+          OR EXISTS (SELECT 1 FROM school_announcements
+                     WHERE (created_by=OLD.id OR updated_by=OLD.id)
+                       AND school_id IS NOT NEW.school_id)
+        BEGIN
+            SELECT RAISE(ABORT, 'school ownership mismatch');
+        END
+    """)
+    content_integrity_checks = (
+        ("finance payment", """SELECT COUNT(*) FROM finance_payments p
+            JOIN students s ON s.id=p.student_id
+            JOIN users u ON u.id=p.received_by
+            WHERE s.school_id IS NOT p.school_id
+               OR (u.school_id IS NOT p.school_id AND COALESCE(u.is_super_admin,0) <> 1)"""),
+        ("learning material", """SELECT COUNT(*) FROM learning_materials m
+            JOIN users u ON u.id=m.uploaded_by
+            WHERE u.school_id IS NOT m.school_id AND COALESCE(u.is_super_admin,0) <> 1"""),
+        ("announcement", """SELECT COUNT(*) FROM school_announcements a
+            JOIN users creator ON creator.id=a.created_by
+            JOIN users editor ON editor.id=a.updated_by
+            WHERE (creator.school_id IS NOT a.school_id AND COALESCE(creator.is_super_admin,0) <> 1)
+               OR (editor.school_id IS NOT a.school_id AND COALESCE(editor.is_super_admin,0) <> 1)"""),
+    )
+    for relationship_name, query in content_integrity_checks:
+        mismatch_count = connection.execute(query).fetchone()[0]
+        if mismatch_count:
+            raise sqlite3.DatabaseError(
+                f"Content migration stopped: {mismatch_count} {relationship_name} school-ownership mismatch(es)"
+            )
     connection.execute(
         """INSERT OR IGNORE INTO schema_migrations (version,name)
            VALUES (3,'content-and-finance-school-ownership-guards')"""
