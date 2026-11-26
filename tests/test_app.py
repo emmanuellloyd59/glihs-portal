@@ -458,7 +458,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertIn(b"Planned", response.data)
 
     def test_duplicate_admission_number_is_rejected_gracefully(self):
-        self.login_as("teacher_demo", "test-teacher-password")
+        self.login_as("registrar_demo", "test-registrar-password")
         data = {
             "admission_number": "DEMO-DUPLICATE",
             "full_name": "Taylor Example",
@@ -710,6 +710,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(self.client.get("/academics").status_code, 403)
 
     def test_duplicate_attendance_and_invalid_grade_are_rejected(self):
+        self._assign_teacher("Grade 8", "Science")
         self.login_as("teacher_demo", "test-teacher-password")
         connection = portal.get_db_connection()
         connection.execute(
@@ -743,7 +744,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
             connection.close()
 
     def test_registration_rejects_invalid_guardian_phone_without_saving(self):
-        self.login_as("teacher_demo", "test-teacher-password")
+        self.login_as("registrar_demo", "test-registrar-password")
         response = self.client.post("/students/register", data={
             "admission_number": "SEC-001", "full_name": "Jordan Example",
             "class_level": "Grade 7", "guardian_phone": "call-me-now",
@@ -752,7 +753,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(self._student_count(), 0)
 
     def test_registration_rejects_future_birth_date_and_invalid_admission_number(self):
-        self.login_as("teacher_demo", "test-teacher-password")
+        self.login_as("registrar_demo", "test-registrar-password")
         for admission, dob in (("SEC-002", "2999-01-01"), ("bad admission!", "2012-05-04")):
             response = self.client.post("/students/register", data={
                 "admission_number": admission, "full_name": "Jordan Example",
@@ -762,7 +763,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(self._student_count(), 0)
 
     def test_student_registration_rejects_invalid_enrollment_date_and_emergency_phone(self):
-        self.login_as("teacher_demo", "test-teacher-password")
+        self.login_as("registrar_demo", "test-registrar-password")
         base_data = {
             "admission_number": "REG-VALIDATION-001",
             "full_name": "Avery Fiction",
