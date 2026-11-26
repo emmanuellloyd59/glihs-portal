@@ -8,6 +8,7 @@ import uuid
 from werkzeug.utils import secure_filename
 from flask import send_file
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from decimal import Decimal, InvalidOperation
 import time
 
@@ -1122,6 +1123,14 @@ def write_audit(actor_user_id, action, target_username=None, details=None):
         connection.close()
 
 
+def is_valid_timezone(value):
+    try:
+        ZoneInfo(value)
+        return True
+    except (ZoneInfoNotFoundError, ValueError, TypeError):
+        return False
+
+
 def write_audit_in_transaction(connection, actor_user_id, action,
                                target_username=None, details=None, school_id=None):
     """Write an audit event in the caller's transaction with its school context."""
@@ -1546,7 +1555,7 @@ def platform_schools():
                     or len(registration_number) > 80
                     or not re.fullmatch(r"[A-Z]{2}", country_code)
                     or not re.fullmatch(r"[A-Z]{3}", currency_code)
-                    or not timezone_name or len(timezone_name) > 80
+                    or not timezone_name or len(timezone_name) > 80 or not is_valid_timezone(timezone_name)
                     or (contact_email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", contact_email))
                 ):
                     flash("Check the school name, URL slug, country, currency, time zone and contact email.", "danger")
@@ -1669,7 +1678,7 @@ def platform_schools():
                     or len(registration_number) > 80 or not re.fullmatch(r"[A-Z]{2}", country_code)
                     or len(county) > 80 or len(district) > 80 or len(address) > 240
                     or len(contact_phone) > 40 or len(website) > 200
-                    or not timezone_name or len(timezone_name) > 80
+                    or not timezone_name or len(timezone_name) > 80 or not is_valid_timezone(timezone_name)
                     or not re.fullmatch(r"[A-Z]{3}", currency_code)
                     or (contact_email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", contact_email))
                     or (website and not website.startswith(("https://", "http://")))
@@ -1819,7 +1828,7 @@ def school_settings():
                 if (
                     not name or len(name) > 120 or len(legal_name) > 160
                     or not re.fullmatch(r"[A-Z]{2}", country_code)
-                    or not timezone_name or len(timezone_name) > 80
+                    or not timezone_name or len(timezone_name) > 80 or not is_valid_timezone(timezone_name)
                     or not re.fullmatch(r"[A-Z]{3}", currency_code)
                     or len(county) > 80 or len(district) > 80 or len(address) > 240
                     or len(contact_phone) > 40 or len(website) > 200
