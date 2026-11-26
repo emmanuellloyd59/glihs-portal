@@ -1208,7 +1208,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
                    (student_id, subject, assessment, score, max_score, recorded_by,
                     academic_year, term, school_id)
                    VALUES (?, 'Science', 'School Two Quiz', 18, 20, ?, '2026-2027', 'Term 1', ?)""",
-                (student_id, teacher_id, school_two_id),
+                (student_id, super_id, school_two_id),
             )
             connection.execute(
                 """INSERT INTO report_cards
@@ -1220,7 +1220,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
                 """INSERT INTO student_finances
                    (student_id, academic_year, total_fee, amount_paid, notes, updated_by, school_id)
                    VALUES (?, '2026-2027', 1000, 300, 'School Two fictional fees', ?, ?)""",
-                (student_id, teacher_id, school_two_id),
+                (student_id, super_id, school_two_id),
             )
             connection.commit()
         finally:
