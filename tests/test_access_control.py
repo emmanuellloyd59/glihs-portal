@@ -1254,6 +1254,82 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             connection.close()
 
 
+    def test_teacher_cannot_read_or_write_financial_workflows(self):
+        self.login_as("teacher_route_test")
+        self.assertEqual(self.client.get("/student-finances").status_code, 403)
+        self.assertEqual(self.client.get("/finance/payments").status_code, 403)
+        response = self.client.post("/finance/payments", data={
+            "student_id": "1", "academic_year": "2026-2027",
+            "amount": "1.00", "method": "cash",
+        })
+        self.assertEqual(response.status_code, 403)
+
+    def test_teacher_cannot_publish_or_archive_school_announcements(self):
+        connection = portal.get_db_connection()
+        try:
+            portal.ensure_content_tables(connection)
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username='teacher_route_test'"
+            ).fetchone()["id"]
+            announcement_id = connection.execute(
+                """INSERT INTO school_announcements
+                   (school_id,title,body,audience,created_by,updated_by)
+                   VALUES (1,'Existing notice','Fictional test notice','all',?,?)""",
+                (teacher_id, teacher_id),
+            ).lastrowid
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("teacher_route_test")
+        self.assertEqual(self.client.post("/announcements", data={
+            "title": "Unauthorized notice", "body": "Must not publish",
+            "audience": "all",
+        }).status_code, 403)
+        self.assertEqual(self.client.post(
+            f"/announcements/{announcement_id}/archive"
+        ).status_code, 403)
+
+        connection = portal.get_db_connection()
+        try:
+            status = connection.execute(
+                "SELECT status FROM school_announcements WHERE id=?",
+                (announcement_id,),
+            ).fetchone()["status"]
+            self.assertEqual(status, "published")
+            self.assertEqual(connection.execute(
+                "SELECT COUNT(*) FROM school_announcements WHERE title='Unauthorized notice'"
+            ).fetchone()[0], 0)
+        finally:
+            connection.close()
+
+    def test_teacher_cannot_edit_official_student_record(self):
+        connection = portal.get_db_connection()
+        try:
+            student_id = connection.execute(
+                """INSERT INTO students
+                   (admission_number,full_name,class_level,school_id)
+                   VALUES ('AUTH-TEACHER-001','Fictional Protected Student','Grade 7',1)"""
+            ).lastrowid
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("teacher_route_test")
+        self.assertEqual(self.client.get(f"/students/{student_id}/edit").status_code, 403)
+        self.assertEqual(self.client.post(f"/students/{student_id}/edit", data={
+            "full_name": "Tampered Name", "class_level": "Grade 8",
+        }).status_code, 403)
+        connection = portal.get_db_connection()
+        try:
+            name = connection.execute(
+                "SELECT full_name FROM students WHERE id=?", (student_id,)
+            ).fetchone()["full_name"]
+            self.assertEqual(name, "Fictional Protected Student")
+        finally:
+            connection.close()
+
+
 class StartupMigrationTests(unittest.TestCase):
     def test_legacy_database_migrates_without_losing_records_and_is_idempotent(self):
         """Exercise the real startup migration on a disposable legacy SQLite file."""
