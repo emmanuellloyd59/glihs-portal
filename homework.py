@@ -25,6 +25,8 @@ def register_homework_routes(ns):
     # Additive tables only; existing school and student records are not reset.
     connection = get_db_connection()
     try:
+        # Keep schema, trigger, integrity-check and ledger writes atomic.
+        connection.execute("BEGIN IMMEDIATE")
         connection.execute("""CREATE TABLE IF NOT EXISTS homework_assignments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             school_id INTEGER NOT NULL REFERENCES schools(id),
