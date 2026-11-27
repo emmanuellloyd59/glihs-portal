@@ -576,7 +576,7 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
                     ownership_type,owner_name,registration_number,website_url,description,
                     address_line1,address_line2,city,county,region,postal_code,country_code,timezone,
                     contact_email,contact_phone,created_at,updated_at)
-                   VALUES (?,?,'suspended','pending',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)""",
+                   VALUES (?,?,'suspended','pending',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)""",
                 (checked["name"],slug,checked["legal_name"],checked["institution_type"],
                  checked["classification"],checked["ownership_type"],owner,
                  _clean(data.get("registration_number"),100) or None,_clean(data.get("website_url"),255) or None,
