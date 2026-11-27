@@ -862,12 +862,7 @@ def get_user_by_id(user_id):
             WHERE u.id = ? AND u.status = 'active'
               AND (
                   (u.role = 'super_admin' AND u.is_super_admin = 1 AND u.school_id IS NULL)
-                  OR (
-                  u.role != 'super_admin' AND u.is_super_admin = 0 AND EXISTS (
-                      SELECT 1 FROM schools s
-                      WHERE s.id = u.school_id AND s.status = 'active'
-                  )
-              )
+                  OR (u.role != 'super_admin' AND u.is_super_admin = 0)
               )
             """,
             (user_id,),
@@ -898,12 +893,7 @@ def get_user_by_username(username):
             WHERE u.username = ? AND u.status = 'active'
               AND (
                   (u.role = 'super_admin' AND u.is_super_admin = 1 AND u.school_id IS NULL)
-                  OR (
-                  u.role != 'super_admin' AND u.is_super_admin = 0 AND EXISTS (
-                      SELECT 1 FROM schools s
-                      WHERE s.id = u.school_id AND s.status = 'active'
-                  )
-              )
+                  OR (u.role != 'super_admin' AND u.is_super_admin = 0)
               )
             """,
             (username,),
