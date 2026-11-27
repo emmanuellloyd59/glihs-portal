@@ -126,7 +126,7 @@ def register_staff_attendance_routes(ns):
                     return redirect(url_for("staff_management"))
 
                 if action == "create":
-                    require_permission("school.manage_memberships", get_db_connection, school_id=school_id)
+                    require_permission("school.manage_staff", get_db_connection, school_id=school_id)
                     username = request.form.get("username", "").strip()
                     full_name = request.form.get("full_name", "").strip()
                     role = request.form.get("role", "").strip()
@@ -215,7 +215,7 @@ def register_staff_attendance_routes(ns):
                         connection.commit()
                         flash("Staff account status updated.", "success")
                 elif action == "change_role":
-                    require_permission("school.manage_roles", get_db_connection, school_id=school_id)
+                    require_permission("school.manage_staff", get_db_connection, school_id=school_id)
                     role = request.form.get("role", "").strip()
                     if role not in assignable or role not in staff_roles:
                         abort(403)
