@@ -2705,6 +2705,9 @@ MATERIALS_MANAGE_ROLES = CONTENT_MANAGE_ROLES | {"librarian"}
 
 def ensure_content_tables(connection):
     """Create tenant-scoped content tables without altering existing school data."""
+    # SQLite DDL is transactional only when an explicit transaction is active.
+    # This prevents partial table/trigger creation if legacy ownership checks fail.
+    connection.execute("BEGIN IMMEDIATE")
     connection.execute("""
         CREATE TABLE IF NOT EXISTS learning_materials (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
