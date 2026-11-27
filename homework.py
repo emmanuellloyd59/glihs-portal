@@ -10,7 +10,7 @@ def register_homework_routes(ns):
     get_db_connection = ns["get_db_connection"]
     require_school_context, write_audit = ns["require_school_context"], ns["write_audit"]
     teacher_has_class_subject = ns["teacher_has_class_subject"]
-    class_levels = ns["TIMETABLE_CLASS_LEVELS"]
+    get_school_class_levels = ns["get_school_class_levels"]
     staff_roles = {"super_admin", "school_admin", "principal", "vice_principal", "academic_admin", "registrar", "teacher"}
     admin_roles = {"super_admin", "school_admin", "principal", "vice_principal", "academic_admin"}
 
@@ -54,6 +54,7 @@ def register_homework_routes(ns):
         connection = get_db_connection()
         student, submissions = None, []
         try:
+            class_levels = get_school_class_levels(connection, school_id)
             if request.method == "POST":
                 action = request.form.get("action", "create").strip()
                 if action == "create":
