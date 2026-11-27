@@ -250,6 +250,14 @@ def _json_rows(rows):
     return [dict(row) for row in rows]
 
 
+def _csv_safe(value):
+    """Neutralize spreadsheet formula prefixes in exported text cells."""
+    text = "" if value is None else str(value)
+    if text.startswith(("=", "+", "-", "@", "\t", "\r")):
+        return "'" + text
+    return text
+
+
 def allocate_student_identifier(connection, school_id):
     """Allocate the next configured identifier inside the caller's transaction."""
     connection.execute(
@@ -900,7 +908,7 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
                             (school_id,)).fetchall()
             output=io.StringIO(newline="")
             writer=csv.DictWriter(output,fieldnames=fields); writer.writeheader()
-            for row in rows: writer.writerow(dict(row))
+            for row in rows: writer.writerow({field:_csv_safe(row[field]) for field in fields})
             from flask import Response
             response=Response(output.getvalue(),mimetype="text/csv")
             response.headers["Content-Disposition"]="attachment; filename=students.csv"
