@@ -48,9 +48,14 @@ def register_homework_routes(ns):
     @login_required
     def assignments():
         role = current_user.role
-        if role not in staff_roles | {"student"}:
-            abort(403)
         school_id = require_school_context()
+        from authorization import require_permission
+        if request.method == "GET":
+            require_permission("learning.view", get_db_connection, school_id=school_id)
+        elif request.form.get("action", "create").strip() == "submit":
+            require_permission("learning.submit_work", get_db_connection, school_id=school_id)
+        else:
+            require_permission("learning.manage_assignments", get_db_connection, school_id=school_id)
         connection = get_db_connection()
         student, submissions = None, []
         try:
