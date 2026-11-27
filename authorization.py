@@ -406,6 +406,10 @@ def create_authorization_blueprint(connection_factory):
     def my_permissions():
         school_id = getattr(current_user, "school_id", None)
         campus_id = getattr(current_user, "campus_id", None)
+        if (school_id is None and getattr(current_user, "is_super_admin", False)
+                and getattr(current_user, "role", None) == "super_admin"):
+            from flask import session
+            school_id = session.get("active_school_id")
         connection = connection_factory()
         try:
             effective = sorted(permission for permission in PERMISSIONS
