@@ -543,6 +543,19 @@ class StaffRecordLifecycleTests(unittest.TestCase):
             user=db.execute("SELECT school_id FROM users WHERE id=?",(self.teacher_id,)).fetchone()
             self.assertEqual(staff["school_membership_id"],new_membership_id)
             self.assertEqual(user["school_id"],1)
+            db.commit()
+            school_one_subject=db.execute(
+                "INSERT INTO subjects(school_id,name) VALUES(1,'Tenant One Mathematics')"
+            ).lastrowid
+            db.commit()
+            with self.assertRaises(Exception):
+                db.execute(
+                    """INSERT INTO staff_responsibilities
+                       (school_id,membership_id,responsibility_type,title,subject_id)
+                       VALUES(?,?,'subject','Invalid cross-school subject',?)""",
+                    (school_id,staff["id"],school_one_subject),
+                )
+            db.rollback()
         finally:
             db.close()
 
