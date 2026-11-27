@@ -36,18 +36,29 @@ def qmark_to_format(sql, parameter_count):
         ch = sql[i]
         nxt = sql[i + 1] if i + 1 < length else ""
 
-        # Single-quoted string literals; doubled quotes escape a quote.
+        # Single-quoted strings; E'...' additionally treats backslash as escape.
         if ch == "'":
             start = i
+            prefix_is_escape = (
+                i > 0 and sql[i - 1] in "eE"
+                and (i == 1 or not (sql[i - 2].isalnum() or sql[i - 2] in "_$"))
+            )
             i += 1
+            closed = False
             while i < length:
+                if prefix_is_escape and sql[i] == "\\\\":
+                    i += 2
+                    continue
                 if sql[i] == "'":
                     if i + 1 < length and sql[i + 1] == "'":
                         i += 2
                         continue
                     i += 1
+                    closed = True
                     break
                 i += 1
+            if not closed:
+                raise SQLPlaceholderError("unterminated SQL string literal")
             out.append(sql[start:i])
             continue
 
@@ -63,6 +74,8 @@ def qmark_to_format(sql, parameter_count):
                     i += 1
                     break
                 i += 1
+            if i == length and (not sql or sql[-1] != '"'):
+                raise SQLPlaceholderError("unterminated quoted SQL identifier")
             out.append(sql[start:i])
             continue
 
@@ -90,6 +103,8 @@ def qmark_to_format(sql, parameter_count):
                     i += 2
                 else:
                     i += 1
+            if depth:
+                raise SQLPlaceholderError("unterminated SQL block comment")
             out.append(sql[start:i])
             continue
 
@@ -102,8 +117,7 @@ def qmark_to_format(sql, parameter_count):
                 delimiter = sql[i:j + 1]
                 end = sql.find(delimiter, j + 1)
                 if end == -1:
-                    out.append(sql[i:])
-                    i = length
+                    raise SQLPlaceholderError("unterminated PostgreSQL dollar-quoted string")
                 else:
                     end += len(delimiter)
                     out.append(sql[i:end])
