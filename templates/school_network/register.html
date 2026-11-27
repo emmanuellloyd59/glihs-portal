@@ -5,6 +5,7 @@
   <p class="eyebrow text-primary mb-2">School Network</p>
   <h1 class="h2 fw-bold mb-2">Register your institution</h1>
   <p class="text-secondary">Submit institutional details for platform review. Registration does not create an active school workspace or grant access to student records.</p>
+  <p class="small">For the international, resumable application and country-specific requirements, use the <a href="{{ url_for('school_onboarding.onboarding_page') }}">advanced school onboarding wizard</a>.</p>
   {% if request.args.get('submitted') %}
     <div class="alert alert-success">Your registration has been received. The institution remains inactive until it is reviewed and activated by the platform owner.</div>
   {% endif %}

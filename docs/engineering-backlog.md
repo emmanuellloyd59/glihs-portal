@@ -29,6 +29,7 @@ This is the traceability index for architecture and governance work. Status refl
 | COM-001 | Communication | Extract announcements and add reusable notification interfaces when needed | ADR-0001, ADR-0002 | Current `app.py`; future `modules/communication/` | Publisher permissions, tenant scope, delivery/retry tests when channels exist | No cross-school messages; delivery status and privacy are explicit | Planned |
 | NET-001 | School Network | Implement institution registration, unique identity, profiles, classifications, ownership, locations, contacts, school groups and campuses | ADR-0002, ADR-0004 | `school_network.py`, `templates/school_network/*`, `docs/school-network-api.md`, additive schools metadata and network tables | Registration validation, duplicate identity, lifecycle transitions, group membership, campus ownership, school-admin vs platform-owner tests | CMHS record/ID preserved; new schools remain inactive pending platform approval; school groups do not merge tenant boundaries | In progress; CI verified on feature branch; manual review pending |
 | NET-002 | School Network | Complete school lifecycle, domain verification and membership boundaries | ADR-0002, ADR-0004 | Existing schools/users schema; School Network module | Lifecycle and school/campus boundary tests; domain verification and legacy route audit | School owns campus and records; platform administration remains distinct | Planned |
+| NET-003 | School Network | International institution application, country requirements, verification, invitations and onboarding configuration | ADR-0002, ADR-0004 | `school_onboarding.py`, `templates/school_network/onboarding.html`, `docs/international-school-onboarding.md` | Draft/resume, email verification, dynamic country validation, duplicate, abuse, invitation replay/expiry, notification outbox, tenant scope and lifecycle tests | Incomplete applications resume securely; country rules are data-configurable; only verified submissions create pending schools; only active schools receive administrator invitations | Implemented; CI and manual review pending |
 | WEB-001 | School Websites | Build school website management as a bounded capability | ADR-0001, ADR-0002 | Future `modules/school_websites/` | Domain resolution, tenant content and public/private access tests | Each school manages its own website/content without cross-tenant exposure | Planned |
 | MKT-001 | Education Marketplace | Define marketplace provider/listing/purchase boundary | Future ADR | Future `modules/education_marketplace/` | Ownership, moderation, payment and provider authorization tests | Marketplace cannot bypass school finance or tenant policies | Planned |
 
@@ -53,3 +54,15 @@ Do not mark an item verified based only on code presence, test names, or a previ
 - Tested code commit: 3ec74b656c5302dbafa3097faa41c8deaa12f089.
 - GitHub Actions run #840: https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45944332220 — 158 tests passed on Python 3.11 and 158 passed on Python 3.14.
 - Manual browser/accessibility review, full legacy-route tenant audit, domain verification and production migration rehearsal remain pending. NET-001 is not yet marked accepted or production-ready.
+
+
+## NET-003 implementation record
+
+- Implementation branch: `feature/international-school-onboarding` (stacked on `feature/school-network-foundation`).
+- Added `school_onboarding.py` with additive onboarding schema, configurable country profiles, service catalogue, resumable drafts, separate email verification, duplicate detection, IP/email rate limits, audit events, administrator invitations, live progress/configuration APIs and a bounded SMTP outbox.
+- Registered onboarding with the existing Flask app and School Network / users authentication infrastructure.
+- Added `/school-network/onboarding`, secure `/school-network/invitations/accept`, and `docs/international-school-onboarding.md`.
+- Automated coverage: `tests/test_international_onboarding.py` (11 cases). Current-commit CI status is not exposed by the connected GitHub status endpoints; execution remains unverified and must be checked in GitHub Actions before acceptance.
+- No merge, deployment, production migration, or production data changes.
+
+- Latest code commit: `3cab045b0c34905e9ca5b1580c16a293f93f94be`.

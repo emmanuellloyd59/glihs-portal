@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}International School Onboarding | Digital Education Ecosystem{% endblock %}
+{% block content %}
+<section class="surface-card p-4 p-md-5 mx-auto" style="max-width:1000px">
+  <p class="eyebrow text-primary mb-2">School Network · International registration</p>
+  <h1 class="h2 fw-bold mb-2">Register your institution</h1>
+  <p class="text-secondary">Save a draft, verify your email, and submit your institution for platform verification. Your school workspace remains inactive until approval and activation.</p>
+  <div id="onboarding-alert" class="alert alert-info" role="status">Choose your country first. The form will show the requirements configured for that country.</div>
+  <form id="onboarding-form" class="row g-3" novalidate>
+    <input type="hidden" id="csrf-token" value="{{ csrf_token() }}">
+    <div class="col-12 col-md-6">
+      <label class="form-label" for="country_code">Country *</label>
+      <select class="form-select" id="country_code" required><option value="">Loading country requirements…</option></select>
+      <div class="form-text" id="country-guidance"></div>
+      <div id="other-country-wrap" class="mt-2" hidden><label class="form-label" for="other-country-code">Other country ISO alpha-2 code *</label><input class="form-control" id="other-country-code" maxlength="2" minlength="2" pattern="[A-Za-z]{2}" placeholder="e.g. MX"></div>
+    </div>
+    <div class="col-12 col-md-6">
+      <label class="form-label" for="name">Institution name *</label>
+      <input class="form-control" id="name" maxlength="160" required>
+    </div>
+    <div class="col-12 col-md-6">
+      <label class="form-label" for="legal_name">Legal / registered name</label>
+      <input class="form-control" id="legal_name" maxlength="200">
+    </div>
+    <div class="col-12 col-md-6">
+      <label class="form-label" for="institution_type">Institution relationship</label>
+      <select class="form-select" id="institution_type"><option value="independent">Independent institution</option><option value="group_affiliated">Affiliated school group</option></select>
+    </div>
+    <div class="col-12 col-md-6" id="group-wrap" hidden>
+      <label class="form-label" for="group_id">Active school group *</label>
+      <select class="form-select" id="group_id"><option value="">Select a school group</option></select>
+    </div>
+    <div class="col-12 col-md-6">
+      <label class="form-label" for="classification">Institution type / level *</label>
+      <select class="form-select" id="classification">
+        <option value="">Select</option><option value="early_childhood">Early childhood</option><option value="primary">Primary</option><option value="secondary">Secondary</option><option value="combined">Combined</option><option value="vocational">Vocational</option><option value="technical">Technical</option><option value="tertiary">Tertiary</option><option value="special_education">Special education</option><option value="other">Other</option>
+      </select>
+    </div>
+    <div class="col-12 col-md-6">
+      <label class="form-label" for="ownership_type">Ownership classification *</label>
+      <select class="form-select" id="ownership_type">
+        <option value="">Select</option><option value="government">Government</option><option value="private">Private</option><option value="faith_based">Faith-based</option><option value="community">Community</option><option value="nonprofit">Nonprofit</option><option value="public_private">Public-private</option><option value="other">Other</option>
+      </select>
+    </div>
+    <div class="col-12 col-md-6"><label class="form-label" for="owner_name">Owner / responsible authority</label><input class="form-control" id="owner_name" maxlength="160"></div>
+    <div class="col-12 col-md-6"><label class="form-label" for="registration_number">Institutional registration / license number</label><input class="form-control" id="registration_number" maxlength="100"></div>
+    <div class="col-12 col-md-6"><label class="form-label" for="city">City / locality *</label><input class="form-control" id="city" maxlength="100" required></div>
+    <div class="col-12 col-md-6"><label class="form-label" id="region-label" for="region">Administrative region</label><input class="form-control" id="region" maxlength="100"></div>
+    <div class="col-12 col-md-6"><label class="form-label" for="address_line1">Street / physical address</label><input class="form-control" id="address_line1" maxlength="180"></div>
+    <div class="col-12 col-md-6"><label class="form-label" for="postal_code">Postal code</label><input class="form-control" id="postal_code" maxlength="24"></div>
+    <div class="col-12 col-md-6"><label class="form-label" for="contact_email">Institutional / application email *</label><input class="form-control" id="contact_email" type="email" maxlength="254" required></div>
+    <div class="col-12 col-md-6"><label class="form-label" for="contact_phone">Institutional phone</label><input class="form-control" id="contact_phone" maxlength="40"></div>
+    <div class="col-12 col-md-6"><label class="form-label" for="administrator_name">Proposed administrator name *</label><input class="form-control" id="administrator_name" maxlength="160" required></div>
+    <div class="col-12 col-md-6"><label class="form-label" for="administrator_email">Proposed administrator email *</label><input class="form-control" id="administrator_email" type="email" maxlength="254" required></div>
+    <div class="col-12 col-md-6"><label class="form-label" for="website_url">Official website</label><input class="form-control" id="website_url" type="url" maxlength="255" placeholder="https://"></div>
+    <div class="col-12"><label class="form-label" for="description">Institution profile</label><textarea class="form-control" id="description" rows="3" maxlength="2000"></textarea></div>
+    <div class="col-12"><h2 class="h5">Requested services</h2><p class="text-secondary small">Select the systems your institution wants to use. You can configure them after activation.</p><div id="service-options" class="row g-2"></div></div>
+    <div class="col-12"><h2 class="h5">Resume a saved application</h2></div>
+    <div class="col-12 col-md-5"><label class="form-label" for="resume-reference">Application reference</label><input class="form-control" id="resume-reference" placeholder="ONB-…"></div>
+    <div class="col-12 col-md-5"><label class="form-label" for="resume-token">Resume token</label><input class="form-control" id="resume-token" placeholder="Paste your private resume token"></div>
+    <div class="col-12 col-md-2 d-flex align-items-end"><button class="btn btn-outline-secondary w-100" type="button" id="load-draft">Load draft</button></div>
+    <div class="col-12"><label class="form-label" for="verification-token">Email verification code</label><input class="form-control" id="verification-token" autocomplete="one-time-code" placeholder="Paste the one-time token from your email"><div class="form-text">Save your draft first. A verification token will be sent to the application email.</div></div>
+    <div class="col-12"><div class="form-text">When a draft is first saved, copy the resume token and keep it private. You need both the application reference and token to reopen it.</div></div>
+    <div class="col-12 d-flex flex-wrap gap-2">
+      <button class="btn btn-outline-primary" type="button" id="save-draft">Save draft</button>
+      <button class="btn btn-outline-secondary" type="button" id="verify-email">Verify email</button>
+      <button class="btn btn-primary" type="button" id="submit-application">Submit application</button>
+    </div>
+    <input type="text" id="website" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-10000px">
+  </form>
+  <div id="application-reference" class="mt-4" aria-live="polite"></div>
+</section>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const alertBox = $("onboarding-alert");
+  const fields = ["name","legal_name","institution_type","classification","ownership_type","owner_name","registration_number","city","region","address_line1","postal_code","contact_email","contact_phone","administrator_name","administrator_email","website_url","description"];
+  let reference = "";
+  let resumeToken = "";
+  let countryProfiles = [];
+  let services = [];
+  const csrf = $("csrf-token").value;
+  const request = async (url, method, body, token) => {
+    const headers = {"Content-Type":"application/json","X-CSRFToken":csrf};
+    if (token) headers["X-Onboarding-Token"] = token;
+    const response = await fetch(url,{method,headers,body:body ? JSON.stringify(body) : undefined});
+    const data = await response.json();
+    if (!response.ok) throw new Error((data.error && (data.error.messages || [data.error.message]).join(" ")) || "Request failed.");
+    return data.data;
+  };
+  const show = (message, type="info") => { alertBox.className = "alert alert-" + type; alertBox.textContent = message; };
+  const payload = () => {
+    const data = {};
+    fields.forEach(key => data[key] = $(key).value.trim());
+    data.country_code = $("country_code").value === "OTHER" ? $("other-country-code").value.trim().toUpperCase() : $("country_code").value;
+    data.group_id = $("group_id").value ? Number($("group_id").value) : null;
+    data.county = data.region;
+    data.requested_services = Array.from(document.querySelectorAll("[name='requested_services']:checked")).map(x => x.value);
+    data.website = $("website").value;
+    return data;
+  };
+  const loadOptions = async () => {
+    try {
+      const result = await request("/api/v1/onboarding/countries","GET");
+      countryProfiles = result.countries;
+      services = result.services;
+      const groupSelect = $("group_id");
+      (result.school_groups || []).forEach(group => groupSelect.add(new Option(group.name,String(group.id))));
+      const countrySelect = $("country_code");
+      countrySelect.replaceChildren(new Option("Select your country",""));
+      countryProfiles.forEach(item => countrySelect.add(new Option(item.country_name,item.country_code)));
+      countrySelect.add(new Option("Other country / not listed","OTHER"));
+      const serviceContainer = $("service-options");
+      serviceContainer.replaceChildren();
+      services.forEach(item => {
+        const column = document.createElement("div"); column.className = "col-12 col-md-6";
+        const label = document.createElement("label"); label.className = "border rounded p-3 d-flex gap-2 align-items-start";
+        const checkbox = document.createElement("input"); checkbox.className = "form-check-input mt-1";
+        checkbox.type = "checkbox"; checkbox.name = "requested_services"; checkbox.value = item.service_key;
+        const text = document.createElement("span");
+        const strong = document.createElement("strong"); strong.textContent = item.label;
+        const description = document.createElement("small"); description.className = "text-secondary";
+        description.textContent = item.description || "";
+        text.append(strong,document.createElement("br"),description);
+        label.append(checkbox,text); column.append(label); serviceContainer.append(column);
+      });
+    } catch (error) { show(error.message,"danger"); }
+  };
+  $("institution_type").addEventListener("change", () => {
+    const affiliated = $("institution_type").value === "group_affiliated";
+    $("group-wrap").hidden = !affiliated;
+    $("group_id").required = affiliated;
+  });
+  $("country_code").addEventListener("change", () => {
+    const profile = countryProfiles.find(x => x.country_code === $("country_code").value);
+    const isOther = $("country_code").value === "OTHER";
+    $("other-country-wrap").hidden = !isOther;
+    $("other-country-code").required = isOther;
+    $("region-label").textContent = profile ? profile.region_label + (profile.region_required ? " *" : "") : "Administrative region";
+    const requirements = profile && profile.requirements_json ? JSON.parse(profile.requirements_json) : {};
+    const required = Array.isArray(requirements.required_fields) ? requirements.required_fields : [];
+    $("region").required = !!(profile && profile.region_required) || required.includes("region");
+    $("registration_number").required = !!(profile && profile.registration_number_required) || required.includes("registration_number");
+    $("city").required = required.includes("city");
+    $("owner_name").required = required.includes("owner_name");
+    $("contact_phone").required = required.includes("contact_phone");
+    $("website_url").required = required.includes("website_url");
+    $("country-guidance").textContent = profile ? "Country profile version " + profile.version + ". " + (profile.registration_number_required || required.includes("registration_number") ? "Institutional registration number is required." : "") : "Enter the ISO alpha-2 code for your country. General registration rules will apply until a country profile is configured.";
+  });
+  $("save-draft").addEventListener("click", async () => {
+    try {
+      const data = payload();
+      if (!reference) {
+        const created = await request("/api/v1/onboarding/applications","POST",data);
+        reference = created.reference; resumeToken = created.resume_token;
+        $("resume-token").value = resumeToken;
+      $("resume-reference").value = reference;
+      } else {
+        await request("/api/v1/onboarding/applications/" + reference,"PUT",{...data,resume_token:resumeToken});
+      }
+      $("application-reference").textContent = "Application reference: " + reference;
+      $("resume-reference").value = reference;
+      show("Draft saved. A one-time verification email has been queued; delivery depends on the platform email service.","success");
+    } catch (error) { show(error.message,"danger"); }
+  });
+  $("load-draft").addEventListener("click", async () => {
+    try {
+      reference = $("resume-reference").value.trim();
+      resumeToken = $("resume-token").value.trim();
+      if (!reference || !resumeToken) throw new Error("Enter both the application reference and resume token.");
+      const saved = await request("/api/v1/onboarding/applications/" + reference,"GET",null,resumeToken);
+      const data = saved.application || {};
+      fields.forEach(key => { if (data[key] !== undefined && $(key)) $(key).value = data[key] || ""; });
+      const knownCountry = countryProfiles.some(item => item.country_code === saved.country_code);
+      $("country_code").value = knownCountry ? saved.country_code : "OTHER";
+      if (!knownCountry) $("other-country-code").value = saved.country_code;
+      $("country_code").dispatchEvent(new Event("change"));
+      if (data.group_id) $("group_id").value = String(data.group_id);
+      $("institution_type").dispatchEvent(new Event("change"));
+      document.querySelectorAll("[name='requested_services']").forEach(box => {
+        box.checked = Array.isArray(data.requested_services) && data.requested_services.includes(box.value);
+      });
+      $("application-reference").textContent = "Application reference: " + reference;
+      show("Draft loaded. Continue editing, verify your email if needed, then submit.","success");
+    } catch (error) { show(error.message,"danger"); }
+  });
+  $("verify-email").addEventListener("click", async () => {
+    try {
+      if (!reference) throw new Error("Save your draft first.");
+      await request("/api/v1/onboarding/applications/" + reference + "/verify-email","POST",{verification_token:$("verification-token").value.trim()});
+      show("Email verified. You can now submit your application.","success");
+    } catch (error) { show(error.message,"danger"); }
+  });
+  $("submit-application").addEventListener("click", async () => {
+    try {
+      if (!reference || !resumeToken) throw new Error("Save your draft first.");
+      const result = await request("/api/v1/onboarding/applications/" + reference + "/submit","POST",{resume_token:resumeToken});
+      show("Application submitted. It is pending institutional verification and cannot access a school workspace yet.","success");
+      $("application-reference").textContent = "Application " + result.reference + " · School record " + result.school_id;
+    } catch (error) { show(error.message,"danger"); }
+  });
+  loadOptions();
+})();
+</script>
+{% endblock %}

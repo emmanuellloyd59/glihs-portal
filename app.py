@@ -2738,6 +2738,18 @@ from school_network import (
 initialize_school_network_schema(get_db_connection)
 app.register_blueprint(create_school_network_blueprint(get_db_connection))
 
+# International onboarding extends the same school records and authentication;
+# draft applications remain separate until verified submission.
+from school_network import _is_platform_owner
+from school_onboarding import (
+    create_school_onboarding_blueprint,
+    initialize_onboarding_schema,
+)
+initialize_onboarding_schema(get_db_connection)
+app.register_blueprint(
+    create_school_onboarding_blueprint(get_db_connection, _is_platform_owner)
+)
+
 
 if __name__ == "__main__":
     app.run(port=5000, debug=False)
