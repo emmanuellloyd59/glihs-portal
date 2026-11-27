@@ -310,6 +310,51 @@ class InternationalOnboardingTests(unittest.TestCase):
         })
         self.assertEqual(replay.status_code, 404)
 
+    def test_end_to_end_verification_approval_activation_and_configuration_stages(self):
+        draft = self.create_and_verify_draft()
+        submitted = self.client.post(
+            "/api/v1/onboarding/applications/" + draft["reference"] + "/submit",
+            json={"resume_token":draft["resume_token"]},
+        )
+        self.assertEqual(submitted.status_code,202)
+        school_id = submitted.get_json()["data"]["school_id"]
+        self.login_owner()
+        stages = []
+        stages.append(self.client.get(f"/api/v1/onboarding/schools/{school_id}/progress").get_json()["data"]["stage"])
+        for action, expected in (("start_review","approval"),("approve","activation"),("activate","configuration")):
+            changed = self.client.post(f"/api/v1/schools/{school_id}/review",json={"action":action})
+            self.assertEqual(changed.status_code,200,changed.get_data(as_text=True))
+            stages.append(self.client.get(f"/api/v1/onboarding/schools/{school_id}/progress").get_json()["data"]["stage"])
+        self.assertEqual(stages,["verification","approval","activation","configuration"])
+        invitation = self.client.post(
+            f"/api/v1/onboarding/schools/{school_id}/invite-administrator",
+            json={"email":"stage-admin@example.test","full_name":"Stage Administrator"},
+        )
+        self.assertEqual(invitation.status_code,202)
+        connection = portal.get_db_connection()
+        try:
+            body = connection.execute(
+                "SELECT body FROM onboarding_notification_outbox WHERE recipient='stage-admin@example.test' ORDER BY id DESC LIMIT 1"
+            ).fetchone()["body"]
+            token = body.split("#token=",1)[1].splitlines()[0]
+        finally:
+            connection.close()
+        accepted = self.client.post("/api/v1/onboarding/invitations/accept",json={
+            "token":token,"password":"stage-admin-strong-password-2026"
+        })
+        self.assertEqual(accepted.status_code,201)
+        with self.client.session_transaction() as session:
+            session.clear()
+        self.client.post("/login",data={
+            "username":"stage-admin@example.test","password":"stage-admin-strong-password-2026"
+        })
+        completed = self.client.post(
+            f"/api/v1/onboarding/schools/{school_id}/configuration/complete"
+        )
+        self.assertEqual(completed.status_code,200,completed.get_data(as_text=True))
+        progress = self.client.get(f"/api/v1/onboarding/schools/{school_id}/progress")
+        self.assertEqual(progress.get_json()["data"]["stage"],"completed")
+
     def test_notifications_remain_queued_without_smtp_and_admin_api_is_protected(self):
         self.assertEqual(self.client.post("/api/v1/onboarding/notifications/dispatch").status_code, 401)
         self.login_owner()
