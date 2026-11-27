@@ -337,7 +337,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.login_as("principal_route_test")
         response = self.client.post("/staff", data={
             "action": "change_role", "user_id": str(teacher_id),
-            "new_role": "attendance_officer",
+            "role": "attendance_officer",
         }, follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         connection = portal.get_db_connection()
