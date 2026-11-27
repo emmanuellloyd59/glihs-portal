@@ -1693,6 +1693,60 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
 
 
 
+
+    def test_resource_archive_is_librarian_managed_and_not_a_teacher_permission(self):
+        connection = portal.get_db_connection()
+        try:
+            portal.ensure_content_tables(connection)
+            teacher_id = connection.execute(
+                "SELECT id FROM users WHERE username='teacher_route_test'"
+            ).fetchone()["id"]
+            material_id = connection.execute(
+                """INSERT INTO learning_materials
+                   (school_id, title, description, class_level, stored_name, original_name, uploaded_by)
+                   VALUES (1, 'Fictional Managed Resource', 'Resource archive permission test',
+                           'Grade 7', 'managed-resource-test.txt', 'resource.txt', ?)""",
+                (teacher_id,),
+            ).lastrowid
+            announcement_id = connection.execute(
+                """INSERT INTO school_announcements
+                   (school_id, title, body, audience, created_by, updated_by)
+                   VALUES (1, 'Fictional Specialist Notice', 'Must remain published', 'all', ?, ?)""",
+                (teacher_id, teacher_id),
+            ).lastrowid
+            connection.commit()
+        finally:
+            connection.close()
+
+        self.login_as("teacher_route_test")
+        self.assertEqual(
+            self.client.post(f"/learning-materials/{material_id}/archive").status_code, 403
+        )
+        self.client.post("/logout")
+        self.login_as("librarian_route_test")
+        archived = self.client.post(f"/learning-materials/{material_id}/archive")
+        self.assertEqual(archived.status_code, 302)
+        self.assertEqual(
+            self.client.post(f"/announcements/{announcement_id}/archive").status_code, 403
+        )
+
+        connection = portal.get_db_connection()
+        try:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT archived FROM learning_materials WHERE id=?", (material_id,)
+                ).fetchone()["archived"], 1,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT status FROM school_announcements WHERE id=?", (announcement_id,)
+                ).fetchone()["status"], "published",
+            )
+        finally:
+            connection.close()
+
+
+
 class StartupMigrationTests(unittest.TestCase):
     def test_legacy_database_migrates_without_losing_records_and_is_idempotent(self):
         """Exercise the real startup migration on a disposable legacy SQLite file."""
