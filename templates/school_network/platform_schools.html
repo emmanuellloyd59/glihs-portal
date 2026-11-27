@@ -33,6 +33,9 @@
     <td><span class="badge text-bg-{{ 'success' if school.lifecycle_status == 'active' else ('warning' if school.lifecycle_status in ['pending','approved','under_review'] else 'secondary') }}">{{ school.lifecycle_status.replace('_',' ').title() }}</span></td>
     <td class="text-nowrap">
      <a class="btn btn-sm btn-outline-primary mb-1" href="{{ url_for('school_network.school_profile', school_id=school.id) }}">Profile</a>
+     {% if school.lifecycle_status == 'pending' %}
+      <form class="d-inline" method="post" action="{{ url_for('school_network.platform_school_review_form',school_id=school.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="start_review"><button class="btn btn-sm btn-outline-primary mb-1">Start review</button></form>
+     {% endif %}
      {% if school.lifecycle_status in ['pending','under_review'] %}
       <form class="d-inline" method="post" action="{{ url_for('school_network.platform_school_review_form',school_id=school.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="approve"><button class="btn btn-sm btn-success mb-1">Approve</button></form>
       <form class="d-inline" method="post" action="{{ url_for('school_network.platform_school_review_form',school_id=school.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="reject"><button class="btn btn-sm btn-outline-danger mb-1">Reject</button></form>
