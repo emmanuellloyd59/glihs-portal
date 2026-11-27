@@ -1437,7 +1437,7 @@ def admin_users():
             """SELECT l.parent_user_id, l.student_id, l.school_id, s.full_name AS student_name,
                       s.admission_number, u.username AS parent_username
                FROM parent_student_links l
-               JOIN users u ON u.id = l.parent_user_id AND u.school_id = l.school_id
+               JOIN users u ON u.id = l.parent_user_id
                JOIN students s ON s.id = l.student_id AND s.school_id = l.school_id
                ORDER BY u.username COLLATE NOCASE, s.full_name COLLATE NOCASE"""
         ).fetchall()
@@ -1602,7 +1602,7 @@ def academics():
                       g.assessment, g.score, g.max_score, g.academic_year, g.term,
                       u.username AS recorded_by, g.created_at
                FROM grades g JOIN students s ON s.id = g.student_id
-               JOIN users u ON u.id = g.recorded_by AND u.school_id = g.school_id
+               JOIN users u ON u.id = g.recorded_by
                WHERE g.school_id = ? AND s.school_id = ?
                  AND (? <> 'teacher' OR (
                      s.class_level IN (
@@ -1622,7 +1622,7 @@ def academics():
             """SELECT a.id, s.full_name, s.admission_number, s.class_level,
                       a.attendance_date, a.status, a.note, u.username AS recorded_by
                FROM attendance a JOIN students s ON s.id = a.student_id
-               JOIN users u ON u.id = a.recorded_by AND u.school_id = a.school_id
+               JOIN users u ON u.id = a.recorded_by
                WHERE a.school_id = ? AND s.school_id = ?
                  AND (? <> 'teacher' OR s.class_level IN (
                      SELECT class_level FROM teacher_class_assignments
@@ -1715,9 +1715,11 @@ def timetable():
                 return redirect(url_for("timetable"))
 
             teacher = connection.execute(
-                """SELECT id FROM users
-                   WHERE id = ? AND school_id = ? AND role = 'teacher' AND status = 'active'""",
-                (int(teacher_text), school_id),
+                """SELECT u.id FROM users u
+                   JOIN school_memberships m ON m.user_id=u.id
+                     AND m.school_id=? AND m.role='teacher' AND m.status='active'
+                   WHERE u.id=? AND u.status='active' AND u.is_super_admin=0""",
+                (school_id, int(teacher_text)),
             ).fetchone()
             if teacher is None:
                 flash("Choose an active teacher assigned to this school.", "danger")
@@ -1757,7 +1759,7 @@ def timetable():
             """SELECT t.id, t.class_level, t.subject, t.weekday, t.start_time,
                       t.end_time, t.room, u.full_name AS teacher_name, u.username AS teacher_username
                FROM class_timetable t
-               JOIN users u ON u.id = t.teacher_id AND u.school_id = t.school_id
+               JOIN users u ON u.id = t.teacher_id
                WHERE t.school_id = ?
                  AND (? <> 'teacher' OR t.teacher_id = ?)
                ORDER BY CASE t.weekday
@@ -1769,8 +1771,10 @@ def timetable():
         teachers = []
         if can_manage:
             teachers = connection.execute(
-                """SELECT id, username, full_name FROM users
-                   WHERE school_id = ? AND role = 'teacher' AND status = 'active'
+                """SELECT u.id, u.username, u.full_name FROM users u
+                   JOIN school_memberships m ON m.user_id=u.id
+                     AND m.school_id=? AND m.role='teacher' AND m.status='active'
+                   WHERE u.status='active' AND u.is_super_admin=0
                    ORDER BY full_name COLLATE NOCASE, username COLLATE NOCASE""",
                 (school_id,),
             ).fetchall()
@@ -2698,7 +2702,7 @@ def parent_children():
                       s.student_id_number
                FROM parent_student_links l
                JOIN students s ON s.id = l.student_id AND s.school_id = l.school_id
-               JOIN users p ON p.id = l.parent_user_id AND p.school_id = l.school_id
+               JOIN users p ON p.id = l.parent_user_id
                WHERE l.parent_user_id = ? AND l.school_id = ?
                  AND p.status = 'active' AND s.status = 'active'
                ORDER BY s.full_name COLLATE NOCASE""",
