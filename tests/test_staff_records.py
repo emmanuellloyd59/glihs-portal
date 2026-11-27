@@ -16,6 +16,9 @@ os.environ.setdefault("SESSION_COOKIE_SECURE", "false")
 from werkzeug.security import generate_password_hash  # noqa: E402
 import app as portal  # noqa: E402
 from staff_records import initialize_staff_records  # noqa: E402
+from school_network import initialize_school_network_schema  # noqa: E402
+from identity_memberships import initialize_membership_schema  # noqa: E402
+from authorization import initialize_authorization_schema  # noqa: E402
 
 
 class StaffRecordLifecycleTests(unittest.TestCase):
@@ -27,6 +30,9 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         self.database = Path(_TMP.name) / (self.id().replace(".", "_") + ".db")
         portal.DATABASE = self.database
         portal.initialize_database()
+        initialize_school_network_schema(portal.get_db_connection)
+        initialize_membership_schema(portal.get_db_connection)
+        initialize_authorization_schema(portal.get_db_connection)
         initialize_staff_records(portal.get_db_connection)
         self.client = portal.app.test_client()
         db = portal.get_db_connection()
