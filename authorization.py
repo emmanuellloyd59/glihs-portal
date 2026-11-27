@@ -390,6 +390,62 @@ def create_authorization_blueprint(connection_factory):
         finally:
             connection.close()
 
+    @bp.get("/api/v1/authorization/roles/<role>/permissions")
+    @login_required
+    def get_role_permissions(role):
+        if not (getattr(current_user, "is_super_admin", False)
+                and getattr(current_user, "role", None) == "super_admin"
+                and getattr(current_user, "school_id", None) is None):
+            abort(403)
+        if role not in DEFAULT_ROLE_PERMISSIONS:
+            return jsonify({"error": "Unknown authorization role."}), 404
+        connection = connection_factory()
+        try:
+            rows = connection.execute("""
+                SELECT permission,scope_type,effect,updated_at
+                FROM authorization_role_permissions WHERE role=? ORDER BY permission,scope_type
+            """, (role,)).fetchall()
+            return jsonify({"role": role, "permissions": [dict(row) for row in rows]})
+        finally:
+            connection.close()
+
+    @bp.get("/api/v1/authorization/audit")
+    @login_required
+    def authorization_audit_log():
+        platform_actor = (getattr(current_user, "is_super_admin", False)
+                          and getattr(current_user, "role", None) == "super_admin"
+                          and getattr(current_user, "school_id", None) is None)
+        if platform_actor:
+            from flask import session
+            school_id = request.args.get("school_id", type=int) or session.get("active_school_id")
+            if school_id is None:
+                require_permission("platform.manage_global_policies", connection_factory)
+                school_filter = None
+            else:
+                require_permission("audit.view", connection_factory, school_id=int(school_id))
+                school_filter = int(school_id)
+        else:
+            school_filter = getattr(current_user, "school_id", None)
+            require_permission("audit.view", connection_factory, school_id=school_filter)
+        limit = min(max(request.args.get("limit", 100, type=int) or 100, 1), 200)
+        connection = connection_factory()
+        try:
+            if school_filter is None:
+                rows = connection.execute("""
+                    SELECT id,actor_user_id,school_id,campus_id,action,permission,
+                           subject_type,subject_id,effect,details_json,created_at
+                    FROM authorization_audit ORDER BY id DESC LIMIT ?
+                """, (limit,)).fetchall()
+            else:
+                rows = connection.execute("""
+                    SELECT id,actor_user_id,school_id,campus_id,action,permission,
+                           subject_type,subject_id,effect,details_json,created_at
+                    FROM authorization_audit WHERE school_id=? ORDER BY id DESC LIMIT ?
+                """, (school_filter, limit)).fetchall()
+            return jsonify({"data": [dict(row) for row in rows]})
+        finally:
+            connection.close()
+
     @bp.put("/api/v1/authorization/roles/<role>/permissions")
     @login_required
     def update_role_permissions(role):
