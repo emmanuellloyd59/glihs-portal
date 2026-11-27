@@ -65,9 +65,24 @@ class AcademicStructureTests(unittest.TestCase):
         try:
             db.execute("INSERT INTO academic_years(school_id,label) VALUES(1,'2025/26')")
             _snapshot(db,1,1,"create year"); db.commit()
-            self.assertEqual(db.execute("SELECT version_no FROM academic_structure_versions WHERE school_id=1").fetchone()[0],1)
+            self.assertEqual(db.execute("SELECT version_no FROM academic_structure_versions WHERE school_id=1 ORDER BY version_no DESC").fetchone()[0],2)
             payload=db.execute("SELECT snapshot_json FROM academic_structure_versions WHERE school_id=1").fetchone()[0]
             self.assertIn("2025/26",payload)
+        finally: db.close()
+
+    def test_database_triggers_reject_cross_tenant_academic_relationships(self):
+        db=self.open()
+        try:
+            db.execute("INSERT INTO academic_years(school_id,label) VALUES(1,'2025/26')")
+            year_id=db.execute("SELECT id FROM academic_years WHERE school_id=1 AND label='2025/26'").fetchone()[0]
+            db.execute("INSERT INTO grade_levels(school_id,name) VALUES(1,'Level A')")
+            level_a=db.execute("SELECT id FROM grade_levels WHERE school_id=1 AND name='Level A'").fetchone()[0]
+            db.execute("INSERT INTO grade_levels(school_id,name) VALUES(2,'Level B')")
+            level_b=db.execute("SELECT id FROM grade_levels WHERE school_id=2 AND name='Level B'").fetchone()[0]
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("INSERT INTO academic_classes(school_id,academic_year_id,grade_level_id,name) VALUES(1,?,?, 'Invalid cross-tenant class')",(year_id,level_b))
+            db.execute("INSERT INTO academic_classes(school_id,academic_year_id,grade_level_id,name) VALUES(1,?,?, 'Valid class')",(year_id,level_a))
+            db.commit()
         finally: db.close()
 
     def test_reinitialization_is_idempotent_and_preserves_legacy_grade(self):
