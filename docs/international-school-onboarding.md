@@ -32,6 +32,7 @@ This workflow extends the existing School Network and Flask-Login implementation
 | PUT | `/api/v1/onboarding/countries/{country_code}` | Platform owner | Configure country-specific requirements |
 | GET | `/api/v1/onboarding/schools/{school_id}/progress` | Platform owner or scoped school admin | Read onboarding progress |
 | POST | `/api/v1/onboarding/schools/{school_id}/invite-administrator` | Platform owner, active school only | Issue administrator invitation |
+| GET | `/school-network/invitations/accept` | Public, invitation token in URL fragment | Password setup page |
 | POST | `/api/v1/onboarding/invitations/accept` | Invitation token | Create school-scoped administrator account |
 | POST | `/api/v1/onboarding/schools/{school_id}/configuration/complete` | Platform owner or school admin | Complete post-activation setup |
 | POST | `/api/v1/onboarding/notifications/dispatch` | Platform owner | Dispatch queued email |
