@@ -669,6 +669,9 @@ def initialize_database():
     academic_initializer = globals().get("initialize_academic_structure")
     if academic_initializer is not None:
         academic_initializer(get_db_connection)
+    staff_initializer = globals().get("initialize_staff_records")
+    if staff_initializer is not None:
+        staff_initializer(get_db_connection)
 
 initialize_database()
 
@@ -3112,6 +3115,9 @@ app.register_blueprint(create_student_information_blueprint(get_db_connection, I
 # Configurable tenant-owned academic structure, initialized additively.
 from academic_structure import initialize_academic_structure, register_academic_structure_routes
 register_academic_structure_routes(globals())
+from staff_records import initialize_staff_records, register_staff_records_routes
+initialize_staff_records(get_db_connection)
+register_staff_records_routes(globals())
 
 if __name__ == "__main__":
     app.run(port=5000, debug=False)

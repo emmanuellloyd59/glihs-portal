@@ -175,6 +175,16 @@ def register_staff_attendance_routes(ns):
                                VALUES(?,?,?,'active',1,CURRENT_TIMESTAMP)""",
                             (created.lastrowid, school_id, role),
                         )
+                        connection.execute("INSERT INTO staff_memberships(school_id,user_id,membership_status) VALUES(?,?,'active')",
+                                           (school_id,created.lastrowid))
+                        membership_id = connection.execute("SELECT id FROM staff_memberships WHERE school_id=? AND user_id=?",
+                                                            (school_id,created.lastrowid)).fetchone()["id"]
+                        connection.execute("INSERT INTO staff_profiles(school_id,membership_id) VALUES(?,?)",
+                                           (school_id,membership_id))
+                        connection.execute("INSERT INTO staff_employment(school_id,membership_id,job_title,employment_status) VALUES(?,?,?,'active')",
+                                           (school_id,membership_id,staff_roles[role]))
+                        connection.execute("INSERT INTO staff_lifecycle_events(school_id,membership_id,event_type,event_date,actor_user_id) VALUES(?,?,'onboarded',date('now'),?)",
+                                           (school_id,membership_id,int(current_user.id)))
                         audit_for_school(connection, "staff_account_created", username,
                                          "Role: " + role, school_id)
                         connection.commit()
@@ -220,6 +230,21 @@ def register_staff_attendance_routes(ns):
                             "UPDATE school_memberships SET status = ?, updated_at=CURRENT_TIMESTAMP WHERE user_id = ? AND school_id = ? AND status IN ('active','suspended')",
                             (status, target["id"], school_id),
                         )
+                        membership_status = "suspended" if action == "suspend" else "active"
+                        connection.execute("UPDATE staff_memberships SET membership_status=?,updated_at=CURRENT_TIMESTAMP WHERE school_id=? AND user_id=?",
+                                           (membership_status,school_id,target["id"]))
+                        connection.execute("""UPDATE staff_employment SET employment_status=?,updated_at=CURRENT_TIMESTAMP
+                                               WHERE school_id=? AND membership_id IN
+                                               (SELECT id FROM staff_memberships WHERE school_id=? AND user_id=?)""",
+                                           (membership_status,school_id,school_id,target["id"]))
+                        connection.execute("""INSERT INTO staff_lifecycle_events
+                                               (school_id,membership_id,event_type,event_date,actor_user_id,notes)
+                                               SELECT school_id,id,?,date('now'),?,?
+                                               FROM staff_memberships WHERE school_id=? AND user_id=?""",
+                                           ("account_suspended" if action == "suspend" else "account_reactivated",
+                                            int(current_user.id),
+                                            "Staff account " + action + " via staff directory",
+                                            school_id,target["id"]))
                         if action == "suspend" and target["role"] == "teacher":
                             revoked_count = connection.execute(
                                 """UPDATE teacher_class_assignments
