@@ -1,6 +1,6 @@
 # CMHS Digital Campus — Version 4 QA and Release Readiness
 
-**Assessment date:** 2026-11-26  
+**Assessment date:** 2026-11-27  
 **Development branch:** `version-4/reconciled-main-2026-11-26`  
 **Pull request:** #49 (draft)  
 **Live service:** `https://glihs-portal-3.onrender.com`
@@ -28,7 +28,7 @@ The current branch contains **186 test methods** across the following suites:
 | `test_student_profiles.py` | 4 | Student privacy and profile editing |
 | `test_stylesheet_cascade.py` | 2 | CSS order and accessible page landmarks |
 
-The CI workflow is configured for Python 3.11 and 3.14. The previous 176-test baseline passed on both versions in GitHub Actions run [#45913387703](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45913387703). The 184-test authorization candidate passed on Python 3.11 and 3.14 in workflow [#45914506059](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45914506059). Two additional database migration regressions have since been added; the new 186-test candidate must pass both matrix jobs before those additions are counted as verified.
+The CI workflow is configured for Python 3.11 and 3.14. The previous 176-test baseline passed on both versions in GitHub Actions run [#45913387703](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45913387703). The 184-test authorization candidate passed on Python 3.11 and 3.14 in workflow [#45914506059](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45914506059). The current 186-test candidate, including the additional migration rollback, migration-ledger and caller-transaction regression coverage, passed both matrix jobs on Python 3.11 and 3.14 in workflow [#45915836762](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45915836762).
 
 ## Browser compatibility observations — live Version 0.3 preview only
 
@@ -65,7 +65,7 @@ The V4 branch changes that notice to a top-level `header` banner landmark and ad
 | QA-02 | Critical | Scheduled, encrypted, off-host backup retention and operational restore drills are not configured | Open — helper and automated tests only |
 | QA-03 | High | Complete route-by-route authorization and cross-school review, including counselor and full parent/student workflows | Prompt 02 source audit and 30-route inventory complete; 184-test candidate passed on Python 3.11 and 3.14 |
 | QA-04 | High | Authenticated desktop/mobile browser testing of the V4 candidate has not been run against a staging deployment | Open — live public login page only was inspected |
-| QA-05 | High | Latest full regression run for current candidate | 184-test authorization candidate passed; 186-test database-integrity candidate pending on Python 3.11 and 3.14 |
+| QA-05 | High | Latest full regression run for current candidate | 186-test candidate passed on Python 3.11 and 3.14 in workflow [#45915836762](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45915836762) |
 | QA-06 | Medium | Historical schema upgrades remain consolidated in the startup migration function; ledger milestones do not yet represent one migration file per historical change | Documented limitation |
 | QA-07 | Moderate | Live Version 0.3 release notice is outside an accessibility landmark | V4 branch fix and regression test added; live service not changed |
 
@@ -89,7 +89,7 @@ This is not yet a production disaster-recovery service. Scheduling, encrypted ba
 **Status: BLOCKED — do not merge or deploy yet.**
 
 Required before production approval:
-1. Both current Python 3.11 and 3.14 CI jobs pass for the latest commit (the 184-test authorization commit passed; rerun after the new database-integrity changes).
+1. Both Python 3.11 and 3.14 CI jobs pass for the latest verified 186-test candidate; continue rerunning CI after any subsequent source or test changes.
 2. Complete route-by-route authorization review and tests for all roles and cross-school object access (source audit and expanded tests committed; verify final CI).
 3. A staging environment with durable database storage is configured and verified.
 4. Authenticated desktop/mobile end-to-end testing is completed using fictional test accounts and records.
