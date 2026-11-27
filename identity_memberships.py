@@ -171,6 +171,24 @@ def initialize_membership_schema(connection_factory):
 
 def resolve_membership(connection, user_id, session_data):
     """Resolve only a live membership owned by this authenticated platform identity."""
+    if session_data.get("active_membership_id") is None:
+        # Backfill legacy accounts created by older routes since application boot.
+        connection.execute("""
+            INSERT OR IGNORE INTO school_memberships
+                (user_id,school_id,role,status,is_primary,accepted_at)
+            SELECT u.id,u.school_id,u.role,'active',1,COALESCE(u.approved_at,u.created_at)
+            FROM users u
+            JOIN schools s ON s.id=u.school_id
+              AND s.status='active' AND s.lifecycle_status='active'
+            WHERE u.school_id IS NOT NULL AND u.is_super_admin=0
+              AND u.status='active'
+              AND u.role IN (
+                'school_admin','teacher','registrar','principal','vice_principal',
+                'student','parent','admissions_officer','academic_admin',
+                'attendance_officer','finance_admin','librarian','counselor'
+              )
+        """)
+        connection.commit()
     selected = session_data.get("active_membership_id")
     if selected is not None:
         if not isinstance(selected, int) or isinstance(selected, bool):
