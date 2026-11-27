@@ -167,21 +167,25 @@ def initialize_student_information_schema(connection_factory):
         # matching the tenant model and allowing independent schools to use the
         # same identifier format. Refuse ambiguous duplicates before changing it.
         duplicates = db.execute("""
-          SELECT school_id,student_id_number,COUNT(*) AS n
+          SELECT school_id,lower(student_id_number) AS value,COUNT(*) AS n
           FROM students WHERE student_id_number IS NOT NULL AND trim(student_id_number)<>''
-          GROUP BY school_id,student_id_number HAVING COUNT(*)>1 LIMIT 1
+          GROUP BY school_id,lower(student_id_number) HAVING COUNT(*)>1 LIMIT 1
         """).fetchone()
-        if duplicates:
-            raise RuntimeError("Cannot migrate student identifiers: duplicate value within a school.")
+        admission_duplicates = db.execute("""
+          SELECT school_id,lower(admission_number) AS value,COUNT(*) AS n
+          FROM students GROUP BY school_id,lower(admission_number) HAVING COUNT(*)>1 LIMIT 1
+        """).fetchone()
+        if duplicates or admission_duplicates:
+            raise RuntimeError("Cannot migrate student identifiers: duplicate value within a school needs manual review.")
         db.execute("DROP INDEX IF EXISTS idx_students_student_id_number")
         db.execute("""
           CREATE UNIQUE INDEX IF NOT EXISTS idx_students_school_identifier
-          ON students(school_id,student_id_number)
+          ON students(school_id,student_id_number COLLATE NOCASE)
           WHERE student_id_number IS NOT NULL
         """)
         db.execute("""
           CREATE UNIQUE INDEX IF NOT EXISTS idx_students_school_admission
-          ON students(school_id,admission_number)
+          ON students(school_id,admission_number COLLATE NOCASE)
         """)
         # Tenant integrity is also enforced at the database boundary for all
         # related student records, not just by route-level checks.
@@ -241,6 +245,25 @@ def _valid_date(value, required=False):
 
 def _json_rows(rows):
     return [dict(row) for row in rows]
+
+
+def allocate_student_identifier(connection, school_id):
+    """Allocate the next configured identifier inside the caller's transaction."""
+    connection.execute(
+        "INSERT OR IGNORE INTO student_identifier_config(school_id,pattern,next_sequence) VALUES(?,?,1)",
+        (int(school_id), IDENTIFIER_DEFAULT),
+    )
+    row = connection.execute(
+        "SELECT pattern,next_sequence FROM student_identifier_config WHERE school_id=?",
+        (int(school_id),),
+    ).fetchone()
+    sequence = int(row["next_sequence"])
+    identifier = row["pattern"].format(year=date.today().year, sequence=sequence)
+    connection.execute(
+        "UPDATE student_identifier_config SET next_sequence=?,updated_at=CURRENT_TIMESTAMP WHERE school_id=?",
+        (sequence + 1, int(school_id)),
+    )
+    return identifier
 
 
 def create_student_information_blueprint(connection_factory, instance_path):
@@ -456,11 +479,7 @@ def create_student_information_blueprint(connection_factory, instance_path):
                                    (admission_id, school_id)).fetchone()
             if not admission or admission["status"] != "accepted" or admission["student_id"] is not None:
                 abort(404)
-            config = db.execute("SELECT pattern,next_sequence FROM student_identifier_config WHERE school_id=?",
-                                (school_id,)).fetchone()
-            sequence = int(config["next_sequence"]) if config else 1
-            pattern = config["pattern"] if config else IDENTIFIER_DEFAULT
-            identifier = pattern.format(year=date.today().year, sequence=sequence)
+            identifier = allocate_student_identifier(db, school_id)
             cur = db.execute("""
               INSERT INTO students(admission_number,full_name,class_level,date_of_birth,
                 guardian_name,guardian_phone,previous_school,school_id,status)
@@ -470,8 +489,6 @@ def create_student_information_blueprint(connection_factory, instance_path):
                   admission["guardian_phone"], admission["previous_school"], school_id))
             db.execute("UPDATE students SET student_id_number=? WHERE id=? AND school_id=?",
                        (identifier, cur.lastrowid, school_id))
-            db.execute("UPDATE student_identifier_config SET next_sequence=?,updated_at=CURRENT_TIMESTAMP WHERE school_id=?",
-                       (sequence+1, school_id))
             db.execute("UPDATE student_admissions SET student_id=?,status='converted',updated_at=CURRENT_TIMESTAMP WHERE id=? AND school_id=?",
                        (cur.lastrowid, admission_id, school_id))
             audit(db, school_id, "student_admission_converted", cur.lastrowid, admission_number)
