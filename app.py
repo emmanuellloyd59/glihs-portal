@@ -21,6 +21,8 @@ from flask_login import (
 )
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import check_password_hash, generate_password_hash
+from database import connect_sqlite, load_database_settings
+from db.users import get_active_user_by_id, get_active_user_by_username, user_row_to_mapping
 
 
 # --------------------------------------------------
@@ -32,7 +34,10 @@ app = Flask(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 INSTANCE_DIR = BASE_DIR / "instance"
 INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
-DATABASE = Path(os.environ.get("DATABASE_PATH", str(INSTANCE_DIR / "glihs.db")))
+# Backend selection is centralized and fails closed on unsupported settings.
+DATABASE_SETTINGS = load_database_settings(INSTANCE_DIR / "glihs.db")
+DATABASE_BACKEND = DATABASE_SETTINGS.backend
+DATABASE = Path(DATABASE_SETTINGS.database_path)
 DATABASE.parent.mkdir(parents=True, exist_ok=True)
 
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
@@ -106,11 +111,12 @@ STUDENT_RECORD_ROLES = {
 # --------------------------------------------------
 
 def get_db_connection():
-    """Open a row-aware SQLite connection with referential integrity enabled."""
-    connection = sqlite3.connect(DATABASE, timeout=10)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    """Open the configured database backend connection.
+
+    SQLite connection setup is isolated in database.py. PostgreSQL remains
+    deliberately unsupported until its complete query and migration port lands.
+    """
+    return connect_sqlite(DATABASE)
 
 
 def migrate_users_table(connection):
@@ -1072,23 +1078,7 @@ class User(UserMixin):
 def get_user_by_id(user_id):
     connection = get_db_connection()
     try:
-        row = connection.execute(
-            """
-            SELECT u.id, u.username, u.password_hash, u.role, u.is_super_admin, u.school_id
-            FROM users u
-            WHERE u.id = ? AND u.status = 'active'
-              AND (
-                  (u.role = 'super_admin' AND u.is_super_admin = 1 AND u.school_id IS NULL)
-                  OR (
-                  u.role != 'super_admin' AND u.is_super_admin = 0 AND EXISTS (
-                      SELECT 1 FROM schools s
-                      WHERE s.id = u.school_id AND s.status = 'active'
-                  )
-              )
-              )
-            """,
-            (user_id,),
-        ).fetchone()
+        row = user_row_to_mapping(get_active_user_by_id(connection, user_id))
         if row is None:
             return None
         return User(row["id"], row["username"], row["password_hash"],
@@ -1100,30 +1090,13 @@ def get_user_by_id(user_id):
 def get_user_by_username(username):
     connection = get_db_connection()
     try:
-        row = connection.execute(
-            """
-            SELECT u.id, u.username, u.password_hash, u.role, u.is_super_admin, u.school_id
-            FROM users u
-            WHERE u.username = ? AND u.status = 'active'
-              AND (
-                  (u.role = 'super_admin' AND u.is_super_admin = 1 AND u.school_id IS NULL)
-                  OR (
-                  u.role != 'super_admin' AND u.is_super_admin = 0 AND EXISTS (
-                      SELECT 1 FROM schools s
-                      WHERE s.id = u.school_id AND s.status = 'active'
-                  )
-              )
-              )
-            """,
-            (username,),
-        ).fetchone()
+        row = user_row_to_mapping(get_active_user_by_username(connection, username))
         if row is None:
             return None
         return User(row["id"], row["username"], row["password_hash"],
                     row["role"], row["is_super_admin"], row["school_id"])
     finally:
         connection.close()
-
 
 @login_manager.user_loader
 def load_user(user_id):
