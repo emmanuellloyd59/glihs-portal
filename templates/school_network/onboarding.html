@@ -160,7 +160,7 @@
       }
       $("application-reference").textContent = "Application reference: " + reference;
       $("resume-reference").value = reference;
-      show("Draft saved. Check your email for the one-time verification token.","success");
+      show("Draft saved. A one-time verification email has been queued; delivery depends on the platform email service.","success");
     } catch (error) { show(error.message,"danger"); }
   });
   $("load-draft").addEventListener("click", async () => {
