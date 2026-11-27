@@ -188,6 +188,24 @@ class ScopedAuthorizationTests(unittest.TestCase):
         })
         self.assertEqual(response.status_code, 403)
 
+    def test_school_admin_cannot_revoke_another_tenants_campus_grant(self):
+        connection = portal.get_db_connection()
+        try:
+            campus_b = connection.execute(
+                "INSERT INTO campuses(school_id,code,name,status) VALUES(?,?,?,'active')",
+                (self.school_b, "EAST", "East Campus"),
+            ).lastrowid
+            grant_id = connection.execute("""
+                INSERT INTO authorization_grants
+                (subject_type,subject_id,permission,scope_type,scope_id,effect,created_by)
+                VALUES('role','external_service_provider','provider.access_assigned_services','campus',?,'allow',?)
+            """, (campus_b, self.other_id)).lastrowid
+            connection.commit()
+        finally:
+            connection.close()
+        response = self.admin.delete(f"/api/v1/authorization/grants/{grant_id}")
+        self.assertEqual(response.status_code, 403)
+
     def test_campus_membership_cannot_be_used_for_another_campus(self):
         connection = portal.get_db_connection()
         try:
