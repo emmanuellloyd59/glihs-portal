@@ -63,6 +63,19 @@ class AttendanceSchedulingValidationTests(unittest.TestCase):
                 db.execute("""INSERT INTO student_attendance_records
                   (school_id,session_id,student_id,status,recorded_by)
                   VALUES(1,?,2,'present',1)""", (session,))
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("UPDATE student_attendance_records SET status='absent' WHERE id=1")
+            request_id = db.execute("""INSERT INTO attendance_correction_requests
+              (school_id,record_type,record_id,old_status,new_status,reason,requested_by)
+              VALUES(1,'student',1,'present','absent','Teacher entered the wrong status',1)""").lastrowid
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("""UPDATE attendance_correction_requests
+                  SET decision='approved',decided_by=1,decided_at=CURRENT_TIMESTAMP WHERE id=?""",(request_id,))
+            db.execute("""UPDATE attendance_correction_requests
+              SET decision='approved',decided_by=2,decided_at=CURRENT_TIMESTAMP WHERE id=?""",(request_id,))
+            db.execute("UPDATE student_attendance_records SET status='absent' WHERE id=1")
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("DELETE FROM student_attendance_records WHERE id=1")
             db.close()
         finally:
             Path(path).unlink(missing_ok=True)
@@ -97,19 +110,6 @@ class AttendanceSchedulingValidationTests(unittest.TestCase):
             db = connect()
             self.assertEqual(db.execute("SELECT COUNT(*) FROM students").fetchone()[0], 1)
             self.assertEqual(db.execute("SELECT COUNT(*) FROM attendance_sessions").fetchone()[0], 0)
-            with self.assertRaises(sqlite3.IntegrityError):
-                db.execute("UPDATE student_attendance_records SET status='absent' WHERE id=1")
-            request_id = db.execute("""INSERT INTO attendance_correction_requests
-              (school_id,record_type,record_id,old_status,new_status,reason,requested_by)
-              VALUES(1,'student',1,'present','absent','Teacher entered the wrong status',1)""").lastrowid
-            with self.assertRaises(sqlite3.IntegrityError):
-                db.execute("""UPDATE attendance_correction_requests
-                  SET decision='approved',decided_by=1,decided_at=CURRENT_TIMESTAMP WHERE id=?""",(request_id,))
-            db.execute("""UPDATE attendance_correction_requests
-              SET decision='approved',decided_by=2,decided_at=CURRENT_TIMESTAMP WHERE id=?""",(request_id,))
-            db.execute("UPDATE student_attendance_records SET status='absent' WHERE id=1")
-            with self.assertRaises(sqlite3.IntegrityError):
-                db.execute("DELETE FROM student_attendance_records WHERE id=1")
             db.close()
         finally:
             Path(path).unlink(missing_ok=True)
