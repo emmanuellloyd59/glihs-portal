@@ -376,11 +376,17 @@ def require_permission(permission, connection_factory, school_id=None, campus_id
             resource_owner_id, attributes,
         )
         if audit:
+            audit_school_id = None
+            if resolved_school is not None:
+                exists = connection.execute(
+                    "SELECT id FROM schools WHERE id=?", (resolved_school,)
+                ).fetchone()
+                audit_school_id = int(exists["id"]) if exists else None
             connection.execute("""
                 INSERT INTO authorization_audit
                 (actor_user_id,school_id,campus_id,action,permission,effect,details_json)
                 VALUES(?,?,?,?,?,?,?)
-            """, (int(current_user.id), resolved_school, resolved_campus,
+            """, (int(current_user.id), audit_school_id, resolved_campus,
                   "authorization.allowed" if allowed else "authorization.denied",
                   permission, "allow" if allowed else "deny",
                   json.dumps(attributes or {}, sort_keys=True)[:4000]))
