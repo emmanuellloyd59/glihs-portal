@@ -1657,6 +1657,7 @@ def timetable():
     can_manage = current_user.role in TIMETABLE_MANAGE_ROLES
     connection = get_db_connection()
     try:
+        class_levels = get_school_class_levels(connection, school_id)
         if request.method == "POST":
             if not can_manage:
                 abort(403)
@@ -1694,7 +1695,7 @@ def timetable():
                 )
 
             if (
-                class_level not in TIMETABLE_CLASS_LEVELS
+                class_level not in class_levels
                 or not subject or len(subject) > 80
                 or not teacher_text.isdigit()
                 or weekday not in TIMETABLE_DAYS
@@ -1768,7 +1769,7 @@ def timetable():
         connection.close()
     return render_template(
         "timetable.html", entries=entries, teachers=teachers, can_manage=can_manage,
-        days=TIMETABLE_DAYS, class_levels=TIMETABLE_CLASS_LEVELS,
+        days=TIMETABLE_DAYS, class_levels=class_levels,
     )
 
 
