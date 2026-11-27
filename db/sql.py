@@ -46,7 +46,7 @@ def qmark_to_format(sql, parameter_count):
             i += 1
             closed = False
             while i < length:
-                if prefix_is_escape and sql[i] == "\\\\":
+                if prefix_is_escape and sql[i] == "\\":
                     i += 2
                     continue
                 if sql[i] == "'":
