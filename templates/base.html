@@ -63,8 +63,9 @@
                             <a class="nav-link" href="{{ url_for('school_network.platform_schools') }}">School Network</a>
                             <a class="nav-link" href="{{ url_for('select_school_context') }}">Select School Workspace</a>
                             <a class="nav-link" href="{{ url_for('admin_users') }}">Administrator Management</a>
-                        {% elif current_user.role == 'school_admin' %}
+                        {% elif current_user.role in ['school_admin', 'principal'] %}
                             <a class="nav-link" href="{{ url_for('school_network.school_profile') }}">Institution Profile</a>
+                            <a class="nav-link" href="{{ url_for('school_configuration.configuration_centre') }}">Configuration Centre</a>
                         {% endif %}
                         <form action="{{ url_for('logout') }}" method="POST" class="d-inline">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
