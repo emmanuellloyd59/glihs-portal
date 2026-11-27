@@ -30,7 +30,7 @@ class PostgreSQLMigrationTests(unittest.TestCase):
 
     def test_fresh_install_and_replay_are_idempotent(self):
         applied = apply_postgresql_migrations(self.connection)
-        self.assertEqual(applied, (1,))
+        self.assertEqual(applied, (1, 2))
         self.assertEqual(apply_postgresql_migrations(self.connection), ())
 
         tables = {
@@ -65,6 +65,76 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         ).fetchone()["id"]
         self.assertGreater(user_id, 0)
         self.assertGreater(student_id, 0)
+        self.connection.rollback()
+
+    def _seed_two_schools(self):
+        school_a = self.connection.execute(
+            "INSERT INTO schools (name,slug) VALUES (%s,%s) RETURNING id",
+            ("School A", "school-a-" + self.schema[-8:]),
+        ).fetchone()["id"]
+        school_b = self.connection.execute(
+            "INSERT INTO schools (name,slug) VALUES (%s,%s) RETURNING id",
+            ("School B", "school-b-" + self.schema[-8:]),
+        ).fetchone()["id"]
+        parent_id = self.connection.execute(
+            """INSERT INTO users (username,password_hash,role,school_id)
+               VALUES (%s,%s,'parent',%s) RETURNING id""",
+            ("parent_" + self.schema[-8:], "hash", school_a),
+        ).fetchone()["id"]
+        teacher_id = self.connection.execute(
+            """INSERT INTO users (username,password_hash,role,school_id)
+               VALUES (%s,%s,'teacher',%s) RETURNING id""",
+            ("teacher_" + self.schema[-8:], "hash", school_a),
+        ).fetchone()["id"]
+        student_id = self.connection.execute(
+            """INSERT INTO students (admission_number,full_name,class_level,school_id)
+               VALUES (%s,%s,%s,%s) RETURNING id""",
+            ("B-001", "Fictional Student", "Grade 7", school_b),
+        ).fetchone()["id"]
+        self.connection.commit()
+        return school_a, school_b, parent_id, teacher_id, student_id
+
+    def test_parent_student_link_cannot_cross_school_boundary(self):
+        school_a, _, parent_id, _, student_id = self._seed_two_schools()
+        with self.assertRaises(Exception):
+            self.connection.execute(
+                """INSERT INTO parent_student_links
+                   (parent_user_id,student_id,school_id)
+                   VALUES (%s,%s,%s)""",
+                (parent_id, student_id, school_a),
+            )
+        self.connection.rollback()
+
+    def test_grade_cannot_be_recorded_for_another_school_student(self):
+        school_a, _, _, teacher_id, student_id = self._seed_two_schools()
+        with self.assertRaises(Exception):
+            self.connection.execute(
+                """INSERT INTO grades
+                   (student_id,subject,assessment,score,max_score,recorded_by,school_id)
+                   VALUES (%s,'Mathematics','Quiz 1',80,100,%s,%s)""",
+                (student_id, teacher_id, school_a),
+            )
+        self.connection.rollback()
+
+    def test_super_admin_can_be_a_school_scoped_finance_actor(self):
+        school_a, _, _, _, _ = self._seed_two_schools()
+        admin_id = self.connection.execute(
+            """INSERT INTO users
+               (username,password_hash,role,is_super_admin,school_id)
+               VALUES (%s,%s,'super_admin',1,NULL) RETURNING id""",
+            ("root_" + self.schema[-8:], "hash"),
+        ).fetchone()["id"]
+        student_id = self.connection.execute(
+            """INSERT INTO students (admission_number,full_name,class_level,school_id)
+               VALUES (%s,%s,%s,%s) RETURNING id""",
+            ("A-001", "School A Student", "Grade 8", school_a),
+        ).fetchone()["id"]
+        self.connection.execute(
+            """INSERT INTO student_finances
+               (student_id,academic_year,total_fee,updated_by,school_id)
+               VALUES (%s,'2026/2027',1000,%s,%s)""",
+            (student_id, admin_id, school_a),
+        )
         self.connection.rollback()
 
     def test_modified_migration_checksum_fails_closed(self):
