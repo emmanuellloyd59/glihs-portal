@@ -2944,7 +2944,7 @@ from school_performance import register_school_performance_routes
 register_school_performance_routes(globals())
 from demo_staff import register_demo_staff_routes
 register_demo_staff_routes(globals())
-from academic_structure import register_academic_structure_routes
+from academic_structure import initialize_academic_structure, register_academic_structure_routes
 register_academic_structure_routes(globals())
 from staff_records import initialize_staff_records, register_staff_records_routes
 initialize_staff_records(get_db_connection)
