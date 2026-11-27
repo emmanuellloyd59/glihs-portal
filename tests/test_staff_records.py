@@ -332,6 +332,30 @@ class StaffRecordLifecycleTests(unittest.TestCase):
     def test_tenant_triggers_reject_mismatched_links_and_allow_multiple_school_memberships(self):
         db=portal.get_db_connection()
         try:
+            # Simulate the first-release guards from the merged staff foundation,
+            # which incorrectly required users.school_id to equal every school.
+            db.executescript("""
+                DROP TRIGGER IF EXISTS trg_staff_membership_user_tenant_insert;
+                DROP TRIGGER IF EXISTS trg_staff_membership_user_tenant_update;
+                CREATE TRIGGER trg_staff_membership_user_tenant_insert
+                BEFORE INSERT ON staff_memberships
+                WHEN NOT EXISTS (
+                    SELECT 1 FROM users u
+                    WHERE u.id=NEW.user_id AND u.school_id=NEW.school_id
+                )
+                BEGIN SELECT RAISE(ABORT,'legacy single-school staff guard'); END;
+                CREATE TRIGGER trg_staff_membership_user_tenant_update
+                BEFORE UPDATE OF school_id,user_id ON staff_memberships
+                WHEN NOT EXISTS (
+                    SELECT 1 FROM users u
+                    WHERE u.id=NEW.user_id AND u.school_id=NEW.school_id
+                )
+                BEGIN SELECT RAISE(ABORT,'legacy single-school staff guard'); END;
+            """)
+            db.commit()
+            db.close()
+            initialize_staff_records(portal.get_db_connection)
+            db=portal.get_db_connection()
             school_id=db.execute(
                 "INSERT INTO schools(name,slug,status) VALUES('Other School','other-school-trigger','active')"
             ).lastrowid
