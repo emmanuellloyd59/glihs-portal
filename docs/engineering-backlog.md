@@ -77,4 +77,7 @@ Do not mark an item verified based only on code presence, test names, or a previ
 - Added tests/test_school_configuration.py and docs/school-configuration-centre.md.
 - Existing schools/campuses and IDs are retained; school profile and campus contact/location fields are backfilled into initial snapshots. Onboarding service requests seed initial module availability where present.
 - No production migration, production data edits, merge, deployment, secret or hosting changes.
-- Latest code/test status: CI verification pending; do not accept until both supported Python jobs pass on the latest code commit.
+- Tested code commit: d5a6e64733026d76da1e0a003adeb04090c846ad.
+- GitHub Actions run #937: https://github.com/emmanuellloyd59/glihs-portal/actions/runs/46007524624 — 180 tests passed on Python 3.11 and 180 passed on Python 3.14.
+- Latest documentation head 389255859f90fb8d74022daf94afabf89ecb393e passed both Python CI jobs in run #938: https://github.com/emmanuellloyd59/glihs-portal/actions/runs/46007544089.
+- Manual browser/accessibility review, production migration rehearsal, PostgreSQL/RLS, and downstream module enforcement/integration remain pending.
