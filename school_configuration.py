@@ -290,8 +290,8 @@ def _school_id_from_request():
     school_id = getattr(current_user, "school_id", None)
     if school_id is None:
         abort(403)
-    if getattr(current_user, "role", None) not in {"school_admin", "principal"}:
-        abort(403)
+    from authorization import require_permission
+    require_permission("school.view_configuration", connection_factory, school_id=int(school_id))
     return int(school_id), "school"
 
 
@@ -540,6 +540,8 @@ def create_school_configuration_blueprint(connection_factory):
     @login_required
     def update_configuration_form():
         school_id, access, school, row, current = get_context()
+        from authorization import require_permission
+        require_permission("school.manage_configuration", connection_factory, school_id=school_id)
         patch = {
             "branding": {
                 "display_name": request.form.get("display_name", current["branding"]["display_name"]),
@@ -604,6 +606,8 @@ def create_school_configuration_blueprint(connection_factory):
     @login_required
     def update_school_configuration_api(school_id):
         resolved, access = _school_id_from_request()
+        from authorization import require_permission
+        require_permission("school.manage_configuration", connection_factory, school_id=school_id)
         if resolved != school_id:
             abort(404)
         payload = request.get_json(silent=True)
@@ -676,6 +680,9 @@ def create_school_configuration_blueprint(connection_factory):
     @login_required
     def update_campus_configuration_api(school_id, campus_id):
         resolved, _ = _school_id_from_request()
+        from authorization import require_permission
+        require_permission("school.manage_configuration", connection_factory,
+                           school_id=school_id, campus_id=campus_id)
         if resolved != school_id:
             abort(404)
         payload = request.get_json(silent=True)
