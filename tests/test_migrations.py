@@ -66,7 +66,7 @@ class DatabaseMigrationTests(unittest.TestCase):
                 upgraded = portal.get_db_connection()
                 try:
                     user = upgraded.execute(
-                        "SELECT id, username, role, status FROM users WHERE id = 1"
+                        "SELECT id, username, password_hash, role, status FROM users WHERE id = 1"
                     ).fetchone()
                     student = upgraded.execute(
                         "SELECT id, admission_number, full_name, account_user_id, student_id_number FROM students WHERE id = 7"
@@ -80,8 +80,10 @@ class DatabaseMigrationTests(unittest.TestCase):
                     }
                     foreign_key_issues = upgraded.execute("PRAGMA foreign_key_check").fetchall()
 
-                    self.assertEqual((user["id"], user["username"], user["role"], user["status"]),
-                                     (1, "legacy_teacher", "teacher", "active"))
+                    self.assertEqual(
+                        (user["id"], user["username"], user["password_hash"], user["role"], user["status"]),
+                        (1, "legacy_teacher", "not-a-real-login-hash", "teacher", "active"),
+                    )
                     self.assertEqual((student["id"], student["admission_number"], student["full_name"]),
                                      (7, "LEGACY-007", "Fictional Legacy Student"))
                     self.assertIsNone(student["account_user_id"])
@@ -351,6 +353,117 @@ class DatabaseMigrationTests(unittest.TestCase):
                     verify.close()
             finally:
                 portal.DATABASE = original_database
+
+
+    def test_unknown_or_conflicting_migration_ledger_entry_blocks_startup(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "future_schema.db"
+            original_database = portal.DATABASE
+            portal.DATABASE = database_path
+            try:
+                portal.initialize_database()
+                connection = portal.get_db_connection()
+                try:
+                    connection.execute(
+                        "INSERT INTO schema_migrations (version,name) VALUES (99,'future-schema')"
+                    )
+                    connection.execute(
+                        "INSERT INTO users (username,password_hash,role,school_id) "
+                        "VALUES ('preserved_user','preserved-hash','teacher',1)"
+                    )
+                    connection.commit()
+                finally:
+                    connection.close()
+
+                with self.assertRaisesRegex(sqlite3.DatabaseError, "Unsupported or inconsistent"):
+                    portal.initialize_database()
+
+                check = sqlite3.connect(database_path)
+                try:
+                    self.assertEqual(
+                        check.execute(
+                            "SELECT password_hash FROM users WHERE username='preserved_user'"
+                        ).fetchone()[0],
+                        "preserved-hash",
+                    )
+                    self.assertEqual(
+                        check.execute(
+                            "SELECT name FROM schema_migrations WHERE version=99"
+                        ).fetchone()[0],
+                        "future-schema",
+                    )
+                finally:
+                    check.close()
+            finally:
+                portal.DATABASE = original_database
+
+    def test_content_schema_migration_rolls_back_ddl_on_legacy_ownership_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "content_migration_failure.db"
+            original_database = portal.DATABASE
+            portal.DATABASE = database_path
+            try:
+                portal.initialize_database()
+                connection = portal.get_db_connection()
+                try:
+                    connection.execute(
+                        "INSERT INTO schools (id,name,slug) VALUES (2,'Second School','second-school')"
+                    )
+                    foreign_user = connection.execute(
+                        """INSERT INTO users
+                           (username,password_hash,role,status,is_super_admin,school_id)
+                           VALUES ('foreign_uploader','hash','teacher','active',0,2)"""
+                    ).lastrowid
+                    connection.execute("""CREATE TABLE learning_materials (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        school_id INTEGER NOT NULL REFERENCES schools(id),
+                        title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+                        class_level TEXT NOT NULL, stored_name TEXT NOT NULL,
+                        original_name TEXT NOT NULL, uploaded_by INTEGER NOT NULL REFERENCES users(id),
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0,1))
+                    )""")
+                    connection.execute(
+                        """INSERT INTO learning_materials
+                           (school_id,title,class_level,stored_name,original_name,uploaded_by)
+                           VALUES (1,'Legacy mismatch','Grade 7','legacy.pdf','legacy.pdf',?)""",
+                        (foreign_user,),
+                    )
+                    connection.commit()
+
+                    with self.assertRaisesRegex(sqlite3.DatabaseError, "ownership mismatch"):
+                        portal.ensure_content_tables(connection)
+                    connection.rollback()
+
+                    tables = {
+                        row[0] for row in connection.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table'"
+                        ).fetchall()
+                    }
+                    triggers = {
+                        row[0] for row in connection.execute(
+                            "SELECT name FROM sqlite_master WHERE type='trigger'"
+                        ).fetchall()
+                    }
+                    self.assertIn("learning_materials", tables)
+                    self.assertNotIn("finance_payments", tables)
+                    self.assertNotIn("school_announcements", tables)
+                    self.assertNotIn("trg_learning_material_school_insert", triggers)
+                    self.assertEqual(
+                        [row[0] for row in connection.execute(
+                            "SELECT version FROM schema_migrations ORDER BY version"
+                        ).fetchall()],
+                        [1, 2],
+                    )
+                    self.assertEqual(
+                        connection.execute("SELECT COUNT(*) FROM learning_materials").fetchone()[0],
+                        1,
+                    )
+                finally:
+                    connection.close()
+            finally:
+                portal.DATABASE = original_database
+
 
 
 if __name__ == "__main__":
