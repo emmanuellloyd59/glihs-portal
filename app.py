@@ -2729,6 +2729,14 @@ register_school_performance_routes(globals())
 from demo_staff import register_demo_staff_routes
 register_demo_staff_routes(globals())
 
+# School Network is an additive bounded capability. The migration preserves
+# existing school IDs and records; new institutional registrations stay pending.
+from school_network import (
+    create_school_network_blueprint,
+    initialize_school_network_schema,
+)
+initialize_school_network_schema(get_db_connection)
+app.register_blueprint(create_school_network_blueprint(get_db_connection))
 
 
 if __name__ == "__main__":
