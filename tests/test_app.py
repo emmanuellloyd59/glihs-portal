@@ -31,6 +31,10 @@ class PortalTestSupport:
 
     def setUp(self):
         connection = portal.get_db_connection()
+        # The disposable integration-test database contains several newer
+        # tenant tables with user foreign keys. Temporarily disable FK checks
+        # only while clearing fixtures, then restore enforcement before inserts.
+        connection.execute("PRAGMA foreign_keys = OFF")
         # New Version 3 modules reference users and students. Clear dependent rows
         # first so repeated test runs remain isolated and respect SQLite foreign keys.
         existing_tables = {
@@ -48,6 +52,8 @@ class PortalTestSupport:
         connection.execute("DELETE FROM audit_log")
         connection.execute("DELETE FROM students")
         connection.execute("DELETE FROM users")
+        connection.commit()
+        connection.execute("PRAGMA foreign_keys = ON")
         connection.execute(
             "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, ?, 1)",
             ("teacher_demo", generate_password_hash("test-teacher-password"), "teacher"),
