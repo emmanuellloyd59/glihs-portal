@@ -537,12 +537,19 @@ def create_membership_blueprint(connection_factory):
                     (user["id"], _hash_token(token), expires),
                 )
                 connection.commit()
-                link = url_for("identity_memberships.reset_recovery", _external=True) + "?token=" + token
+                link = url_for("identity_memberships.recovery_landing", _external=True) + "?token=" + token
                 try:
-                    _send_security_email(email, "Account recovery",
+                    sent = _send_security_email(email, "Account recovery",
                         "Use this one-time link within 30 minutes to reset your password:\\n" + link)
                 except Exception:
                     current_app.logger.exception("Account recovery email delivery failed.")
+                    sent = False
+                if not sent:
+                    connection.execute(
+                        "DELETE FROM identity_recovery_tokens WHERE token_hash=?",
+                        (_hash_token(token),),
+                    )
+                    connection.commit()
             return jsonify({"message": "If an eligible account exists, recovery instructions will be sent."}), 202
         finally:
             connection.close()
@@ -581,10 +588,6 @@ def create_membership_blueprint(connection_factory):
             connection.execute(
                 "UPDATE identity_recovery_tokens SET consumed_at=? WHERE user_id=? AND consumed_at IS NULL",
                 (_stamp(), row["user_id"]),
-            )
-            connection.execute(
-                "UPDATE identity_security_events SET details='password reset' WHERE user_id=? AND event_type='recovery_requested'",
-                (row["user_id"],),
             )
             _record(connection, row["user_id"], None, "password_recovered")
             connection.commit()
