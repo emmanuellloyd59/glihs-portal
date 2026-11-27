@@ -14,7 +14,15 @@ def register_school_performance_routes(ns):
         from authorization import require_permission
         require_permission("school.view_dashboard", dbopen, school_id=sid)
         today=date.today(); start=today-timedelta(days=13); year=f"{today.year}-{today.year+1}"
-        se=role in leaders or role=="attendance_officer"; sa=role in attendance_roles; sg=role in leaders; sf=role in finance_roles
+        from authorization import has_permission
+        policy_connection = dbopen()
+        try:
+            se = has_permission(policy_connection, "academic.view_records", school_id=sid)
+            sa = se
+            sg = se
+            sf = has_permission(policy_connection, "finance.view", school_id=sid)
+        finally:
+            policy_connection.close()
         if se or sa or sg:
             require_permission("academic.view_records", dbopen, school_id=sid)
         if sf:
