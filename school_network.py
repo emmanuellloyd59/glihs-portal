@@ -482,7 +482,7 @@ def create_school_network_blueprint(connection_factory):
             if _is_platform_owner():
                 _require_platform_permission(connection_factory, "platform.manage_schools")
                 rows = connection.execute("SELECT * FROM schools ORDER BY created_at DESC, id DESC").fetchall()
-            elif current_user.school_id is not None and current_user.role in {"school_admin", "principal"}:
+            elif current_user.school_id is not None and current_user.role in {"school_owner", "school_admin", "principal"}:
                 rows = connection.execute(
                     "SELECT * FROM schools WHERE id=? AND status='active' AND lifecycle_status='active'",
                     (current_user.school_id,),
