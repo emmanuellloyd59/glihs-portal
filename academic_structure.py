@@ -89,6 +89,12 @@ def initialize_academic_structure(dbopen):
           change_note TEXT, created_by INTEGER REFERENCES users(id),
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(school_id,version_no)
         );
+        CREATE TRIGGER IF NOT EXISTS trg_academic_structure_versions_no_update
+        BEFORE UPDATE ON academic_structure_versions
+        BEGIN SELECT RAISE(ABORT,'academic structure history is immutable'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_academic_structure_versions_no_delete
+        BEFORE DELETE ON academic_structure_versions
+        BEGIN SELECT RAISE(ABORT,'academic structure history is immutable'); END;
         CREATE INDEX IF NOT EXISTS idx_academic_periods_tenant_year ON academic_periods(school_id,academic_year_id);
         CREATE INDEX IF NOT EXISTS idx_academic_classes_tenant_year ON academic_classes(school_id,academic_year_id);
         CREATE INDEX IF NOT EXISTS idx_course_enrollments_student ON course_enrollments(school_id,student_id,academic_year_id);
@@ -141,6 +147,9 @@ def initialize_academic_structure(dbopen):
         )
         BEGIN SELECT RAISE(ABORT,'course enrollment tenant or year mismatch'); END;
         """)
+        course_columns = {r["name"] for r in db.execute("PRAGMA table_info(course_enrollments)")}
+        if "academic_structure_version_id" not in course_columns:
+            db.execute("ALTER TABLE course_enrollments ADD COLUMN academic_structure_version_id INTEGER REFERENCES academic_structure_versions(id)")
         # Add nullable references to existing grade/report rows. Existing textual
         # columns remain authoritative for old reports and are never rewritten.
         for table in ("grades", "report_cards"):
@@ -153,6 +162,8 @@ def initialize_academic_structure(dbopen):
                 db.execute(f"ALTER TABLE {table} ADD COLUMN academic_period_id INTEGER REFERENCES academic_periods(id)")
             if table == "grades" and "subject_id" not in cols:
                 db.execute("ALTER TABLE grades ADD COLUMN subject_id INTEGER REFERENCES subjects(id)")
+            if "academic_structure_version_id" not in cols:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN academic_structure_version_id INTEGER REFERENCES academic_structure_versions(id)")
         # Backfill only recognizable legacy labels; never guess dates or curriculum.
         schools = db.execute("SELECT id FROM schools").fetchall()
         for school in schools:
@@ -217,6 +228,18 @@ def initialize_academic_structure(dbopen):
                     WHERE school_id=? AND subject_id IS NULL""",(sid,))
             if db.execute("SELECT COUNT(*) FROM academic_structure_versions WHERE school_id=?",(sid,)).fetchone()[0] == 0:
                 _snapshot(db,sid,None,"Initial import of existing academic labels")
+            latest_version = db.execute(
+                "SELECT id FROM academic_structure_versions WHERE school_id=? ORDER BY version_no DESC LIMIT 1",
+                (sid,),
+            ).fetchone()
+            if latest_version:
+                for table in ("grades","report_cards"):
+                    cols = {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
+                    if "academic_structure_version_id" in cols:
+                        db.execute(
+                            f"UPDATE {table} SET academic_structure_version_id=? WHERE school_id=? AND academic_structure_version_id IS NULL",
+                            (latest_version["id"],sid),
+                        )
         db.commit()
     except Exception:
         db.rollback()
