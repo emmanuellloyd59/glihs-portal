@@ -147,13 +147,38 @@ def register_staff_attendance_routes(ns):
                         flash("Enter a valid name, username, permitted role, and temporary password of 12–256 characters.", "danger")
                         return redirect(url_for("staff_management"))
                     try:
-                        connection.execute(
+                        new_user = connection.execute(
                             """INSERT INTO users
                                (username, full_name, password_hash, role, status, is_super_admin,
                                 school_id, approved_by, approved_at)
                                VALUES (?, ?, ?, ?, 'active', 0, ?, ?, CURRENT_TIMESTAMP)""",
                             (username, full_name, generate_password_hash(password), role,
                              school_id, int(current_user.id)),
+                        )
+                        new_user_id = new_user.lastrowid
+                        connection.execute(
+                            """INSERT INTO staff_memberships(school_id,user_id,membership_status)
+                               VALUES(?,?,'active')""",
+                            (school_id,new_user_id),
+                        )
+                        membership_id = connection.execute(
+                            "SELECT id FROM staff_memberships WHERE school_id=? AND user_id=?",
+                            (school_id,new_user_id),
+                        ).fetchone()["id"]
+                        connection.execute(
+                            "INSERT INTO staff_profiles(school_id,membership_id) VALUES(?,?)",
+                            (school_id,membership_id),
+                        )
+                        connection.execute(
+                            """INSERT INTO staff_employment(school_id,membership_id,job_title,employment_status)
+                               VALUES(?,?,?,'active')""",
+                            (school_id,membership_id,staff_roles[role]),
+                        )
+                        connection.execute(
+                            """INSERT INTO staff_lifecycle_events
+                               (school_id,membership_id,event_type,event_date,actor_user_id)
+                               VALUES(?,?,'onboarded',date('now'),?)""",
+                            (school_id,membership_id,int(current_user.id)),
                         )
                         audit_for_school(connection, "staff_account_created", username,
                                          "Role: " + role, school_id)
@@ -196,6 +221,19 @@ def register_staff_attendance_routes(ns):
                         connection.execute(
                             "UPDATE users SET status = ? WHERE id = ? AND school_id = ? AND is_super_admin = 0",
                             (status, target["id"], school_id),
+                        )
+                        membership_status = "suspended" if action == "suspend" else "active"
+                        employment_status = "suspended" if action == "suspend" else "active"
+                        connection.execute(
+                            """UPDATE staff_memberships SET membership_status=?,updated_at=CURRENT_TIMESTAMP
+                               WHERE school_id=? AND user_id=?""",
+                            (membership_status,school_id,target["id"]),
+                        )
+                        connection.execute(
+                            """UPDATE staff_employment SET employment_status=?,updated_at=CURRENT_TIMESTAMP
+                               WHERE school_id=? AND membership_id IN
+                                 (SELECT id FROM staff_memberships WHERE school_id=? AND user_id=?)""",
+                            (employment_status,school_id,school_id,target["id"]),
                         )
                         if action == "suspend" and target["role"] == "teacher":
                             revoked_count = connection.execute(
