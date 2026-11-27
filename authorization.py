@@ -404,10 +404,7 @@ def create_authorization_blueprint(connection_factory):
     @bp.get("/api/v1/authorization/roles/<role>/permissions")
     @login_required
     def get_role_permissions(role):
-        if not (getattr(current_user, "is_super_admin", False)
-                and getattr(current_user, "role", None) == "super_admin"
-                and getattr(current_user, "school_id", None) is None):
-            abort(403)
+        require_permission("platform.manage_global_policies", connection_factory)
         if role not in DEFAULT_ROLE_PERMISSIONS:
             return jsonify({"error": "Unknown authorization role."}), 404
         connection = connection_factory()
@@ -512,10 +509,7 @@ def create_authorization_blueprint(connection_factory):
         if subject_type == "role" and subject_id not in DEFAULT_ROLE_PERMISSIONS:
             return jsonify({"error": "Unknown authorization role."}), 400
         if scope_type in {"platform", "organization"}:
-            if not (getattr(current_user, "is_super_admin", False)
-                    and getattr(current_user, "role", None) == "super_admin"
-                    and getattr(current_user, "school_id", None) is None):
-                abort(403)
+            require_permission("platform.manage_global_policies", connection_factory)
             if scope_type == "platform" and PERMISSIONS[permission] != "platform":
                 return jsonify({"error": "Platform grants are reserved for platform-scope permissions."}), 403
             if scope_type == "organization":
@@ -619,9 +613,7 @@ def create_authorization_blueprint(connection_factory):
             if not grant:
                 abort(404)
             if grant["scope_type"] == "platform":
-                if not (getattr(current_user, "is_super_admin", False)
-                        and getattr(current_user, "role", None) == "super_admin"):
-                    abort(403)
+                require_permission("platform.manage_global_policies", connection_factory)
             else:
                 require_permission("school.manage_roles", connection_factory,
                                    school_id=grant["scope_id"] if grant["scope_type"] == "school" else request.args.get("school_id", type=int))
