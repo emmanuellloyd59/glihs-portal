@@ -253,7 +253,7 @@ def register_staff_attendance_routes(ns):
             counts = connection.execute(
                 """SELECT COUNT(*) AS total,
                           SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active,
-                          SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
+                          SUM(CASE WHEN status='invited' THEN 1 ELSE 0 END) AS pending,
                           SUM(CASE WHEN status='suspended' THEN 1 ELSE 0 END) AS suspended
                    FROM school_memberships WHERE school_id = ? AND role NOT IN ('student', 'parent')""",
                 (school_id,),
