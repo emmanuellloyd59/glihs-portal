@@ -283,6 +283,8 @@ def _school_id_from_request():
         selected = request.view_args.get("school_id") if request.view_args else None
         selected = selected or request.args.get("school_id", type=int)
         if selected:
+            from authorization import require_permission
+            require_permission("school.view_configuration", connection_factory, school_id=int(selected))
             return int(selected), "platform"
         abort(400, description="Platform owner must select a school.")
     if not current_user.is_authenticated:
