@@ -249,14 +249,17 @@ def _validate_payload(payload, profile, services):
     allowed = {row["service_key"] for row in services}
     if any(not isinstance(item, str) or item not in allowed for item in requested):
         errors.append("One or more requested services are unavailable.")
-    if payload.get("institution_type", "independent") not in {"independent", "group_affiliated"}:
+    institution_type = _clean(payload.get("institution_type") or "independent",32)
+    classification = _clean(payload.get("classification"),40)
+    ownership_type = _clean(payload.get("ownership_type"),40)
+    if institution_type not in {"independent", "group_affiliated"}:
         errors.append("Choose a valid institution relationship.")
-    if payload.get("classification") not in {
+    if classification not in {
         "early_childhood","primary","secondary","combined","vocational","technical",
         "tertiary","special_education","other"
     }:
         errors.append("Choose a valid institutional classification.")
-    if payload.get("ownership_type") not in {
+    if ownership_type not in {
         "government","private","faith_based","community","nonprofit","public_private","other"
     }:
         errors.append("Choose a valid ownership type.")
@@ -267,6 +270,8 @@ def _validate_payload(payload, profile, services):
     return {
         "name": name, "legal_name": _clean(payload.get("legal_name") or name,200),
         "contact_email": email, "country_code": country, "region": region,
+        "institution_type": institution_type, "classification": classification,
+        "ownership_type": ownership_type,
         "city": _clean(payload.get("city"),100), "owner_name": _clean(payload.get("owner_name") or administrator_name,160),
         "administrator_name": administrator_name, "administrator_email": administrator_email,
         "requested_services": sorted(set(requested)),
@@ -525,7 +530,7 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             services = connection.execute("SELECT service_key,label FROM onboarding_service_catalog WHERE active=1").fetchall()
             checked, errors = _validate_payload(data,profile,services)
             group_id = data.get("group_id")
-            if data.get("institution_type","independent") == "group_affiliated":
+            if checked["institution_type"] == "group_affiliated":
                 try:
                     group_id = int(group_id)
                 except (TypeError,ValueError):
@@ -566,8 +571,8 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
                     address_line1,city,county,region,country_code,contact_email,contact_phone,
                     created_at,updated_at)
                    VALUES (?,?,'suspended','pending',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)""",
-                (checked["name"],slug,checked["legal_name"],data.get("institution_type","independent"),
-                 data.get("classification") or "other",data.get("ownership_type") or "other",owner,
+                (checked["name"],slug,checked["legal_name"],checked["institution_type"],
+                 checked["classification"],checked["ownership_type"],owner,
                  _clean(data.get("registration_number"),100) or None,_clean(data.get("website_url"),255) or None,
                  _clean(data.get("description"),2000) or None,_clean(data.get("address_line1"),180) or None,
                  city,_clean(data.get("county"),100) or region or None,region or None,checked["country_code"],checked["contact_email"],
