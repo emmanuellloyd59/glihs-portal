@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}School Management | CMHS Digital Campus{% endblock %}
+{% block content %}
+<section class="surface-card p-4 p-md-5 mb-4">
+    <p class="eyebrow text-primary mb-1">PLATFORM ADMINISTRATION</p>
+    <h1 class="h2 fw-bold mb-2">School Management</h1>
+    <p class="text-secondary mb-0">Register schools, maintain verified profiles, control activation and assign school administrators. New schools are created suspended until reviewed and activated.</p>
+</section>
+
+<section class="surface-card p-4 mb-4">
+    <h2 class="h4 fw-bold mb-3">Register a school</h2>
+    <form method="POST" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="create">
+        <div class="col-12 col-md-6">
+            <label class="form-label" for="new-school-name">School name</label>
+            <input class="form-control" id="new-school-name" name="name" maxlength="120" required>
+        </div>
+        <div class="col-12 col-md-6">
+            <label class="form-label" for="new-school-slug">Unique URL slug</label>
+            <input class="form-control" id="new-school-slug" name="slug" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="80" required>
+            <div class="form-text">Lowercase letters, numbers and single hyphens only.</div>
+        </div>
+        <div class="col-12 col-md-4">
+            <label class="form-label" for="new-school-reg">Registration number (optional)</label>
+            <input class="form-control" id="new-school-reg" name="registration_number" maxlength="80">
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label" for="new-school-country">Country code</label>
+            <input class="form-control" id="new-school-country" name="country_code" value="LR" pattern="[A-Z]{2}" maxlength="2" required>
+        </div>
+        <div class="col-6 col-md-3">
+            <label class="form-label" for="new-school-timezone">Time zone</label>
+            <input class="form-control" id="new-school-timezone" name="timezone" value="Africa/Monrovia" maxlength="80" required>
+        </div>
+        <div class="col-6 col-md-3">
+            <label class="form-label" for="new-school-currency">Currency code</label>
+            <input class="form-control" id="new-school-currency" name="currency_code" value="LRD" pattern="[A-Z]{3}" maxlength="3" required>
+        </div>
+        <div class="col-12 col-md-6">
+            <label class="form-label" for="new-school-email">Contact email</label>
+            <input class="form-control" id="new-school-email" name="contact_email" type="email" maxlength="160">
+        </div>
+        <div class="col-12">
+            <button class="btn btn-primary" type="submit">Register suspended school</button>
+        </div>
+    </form>
+</section>
+
+<section class="surface-card p-4 mb-4">
+    <h2 class="h4 fw-bold mb-2">Create a school administrator account</h2>
+    <p class="text-secondary small">Use this platform-only workflow to provision the first administrator for a newly registered school. Share the temporary password privately. A suspended school remains inaccessible until activated.</p>
+    <form method="POST" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="create_admin_account">
+        <div class="col-12 col-md-4"><label class="form-label" for="admin-school">School</label><select class="form-select" id="admin-school" name="school_id" required><option value="">Choose a school</option>{% for school in schools %}<option value="{{ school.id }}">{{ school.name }} — {{ school.status|title }}</option>{% endfor %}</select></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="admin-full-name">Administrator full name</label><input class="form-control" id="admin-full-name" name="full_name" maxlength="120" required></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="admin-username">Username</label><input class="form-control" id="admin-username" name="username" pattern="[A-Za-z0-9_-]{3,64}" maxlength="64" autocomplete="off" required></div>
+        <div class="col-12 col-md-6"><label class="form-label" for="admin-temporary-password">Temporary password</label><input class="form-control" id="admin-temporary-password" name="temporary_password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></div>
+        <div class="col-12"><button class="btn btn-primary" type="submit">Create and assign school administrator</button></div>
+    </form>
+</section>
+
+<section>
+    <div class="d-flex justify-content-between align-items-end mb-3">
+        <div><p class="eyebrow text-primary mb-1">TENANT DIRECTORY</p><h2 class="h4 fw-bold mb-0">Registered schools</h2></div>
+        <span class="text-secondary small">{{ schools|length }} school(s)</span>
+    </div>
+    {% for school in schools %}
+    <article class="surface-card p-3 p-md-4 mb-3">
+        <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3">
+            <div>
+                <h3 class="h5 fw-bold mb-1">{{ school.name }}</h3>
+                <div class="small text-secondary">ID {{ school.id }} · {{ school.slug }} · {{ school.country_code }} · {{ school.currency_code }}</div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge {{ 'text-bg-success' if school.status == 'active' else 'text-bg-secondary' }}">{{ school.status|title }}</span>
+                <span class="badge text-bg-light">{{ school.active_admin_count }} active administrator(s)</span>
+            </div>
+        </div>
+
+        <details class="mb-3">
+            <summary class="fw-semibold">Edit school profile</summary>
+            <form method="POST" class="row g-3 mt-1">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="update_profile">
+                <input type="hidden" name="school_id" value="{{ school.id }}">
+                <div class="col-12 col-md-6"><label class="form-label">School name</label><input class="form-control" name="name" maxlength="120" value="{{ school.name }}" required></div>
+                <div class="col-12 col-md-6"><label class="form-label">Legal name</label><input class="form-control" name="legal_name" maxlength="160" value="{{ school.legal_name or '' }}"></div>
+                <div class="col-12 col-md-4"><label class="form-label">Registration number</label><input class="form-control" name="registration_number" maxlength="80" value="{{ school.registration_number or '' }}"></div>
+                <div class="col-4 col-md-2"><label class="form-label">Country</label><input class="form-control" name="country_code" maxlength="2" pattern="[A-Z]{2}" value="{{ school.country_code }}" required></div>
+                <div class="col-8 col-md-3"><label class="form-label">County / region</label><input class="form-control" name="county" maxlength="80" value="{{ school.county or '' }}"></div>
+                <div class="col-12 col-md-3"><label class="form-label">District</label><input class="form-control" name="district" maxlength="80" value="{{ school.district or '' }}"></div>
+                <div class="col-12"><label class="form-label">Address</label><input class="form-control" name="address" maxlength="240" value="{{ school.address or '' }}"></div>
+                <div class="col-12 col-md-4"><label class="form-label">Contact email</label><input class="form-control" name="contact_email" type="email" maxlength="160" value="{{ school.contact_email or '' }}"></div>
+                <div class="col-12 col-md-4"><label class="form-label">Contact phone</label><input class="form-control" name="contact_phone" maxlength="40" value="{{ school.contact_phone or '' }}"></div>
+                <div class="col-12 col-md-4"><label class="form-label">Website</label><input class="form-control" name="website" type="url" maxlength="200" value="{{ school.website or '' }}"></div>
+                <div class="col-12 col-md-4"><label class="form-label">Time zone</label><input class="form-control" name="timezone" maxlength="80" value="{{ school.timezone }}" required></div>
+                <div class="col-12 col-md-4"><label class="form-label">Currency code</label><input class="form-control" name="currency_code" maxlength="3" pattern="[A-Z]{3}" value="{{ school.currency_code }}" required></div>
+                <div class="col-12"><button class="btn btn-outline-primary" type="submit">Save profile</button></div>
+            </form>
+        </details>
+
+        <div class="row g-3">
+            <div class="col-12 col-lg-6">
+                <form method="POST" class="d-flex flex-wrap align-items-end gap-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="status">
+                    <input type="hidden" name="school_id" value="{{ school.id }}">
+                    <div class="flex-grow-1">
+                        <label class="form-label" for="school-status-{{ school.id }}">School status</label>
+                        <select class="form-select" id="school-status-{{ school.id }}" name="status">
+                            <option value="active" {{ 'selected' if school.status == 'active' else '' }}>Active</option>
+                            <option value="suspended" {{ 'selected' if school.status == 'suspended' else '' }}>Suspended</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-outline-primary" type="submit">Update status</button>
+                </form>
+            </div>
+            <div class="col-12 col-lg-6">
+                <form method="POST" class="d-flex flex-wrap align-items-end gap-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="assign_admin">
+                    <input type="hidden" name="school_id" value="{{ school.id }}">
+                    <div class="flex-grow-1">
+                        <label class="form-label" for="admin-user-{{ school.id }}">Assign approved school administrator</label>
+                        <select class="form-select" id="admin-user-{{ school.id }}" name="user_id" required>
+                            <option value="">Choose an account</option>
+                            {% for admin in eligible_admins if admin.school_id == school.id %}
+                            <option value="{{ admin.id }}">{{ admin.full_name or admin.username }} ({{ admin.username }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button class="btn btn-outline-primary" type="submit">Assign</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="mt-3">
+            <h4 class="h6 fw-bold">Active school administrators</h4>
+            <ul class="list-group list-group-flush">
+                {% for admin in admins if admin.school_id == school.id %}
+                <li class="list-group-item px-0 d-flex justify-content-between align-items-center gap-2">
+                    <span>{{ admin.full_name or admin.username }} <span class="text-secondary small">({{ admin.username }})</span></span>
+                    <form method="POST" class="m-0">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="revoke_admin">
+                        <input type="hidden" name="school_id" value="{{ school.id }}">
+                        <input type="hidden" name="assignment_id" value="{{ admin.assignment_id }}">
+                        <button class="btn btn-sm btn-outline-danger" type="submit">Revoke</button>
+                    </form>
+                </li>
+                {% else %}
+                <li class="list-group-item px-0 text-secondary small">No active school administrator assignments.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </article>
+    {% else %}
+    <div class="surface-card p-4 text-secondary">No schools are registered.</div>
+    {% endfor %}
+</section>
+{% endblock %}

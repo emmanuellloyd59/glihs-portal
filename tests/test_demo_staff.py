@@ -26,6 +26,7 @@ class DemoStaffProvisioningTests(unittest.TestCase):
     def setUp(self):
         db = portal.get_db_connection()
         for table in (
+            "school_admin_assignments", "school_settings", "school_academic_calendars",
             "homework_submissions", "homework_assignments", "parent_student_links",
             "finance_payments", "school_announcements", "learning_materials",
             "class_timetable", "grades", "attendance", "report_cards",
