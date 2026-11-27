@@ -44,9 +44,9 @@ def register_staff_attendance_routes(ns):
     @app.route("/staff", methods=["GET", "POST"])
     @login_required
     def staff_management():
-        if current_user.role not in staff_manage_roles:
-            abort(403)
         school_id = require_school_context()
+        from authorization import require_permission
+        require_permission("school.manage_staff", get_db_connection, school_id=school_id)
         assignable = (
             all_school_assignable if current_user.role == "super_admin"
             else school_admin_assignable if current_user.role == "school_admin"
@@ -63,6 +63,7 @@ def register_staff_attendance_routes(ns):
             connection = get_db_connection()
             try:
                 if action == "assign_teacher":
+                    require_permission("academic.manage_classes", get_db_connection, school_id=school_id)
                     teacher_text = request.form.get("teacher_id", "").strip()
                     class_level = request.form.get("class_level", "").strip()
                     subject = request.form.get("subject", "").strip()
@@ -291,9 +292,9 @@ def register_staff_attendance_routes(ns):
     @app.route("/attendance-report", methods=["GET"])
     @login_required
     def attendance_report():
-        if current_user.role not in attendance_report_roles:
-            abort(403)
         school_id = require_school_context()
+        from authorization import require_permission
+        require_permission("academic.view_records", get_db_connection, school_id=school_id)
         today = datetime.now().date()
         default_start = today.replace(day=1).isoformat()
         start_text = request.args.get("start_date", default_start).strip()
