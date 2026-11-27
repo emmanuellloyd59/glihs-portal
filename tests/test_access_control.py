@@ -43,6 +43,13 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             ).fetchall()
         }
         for table in (
+            "student_documents",
+            "student_disciplinary_records",
+            "student_withdrawals",
+            "student_transfers",
+            "student_academic_history",
+            "student_guardians",
+            "student_admissions",
             "authorization_grants",
             "authorization_audit",
             "identity_recovery_tokens",
