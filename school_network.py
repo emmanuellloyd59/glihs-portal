@@ -331,8 +331,7 @@ def create_school_network_blueprint(connection_factory):
                 connection.rollback()
                 for error in errors:
                     flash(error, "danger")
-                return render_template("school_network/register.html", classifications=sorted(CLASSIFICATIONS),
-                                       ownership_types=sorted(OWNERSHIP_TYPES), form_data=request.form), 422
+                return render_template("school_network/register.html", **_registration_context(request.form)), 422
             cursor = connection.execute(
                 """INSERT INTO schools
                    (name, slug, status, lifecycle_status, legal_name, institution_type,
@@ -509,7 +508,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.patch("/api/v1/schools/<int:school_id>")
     @login_required
     def api_update_school(school_id):
-        access = _school_access(school_id)
+        access = _school_access(school_id, connection_factory)
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
@@ -623,7 +622,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.get("/api/v1/schools/<int:school_id>/campuses")
     @login_required
     def api_list_campuses(school_id):
-        _school_access(school_id)
+        _school_access(school_id, connection_factory)
         connection = connection_factory()
         try:
             rows = connection.execute("SELECT * FROM campuses WHERE school_id=? ORDER BY is_main DESC, name", (school_id,)).fetchall()
@@ -634,7 +633,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.post("/api/v1/schools/<int:school_id>/campuses")
     @login_required
     def api_create_campus(school_id):
-        access = _school_access(school_id)
+        access = _school_access(school_id, connection_factory)
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
@@ -723,7 +722,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.post("/api/v1/schools/<int:school_id>/contacts")
     @login_required
     def api_create_contact(school_id):
-        access = _school_access(school_id)
+        access = _school_access(school_id, connection_factory)
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
