@@ -36,8 +36,8 @@ class SchoolNetworkTests(unittest.TestCase):
             connection.execute("DELETE FROM campuses")
             connection.execute("DELETE FROM school_group_memberships")
             connection.execute("DELETE FROM school_groups")
-            connection.execute("DELETE FROM schools WHERE id <> 1")
             connection.execute("DELETE FROM users")
+            connection.execute("DELETE FROM schools WHERE id <> 1")
             connection.execute(
                 """INSERT INTO users
                    (username, full_name, password_hash, role, status, is_super_admin, school_id)
