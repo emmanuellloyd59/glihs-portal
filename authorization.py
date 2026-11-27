@@ -120,11 +120,11 @@ DEFAULT_ROLE_PERMISSIONS = {
     },
     "student": {
         "school.view_dashboard", "student.view_own", "student.manage_own_profile",
-        "academic.view_records", "learning.view", "learning.submit_work",
+        "learning.view", "learning.submit_work",
         "communication.view",
     },
     "parent": {
-        "school.view_dashboard", "parent.view_linked_children", "parent.view_child_finances", "academic.view_records",
+        "school.view_dashboard", "parent.view_linked_children", "parent.view_child_finances",
         "communication.view",
     },
     "external_service_provider": {"provider.access_assigned_services"},
