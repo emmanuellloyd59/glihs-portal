@@ -1487,9 +1487,15 @@ ACADEMIC_VIEW_ROLES = {
 @login_required
 def academics():
     """Record and review demo grades and daily attendance with role checks."""
-    if current_user.role not in ACADEMIC_VIEW_ROLES:
-        abort(403)
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("academic.view_records", get_db_connection, school_id=school_id)
+    if request.method == "POST":
+        action_requested = request.form.get("action", "").strip()
+        require_permission(
+            "academic.manage_records" if action_requested == "grade" else "academic.manage_attendance",
+            get_db_connection, school_id=school_id,
+        )
 
     connection = get_db_connection()
     try:
@@ -1504,8 +1510,6 @@ def academics():
             (school_id, current_user.role, school_id, int(current_user.id)),
         ).fetchall()
         if request.method == "POST":
-            if current_user.role not in ACADEMIC_ENTRY_ROLES:
-                abort(403)
             action = request.form.get("action", "").strip()
             # Attendance officers may record attendance only, never assessment grades.
             if current_user.role == "attendance_officer" and action != "attendance":
@@ -1667,10 +1671,16 @@ TIMETABLE_CLASS_LEVELS = ("K2", "K3", "K4", *(f"Grade {i}" for i in range(1, 13)
 @login_required
 def timetable():
     """View and manage a school's timetable without crossing tenant boundaries."""
-    if current_user.role not in TIMETABLE_VIEW_ROLES:
-        abort(403)
     school_id = require_school_context()
-    can_manage = current_user.role in TIMETABLE_MANAGE_ROLES
+    from authorization import require_permission
+    require_permission("academic.view_records", get_db_connection, school_id=school_id)
+    can_manage = False
+    permission_connection = get_db_connection()
+    try:
+        from authorization import has_permission
+        can_manage = has_permission(permission_connection, "academic.manage_classes", school_id=school_id)
+    finally:
+        permission_connection.close()
     connection = get_db_connection()
     try:
         if request.method == "POST":
@@ -1809,8 +1819,10 @@ REPORT_CARD_PUBLISH_ROLES = {
 @login_required
 def my_report_cards():
     """Students can see only published reports for their own linked record."""
-    if current_user.role != "student":
-        abort(403)
+    school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("student.view_own", get_db_connection, school_id=school_id,
+                       resource_owner_id=int(current_user.id))
     connection = get_db_connection()
     try:
         student = connection.execute(
@@ -1841,11 +1853,14 @@ def my_report_cards():
 @login_required
 def report_cards():
     """Build subject summaries and control publication for a selected student and term."""
-    if current_user.role not in REPORT_CARD_VIEW_ROLES:        abort(403)
+    report_school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("academic.view_records", get_db_connection, school_id=report_school_id)
+    if request.method == "POST":
+        require_permission("academic.publish_results", get_db_connection, school_id=report_school_id)
 
     connection = get_db_connection()
     try:
-        report_school_id = require_school_context()
         students = connection.execute(
             """SELECT id, admission_number, full_name, class_level FROM students
                WHERE school_id = ? AND status = 'active'
@@ -1875,8 +1890,6 @@ def report_cards():
             ).fetchone()
 
         if request.method == "POST":
-            if current_user.role not in REPORT_CARD_PUBLISH_ROLES:
-                abort(403)
             action = request.form.get("action", "").strip()
             year_valid = (len(academic_year) == 9 and academic_year[4] == "-"
                           and academic_year[:4].isdigit() and academic_year[5:].isdigit()
