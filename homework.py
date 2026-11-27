@@ -55,6 +55,11 @@ def register_homework_routes(ns):
         student, submissions = None, []
         try:
             class_levels = get_school_class_levels(connection, school_id)
+            subjects = connection.execute(
+                "SELECT id,name FROM subjects WHERE school_id=? AND active=1 ORDER BY name",
+                (school_id,),
+            ).fetchall()
+            subject_names = {row["name"] for row in subjects}
             if request.method == "POST":
                 action = request.form.get("action", "create").strip()
                 if action == "create":
@@ -69,7 +74,7 @@ def register_homework_routes(ns):
                         valid_date = datetime.strptime(due_date, "%Y-%m-%d").date().isoformat() == due_date
                     except (TypeError, ValueError):
                         valid_date = False
-                    if (level not in class_levels or not subject or len(subject) > 80 or
+                    if (level not in class_levels or subject not in subject_names or len(subject) > 80 or
                         not title or len(title) > 140 or not instructions or
                         len(instructions) > 10000 or not valid_date):
                         flash("Check the class, subject, title, instructions and due date.", "danger")
@@ -210,5 +215,5 @@ def register_homework_routes(ns):
             connection.close()
         return render_template("assignments.html",assignments=assignment_rows,
             submissions=submissions,student=student,role=role,can_create=role in staff_roles,
-            can_grade=role in staff_roles,class_levels=class_levels,
+            can_grade=role in staff_roles,class_levels=class_levels,subjects=subjects,
             today=datetime.now().date().isoformat())
