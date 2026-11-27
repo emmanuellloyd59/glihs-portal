@@ -429,7 +429,9 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
 
     @bp.post("/api/v1/onboarding/applications/<reference>/verify-email")
     def verify_application_email(reference):
-        payload = request.get_json(silent=True) or {}
+        payload = request.get_json(silent=True)
+        if not isinstance(payload,dict):
+            return _json_error("invalid_json","A JSON object is required.",400)
         token = _clean(payload.get("verification_token"), 200)
         connection = connection_factory()
         try:
@@ -470,9 +472,9 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
     @bp.put("/api/v1/onboarding/applications/<reference>")
     def update_draft(reference):
         payload = request.get_json(silent=True)
-        token = request.headers.get("X-Onboarding-Token") or (payload or {}).get("resume_token")
         if not isinstance(payload,dict):
             return _json_error("invalid_json","A JSON object is required.",400)
+        token = request.headers.get("X-Onboarding-Token") or payload.get("resume_token")
         connection = connection_factory()
         try:
             row = _load_application(connection,reference,token)
@@ -515,7 +517,9 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
 
     @bp.post("/api/v1/onboarding/applications/<reference>/submit")
     def submit_application(reference):
-        payload = request.get_json(silent=True) or {}
+        payload = request.get_json(silent=True)
+        if not isinstance(payload,dict):
+            return _json_error("invalid_json","A JSON object is required.",400)
         token = request.headers.get("X-Onboarding-Token") or payload.get("resume_token")
         connection = connection_factory()
         try:
