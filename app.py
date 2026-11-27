@@ -840,7 +840,7 @@ def teacher_has_class_subject(connection, teacher_id, school_id, class_level, su
 
 class User(UserMixin):
     def __init__(self, user_id, username, password_hash, role, is_super_admin=False,
-                 school_id=None, membership_id=None, campus_id=None):
+                 school_id=None, membership_id=None, campus_id=None, auth_version=1):
         self.id = str(user_id)
         self.username = username
         self.password_hash = password_hash
@@ -850,6 +850,7 @@ class User(UserMixin):
         self.school_id = school_id
         self.membership_id = membership_id
         self.campus_id = campus_id
+        self.auth_version = int(auth_version or 1)
 
 
 def get_user_by_id(user_id):
@@ -863,7 +864,8 @@ def get_user_by_id(user_id):
             initialize_membership_schema(get_db_connection)
         row = connection.execute(
             """
-            SELECT u.id, u.username, u.password_hash, u.role, u.is_super_admin, u.school_id
+            SELECT u.id, u.username, u.password_hash, u.role, u.is_super_admin, u.school_id,
+                   COALESCE(u.auth_version, 1) AS auth_version
             FROM users u
             WHERE u.id = ? AND u.status = 'active'
               AND (
@@ -875,16 +877,21 @@ def get_user_by_id(user_id):
         ).fetchone()
         if row is None:
             return None
+        session_version = session.get("auth_version")
+        if session_version is not None and int(session_version) != int(row["auth_version"]):
+            return None
         if row["is_super_admin"] and row["role"] == "super_admin" and row["school_id"] is None:
             return User(row["id"], row["username"], row["password_hash"],
-                        row["role"], row["is_super_admin"], None)
+                        row["role"], row["is_super_admin"], None,
+                        auth_version=row["auth_version"])
         from identity_memberships import resolve_membership
         membership = resolve_membership(connection, row["id"], session)
         if membership is None:
             return None
         return User(row["id"], row["username"], row["password_hash"],
                     membership["role"], False, membership["school_id"],
-                    membership["membership_id"], membership["campus_id"])
+                    membership["membership_id"], membership["campus_id"],
+                    row["auth_version"])
     finally:
         connection.close()
 
@@ -990,6 +997,7 @@ def login():
                     flash("This account has no active school membership.")
                     return render_template("login.html")
                 user = get_user_by_id(user.id)
+            session["auth_version"] = int(getattr(user, "auth_version", 1))
             session.permanent = True
             login_user(user, fresh=True)
             write_audit(user.id, "login_success", user.username)
