@@ -369,8 +369,12 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             services = connection.execute(
                 "SELECT service_key,label,description FROM onboarding_service_catalog WHERE active=1 ORDER BY label"
             ).fetchall()
+            groups = connection.execute(
+                "SELECT id,name FROM school_groups WHERE status='active' ORDER BY name COLLATE NOCASE"
+            ).fetchall()
             return jsonify({"data":{"countries":[dict(row) for row in rows],
-                                    "services":[dict(row) for row in services]}})
+                                    "services":[dict(row) for row in services],
+                                    "school_groups":[dict(row) for row in groups]}})
         finally:
             connection.close()
 
@@ -520,6 +524,18 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             profile = _country_profile(connection,row["country_code"])
             services = connection.execute("SELECT service_key,label FROM onboarding_service_catalog WHERE active=1").fetchall()
             checked, errors = _validate_payload(data,profile,services)
+            group_id = data.get("group_id")
+            if data.get("institution_type","independent") == "group_affiliated":
+                try:
+                    group_id = int(group_id)
+                except (TypeError,ValueError):
+                    group_id = None
+                if group_id is None or not connection.execute(
+                    "SELECT 1 FROM school_groups WHERE id=? AND status='active'",(group_id,)
+                ).fetchone():
+                    errors.append("Select an active school group for this institution.")
+            else:
+                group_id = None
             if errors:
                 return jsonify({"error":{"code":"validation_error","messages":errors}}),422
             duplicate = connection.execute(
@@ -558,6 +574,11 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
                  _clean(data.get("contact_phone"),40) or None),
             )
             school_id = cursor.lastrowid
+            if group_id is not None:
+                connection.execute(
+                    "INSERT INTO school_group_memberships(group_id,school_id,relationship_type) VALUES (?,?,'member')",
+                    (group_id,school_id),
+                )
             connection.execute(
                 """INSERT INTO school_contacts(school_id,contact_type,full_name,email,phone,is_primary)
                    VALUES (?,'general',?,?,?,1)""",
