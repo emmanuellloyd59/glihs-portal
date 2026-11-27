@@ -10,7 +10,7 @@ from student_information import initialize_student_information_schema
 
 class StudentInformationTests(PortalTestSupport, unittest.TestCase):
     def create_student(self, school_id=1, admission="SIM-001", identifier="STU-2026-00001",
-                       name="Alex Fiction", dob="2012-04-03"):
+                       name="Alex Fiction", dob="2012-04-03", class_level="Grade 7"):
         db = portal.get_db_connection()
         try:
             cur = db.execute("""
