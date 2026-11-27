@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 
-from flask import Blueprint, abort, current_app, jsonify, request, url_for
+from flask import Blueprint, abort, current_app, jsonify, render_template, request
 from flask_login import current_user, login_required
 from werkzeug.security import generate_password_hash
 
@@ -266,6 +266,36 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             abort(410)
         return row
 
+    @bp.get("/school-network/onboarding")
+    def onboarding_page():
+        return render_template("school_network/onboarding.html")
+
+    @bp.get("/api/v1/onboarding/applications")
+    @login_required
+    def list_applications():
+        if not platform_owner_check():
+            abort(403)
+        status = _clean(request.args.get("status"),24)
+        connection = connection_factory()
+        try:
+            if status:
+                rows = connection.execute(
+                    """SELECT a.reference,a.applicant_email,a.country_code,a.status,a.school_id,
+                              a.created_at,a.updated_at,s.name AS school_name,s.lifecycle_status
+                       FROM onboarding_applications a LEFT JOIN schools s ON s.id=a.school_id
+                       WHERE a.status=? ORDER BY a.updated_at DESC LIMIT 100""",(status,)
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """SELECT a.reference,a.applicant_email,a.country_code,a.status,a.school_id,
+                              a.created_at,a.updated_at,s.name AS school_name,s.lifecycle_status
+                       FROM onboarding_applications a LEFT JOIN schools s ON s.id=a.school_id
+                       ORDER BY a.updated_at DESC LIMIT 100"""
+                ).fetchall()
+            return jsonify({"data":[dict(row) for row in rows]})
+        finally:
+            connection.close()
+
     @bp.get("/api/v1/onboarding/countries")
     def countries():
         connection = connection_factory()
@@ -480,6 +510,81 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             )
             connection.commit()
             return jsonify({"data":{"country_code":code,"country_name":name,"version":"updated"}})
+        finally:
+            connection.close()
+
+    @bp.get("/api/v1/onboarding/schools/<int:school_id>/progress")
+    @login_required
+    def onboarding_progress(school_id):
+        is_owner = platform_owner_check()
+        if not is_owner and (getattr(current_user,"school_id",None) != school_id or
+                             getattr(current_user,"role",None) not in {"school_admin","principal"}):
+            abort(404)
+        connection = connection_factory()
+        try:
+            school = connection.execute(
+                "SELECT id,name,status,lifecycle_status,country_code FROM schools WHERE id=?",(school_id,)
+            ).fetchone()
+            if not school:
+                abort(404)
+            admins = connection.execute(
+                "SELECT COUNT(*) FROM users WHERE school_id=? AND role='school_admin' AND status='active'",(school_id,)
+            ).fetchone()[0]
+            services = connection.execute(
+                "SELECT service_key,status FROM school_service_requests WHERE school_id=? ORDER BY service_key",(school_id,)
+            ).fetchall()
+            application = connection.execute(
+                "SELECT reference,status FROM onboarding_applications WHERE school_id=? ORDER BY id DESC LIMIT 1",(school_id,)
+            ).fetchone()
+            stage = "verification" if school["lifecycle_status"] in {"pending","under_review"} else (
+                "approval" if school["lifecycle_status"] == "approved" else (
+                    "activation" if school["lifecycle_status"] == "active" else school["lifecycle_status"]
+                )
+            )
+            return jsonify({"data":{"school":dict(school),"stage":stage,
+                                    "active_school_administrators":admins,
+                                    "requested_services":[dict(row) for row in services],
+                                    "application":dict(application) if application else None,
+                                    "configuration_complete":bool(application and application["status"]=="completed")}})
+        finally:
+            connection.close()
+
+    @bp.post("/api/v1/onboarding/schools/<int:school_id>/configuration/complete")
+    @login_required
+    def complete_configuration(school_id):
+        if platform_owner_check():
+            actor_id = int(current_user.id)
+        else:
+            if getattr(current_user,"school_id",None) != school_id or getattr(current_user,"role",None) != "school_admin":
+                abort(404)
+            actor_id = int(current_user.id)
+        connection = connection_factory()
+        try:
+            school = connection.execute(
+                "SELECT status,lifecycle_status FROM schools WHERE id=?",(school_id,)
+            ).fetchone()
+            if not school:
+                abort(404)
+            if school["status"] != "active" or school["lifecycle_status"] != "active":
+                return _json_error("school_not_active","Institution must be activated before configuration can be completed.",409)
+            admin = connection.execute(
+                "SELECT 1 FROM users WHERE school_id=? AND role='school_admin' AND status='active' LIMIT 1",(school_id,)
+            ).fetchone()
+            contact = connection.execute(
+                "SELECT 1 FROM school_contacts WHERE school_id=? AND status='active' LIMIT 1",(school_id,)
+            ).fetchone()
+            if not admin or not contact:
+                return jsonify({"error":{"code":"configuration_incomplete",
+                    "message":"An active school administrator and an active institutional contact are required.",
+                    "checks":{"active_administrator":bool(admin),"institutional_contact":bool(contact)}}}),422
+            connection.execute(
+                "UPDATE onboarding_applications SET status='completed',updated_at=CURRENT_TIMESTAMP WHERE school_id=? AND status<>'completed'",
+                (school_id,),
+            )
+            _record_event(connection,None,school_id,actor_id,"onboarding.configuration_completed",
+                          {"active_administrator":True,"institutional_contact":True})
+            connection.commit()
+            return jsonify({"data":{"school_id":school_id,"status":"completed","configuration_complete":True}})
         finally:
             connection.close()
 
