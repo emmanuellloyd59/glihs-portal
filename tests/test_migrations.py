@@ -465,6 +465,59 @@ class DatabaseMigrationTests(unittest.TestCase):
                 portal.DATABASE = original_database
 
 
+    def test_content_migration_rejects_existing_foreign_key_orphans_atomically(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "content_foreign_key_failure.db"
+            original_database = portal.DATABASE
+            portal.DATABASE = database_path
+            try:
+                portal.initialize_database()
+                connection = portal.get_db_connection()
+                try:
+                    # Simulate a legacy database containing an orphaned finance
+                    # payment. The existing row is intentionally preserved while
+                    # the attempted additive schema migration is rolled back.
+                    connection.execute("PRAGMA foreign_keys = OFF")
+                    connection.execute("""CREATE TABLE finance_payments (
+                        id INTEGER PRIMARY KEY,
+                        school_id INTEGER NOT NULL,
+                        student_id INTEGER NOT NULL REFERENCES students(id),
+                        received_by INTEGER NOT NULL REFERENCES users(id)
+                    )""")
+                    connection.execute(
+                        "INSERT INTO finance_payments (id,school_id,student_id,received_by) "
+                        "VALUES (77,1,404,405)"
+                    )
+                    with self.assertRaisesRegex(sqlite3.DatabaseError, "foreign-key integrity"):
+                        portal.ensure_content_tables(connection)
+
+                    self.assertTrue(connection.in_transaction)
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT student_id,received_by FROM finance_payments WHERE id=77"
+                        ).fetchone(),
+                        (404, 405),
+                    )
+                    tables = {
+                        row[0] for row in connection.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table'"
+                        ).fetchall()
+                    }
+                    self.assertNotIn("learning_materials", tables)
+                    self.assertNotIn("school_announcements", tables)
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT COUNT(*) FROM schema_migrations WHERE version=3"
+                        ).fetchone()[0],
+                        0,
+                    )
+                    connection.rollback()
+                finally:
+                    connection.close()
+            finally:
+                portal.DATABASE = original_database
+
+
 
 if __name__ == "__main__":
     unittest.main()
