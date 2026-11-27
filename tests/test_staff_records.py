@@ -18,6 +18,7 @@ import app as portal  # noqa: E402
 from staff_records import initialize_staff_records  # noqa: E402
 from school_network import initialize_school_network_schema  # noqa: E402
 from identity_memberships import initialize_membership_schema  # noqa: E402
+from authorization import initialize_authorization_schema  # noqa: E402
 
 # Preserve the app's original database path when isolated test databases are restored.
 _ORIGINAL_DATABASE = portal.DATABASE
@@ -35,6 +36,7 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         # Recreate the prerequisite schemas installed during normal app startup.
         initialize_school_network_schema(portal.get_db_connection)
         initialize_membership_schema(portal.get_db_connection)
+        initialize_authorization_schema(portal.get_db_connection)
         initialize_staff_records(portal.get_db_connection)
         self.client = portal.app.test_client()
         db = portal.get_db_connection()
