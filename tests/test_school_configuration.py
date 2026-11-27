@@ -70,6 +70,14 @@ class SchoolConfigurationTests(unittest.TestCase):
                 """INSERT INTO campuses(school_id,code,name,is_main,city,country_code)
                    VALUES (?,'MAIN','School B Main Campus',1,'Accra','GH')""", (self.school_b,)
             )
+            connection.execute(
+                """CREATE TABLE school_service_requests (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT, school_id INTEGER NOT NULL,
+                   service_key TEXT NOT NULL, status TEXT NOT NULL)"""
+            )
+            connection.execute(
+                "INSERT INTO school_service_requests(school_id,service_key,status) VALUES (1,'learning_management','requested')"
+            )
             connection.commit()
             self.campus_a = connection.execute(
                 "SELECT id FROM campuses WHERE school_id=1"
@@ -106,6 +114,7 @@ class SchoolConfigurationTests(unittest.TestCase):
             self.assertEqual(config["contact"]["email"], before["contact_email"])
             self.assertEqual(config["regional"]["timezone"], "Africa/Monrovia")
             self.assertEqual(config["contact"]["country_code"], "LR")
+            self.assertIn("learning_management", config["modules"]["enabled"])
             history_before = connection.execute(
                 "SELECT COUNT(*) AS n FROM school_configuration_versions WHERE school_id=1"
             ).fetchone()["n"]
