@@ -1895,13 +1895,44 @@ def report_cards():
             (report_school_id, current_user.role, report_school_id, int(current_user.id)),
         ).fetchall()
         student_id = request.values.get("student_id", "").strip()
-        academic_year = request.values.get("academic_year", "").strip()
-        term = request.values.get("term", "").strip()
+        academic_period_id_text = request.values.get("academic_period_id", "").strip()
+        period_row = None
+        if academic_period_id_text.isdigit():
+            period_row = connection.execute(
+                """SELECT p.id,p.name,p.academic_year_id,y.label AS academic_year
+                   FROM academic_periods p JOIN academic_years y
+                     ON y.id=p.academic_year_id AND y.school_id=p.school_id
+                   WHERE p.id=? AND p.school_id=?""",
+                (int(academic_period_id_text), report_school_id),
+            ).fetchone()
+        # Backward compatibility for existing bookmarked report URLs.
+        if period_row is None:
+            legacy_year = request.values.get("academic_year", "").strip()
+            legacy_period = request.values.get("term", "").strip()
+            if legacy_year and legacy_period:
+                period_row = connection.execute(
+                    """SELECT p.id,p.name,p.academic_year_id,y.label AS academic_year
+                       FROM academic_periods p JOIN academic_years y
+                         ON y.id=p.academic_year_id AND y.school_id=p.school_id
+                       WHERE p.school_id=? AND y.label=? AND p.name=?""",
+                    (report_school_id, legacy_year, legacy_period),
+                ).fetchone()
+        academic_year = period_row["academic_year"] if period_row else ""
+        term = period_row["name"] if period_row else ""
+        academic_period_id = period_row["id"] if period_row else None
+        academic_year_id = period_row["academic_year_id"] if period_row else None
+        academic_periods = connection.execute(
+            """SELECT p.id,p.name,p.period_type,y.label AS academic_year
+               FROM academic_periods p JOIN academic_years y
+                 ON y.id=p.academic_year_id AND y.school_id=p.school_id
+               WHERE p.school_id=? ORDER BY y.id DESC,p.sequence_no""",
+            (report_school_id,),
+        ).fetchall()
         selected_student = None
         subject_rows = []
         publication = None
 
-        if student_id and academic_year and term in {"Term 1", "Term 2", "Term 3"}:
+        if student_id and period_row is not None:
             selected_student = connection.execute(
                 """SELECT id, admission_number, full_name, class_level FROM students
                    WHERE id = ? AND school_id = ? AND status = 'active'
@@ -1916,11 +1947,8 @@ def report_cards():
             if current_user.role not in REPORT_CARD_PUBLISH_ROLES:
                 abort(403)
             action = request.form.get("action", "").strip()
-            year_valid = (len(academic_year) == 9 and academic_year[4] == "-"
-                          and academic_year[:4].isdigit() and academic_year[5:].isdigit()
-                          and int(academic_year[5:]) == int(academic_year[:4]) + 1)
-            if not selected_student or not year_valid or term not in {"Term 1", "Term 2", "Term 3"}:
-                flash("Select a valid student, academic year, and term.", "danger")
+            if not selected_student or period_row is None:
+                flash("Select a valid student and a configured academic period.", "danger")
                 return redirect(url_for("report_cards"))
             has_grades = connection.execute(
                 "SELECT 1 FROM grades WHERE student_id = ? AND school_id = ? AND academic_year = ? AND term = ? LIMIT 1",
@@ -1928,19 +1956,21 @@ def report_cards():
             ).fetchone()
             if not has_grades:
                 flash("A report card can only be published after grades have been recorded for that term.", "danger")
-                return redirect(url_for("report_cards", student_id=student_id, academic_year=academic_year, term=term))
+                return redirect(url_for("report_cards", student_id=student_id, academic_period_id=academic_period_id))
             if action not in {"publish", "unpublish"}:
                 flash("Unknown report-card action.", "danger")
                 return redirect(url_for("report_cards"))
             published = 1 if action == "publish" else 0
             connection.execute(
-                """INSERT INTO report_cards (student_id, academic_year, term, published, published_by, published_at, school_id)
-                   VALUES (?, ?, ?, ?, ?, CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END, ?)
-                   ON CONFLICT(student_id, academic_year, term) DO UPDATE SET
-                     published = excluded.published, published_by = excluded.published_by,
-                     published_at = CASE WHEN excluded.published = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
-                     updated_at = CURRENT_TIMESTAMP""",
-                (student_id, academic_year, term, published, current_user.id, published, require_school_context()),
+                """INSERT INTO report_cards
+                   (student_id,academic_year,term,published,published_by,published_at,school_id,academic_year_id,academic_period_id)
+                   VALUES (?,?,?,?,?,CASE WHEN ?=1 THEN CURRENT_TIMESTAMP ELSE NULL END,?,?,?)
+                   ON CONFLICT(school_id,student_id,academic_year,term) DO UPDATE SET
+                     published=excluded.published,published_by=excluded.published_by,
+                     published_at=CASE WHEN excluded.published=1 THEN CURRENT_TIMESTAMP ELSE NULL END,
+                     academic_year_id=excluded.academic_year_id,academic_period_id=excluded.academic_period_id,
+                     updated_at=CURRENT_TIMESTAMP""",
+                (student_id,academic_year,term,published,current_user.id,published,report_school_id,academic_year_id,academic_period_id),
             )
             connection.commit()
             write_audit(current_user.id, "report_card_" + action, selected_student["admission_number"],
@@ -1977,7 +2007,8 @@ def report_cards():
 
     return render_template(
         "report_cards.html", students=students, selected_student=selected_student,
-        academic_year=academic_year, term=term, subject_rows=subject_rows,
+        academic_year=academic_year, term=term, academic_periods=academic_periods,
+        academic_period_id=academic_period_id, subject_rows=subject_rows,
         publication=publication, can_publish=current_user.role in REPORT_CARD_PUBLISH_ROLES,
     )
 
