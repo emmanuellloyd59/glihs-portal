@@ -196,7 +196,7 @@ class ScopedAuthorizationTests(unittest.TestCase):
             connection.close()
 
     def test_permission_decisions_are_audited(self):
-        self.teacher.get("/api/v1/authorization/me")
+        self.assertEqual(self.teacher.get("/staff").status_code, 403)
         connection = portal.get_db_connection()
         try:
             row = connection.execute(
