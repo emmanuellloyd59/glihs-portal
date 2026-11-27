@@ -59,6 +59,17 @@ PERMISSIONS = {
     "communication.manage": "school",
     "student.view_own": "school",
     "student.manage_own_profile": "school",
+    "student.view_records": "school",
+    "student.manage_records": "school",
+    "student.manage_admissions": "school",
+    "student.manage_guardians": "school",
+    "student.view_sensitive": "school",
+    "student.manage_transfers": "school",
+    "student.view_discipline": "school",
+    "student.manage_discipline": "school",
+    "student.manage_documents": "school",
+    "student.import": "school",
+    "student.export": "school",
     "parent.view_linked_children": "school",
     "provider.access_assigned_services": "campus",
     "audit.view": "school",
@@ -136,6 +147,23 @@ DEFAULT_ROLE_PERMISSIONS = {
     "librarian": {"school.view_dashboard", "academic.view_records", "communication.view"},
     "counselor": {"school.view_dashboard", "academic.view_records", "communication.view"},
 }
+
+# Student Information Management permissions are deliberately separated by task
+# and data sensitivity. Teachers can view scoped academic records but not guardian,
+# discipline, document, import/export or admissions data.
+for _role, _permissions in {
+    "school_owner": {"student.view_records","student.manage_records","student.manage_admissions","student.manage_guardians","student.view_sensitive","student.manage_transfers","student.view_discipline","student.manage_discipline","student.manage_documents","student.import","student.export"},
+    "school_admin": {"student.view_records","student.manage_records","student.manage_admissions","student.manage_guardians","student.view_sensitive","student.manage_transfers","student.view_discipline","student.manage_discipline","student.manage_documents","student.import","student.export"},
+    "principal": {"student.view_records","student.manage_records","student.manage_admissions","student.manage_guardians","student.view_sensitive","student.manage_transfers","student.view_discipline","student.manage_discipline","student.manage_documents","student.export"},
+    "vice_principal": {"student.view_records","student.view_discipline"},
+    "registrar": {"student.view_records","student.manage_records","student.manage_admissions","student.manage_guardians","student.view_sensitive","student.manage_transfers","student.manage_documents","student.import","student.export"},
+    "admissions_officer": {"student.view_records","student.manage_admissions"},
+    "academic_admin": {"student.view_records"},
+    "teacher": {"student.view_records"},
+    "attendance_officer": {"student.view_records"},
+    "counselor": {"student.view_records","student.view_sensitive","student.view_discipline","student.manage_discipline"},
+}.items():
+    DEFAULT_ROLE_PERMISSIONS[_role].update(_permissions)
 
 ROLE_PARENTS = {
     "school_owner": ("school_admin",),
