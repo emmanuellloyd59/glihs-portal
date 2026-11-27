@@ -715,6 +715,34 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
             return jsonify({"items":_json_rows(rows)})
         finally: db.close()
 
+    @bp.get("/api/v1/students/<int:student_id>/transfers")
+    @login_required
+    def list_transfers(student_id):
+        school_id=school_context("student.manage_transfers")
+        db=connection_factory()
+        try:
+            student_or_404(db,school_id,student_id)
+            rows=db.execute("""SELECT id,transfer_type,destination_name,effective_date,reason,status,
+              approved_by,approved_at,created_at FROM student_transfers
+              WHERE school_id=? AND student_id=? ORDER BY created_at DESC,id DESC""",
+              (school_id,student_id)).fetchall()
+            return jsonify({"items":_json_rows(rows)})
+        finally: db.close()
+
+    @bp.get("/api/v1/students/<int:student_id>/withdrawals")
+    @login_required
+    def list_withdrawals(student_id):
+        school_id=school_context("student.manage_transfers")
+        db=connection_factory()
+        try:
+            student_or_404(db,school_id,student_id)
+            rows=db.execute("""SELECT id,effective_date,reason_code,notes,destination_name,
+              approved_by,created_at FROM student_withdrawals
+              WHERE school_id=? AND student_id=? ORDER BY created_at DESC,id DESC""",
+              (school_id,student_id)).fetchall()
+            return jsonify({"items":_json_rows(rows)})
+        finally: db.close()
+
     @bp.post("/api/v1/students/<int:student_id>/transfers")
     @login_required
     def create_transfer(student_id):
