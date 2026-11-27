@@ -47,6 +47,17 @@ class DatabaseMigrationTests(unittest.TestCase):
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(student_id, subject, assessment)
                 );
+                CREATE TABLE report_cards (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    student_id INTEGER NOT NULL REFERENCES students(id),
+                    academic_year TEXT NOT NULL,
+                    term TEXT NOT NULL CHECK (term IN ('Term 1', 'Term 2', 'Term 3')),
+                    published INTEGER NOT NULL DEFAULT 0 CHECK (published IN (0, 1)),
+                    published_by INTEGER REFERENCES users(id),
+                    published_at TEXT,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(student_id, academic_year, term)
+                );
                 INSERT INTO users (id, username, password_hash, role)
                     VALUES (1, 'legacy_teacher', 'not-a-real-login-hash', 'teacher');
                 INSERT INTO students (id, admission_number, full_name, class_level)
@@ -54,6 +65,9 @@ class DatabaseMigrationTests(unittest.TestCase):
                 INSERT INTO grades
                     (id, student_id, subject, assessment, score, max_score, recorded_by)
                     VALUES (11, 7, 'Mathematics', 'Quiz 1', 18, 20, 1);
+                INSERT INTO report_cards
+                    (id, student_id, academic_year, term, published, published_by, published_at)
+                    VALUES (21, 7, '2024-2025', 'Term 1', 1, 1, '2025-01-10 10:00:00');
                 """
             )
             connection.commit()
@@ -75,6 +89,13 @@ class DatabaseMigrationTests(unittest.TestCase):
                         "SELECT id, student_id, subject, assessment, score, max_score, academic_year, term "
                         "FROM grades WHERE id = 11"
                     ).fetchone()
+                    report = upgraded.execute(
+                        "SELECT id, student_id, academic_year, term, published, school_id "
+                        "FROM report_cards WHERE id = 21"
+                    ).fetchone()
+                    report_schema = upgraded.execute(
+                        "SELECT sql FROM sqlite_master WHERE type='table' AND name='report_cards'"
+                    ).fetchone()["sql"]
                     columns = {
                         row["name"] for row in upgraded.execute("PRAGMA table_info(students)").fetchall()
                     }
@@ -97,6 +118,14 @@ class DatabaseMigrationTests(unittest.TestCase):
                         (grade["id"], grade["student_id"], grade["subject"], grade["assessment"],
                          grade["score"], grade["max_score"], grade["academic_year"], grade["term"]),
                         (11, 7, "Mathematics", "Quiz 1", 18.0, 20.0, "Unassigned", "Unassigned"),
+                    )
+                    self.assertEqual(
+                        (report["id"], report["student_id"], report["academic_year"], report["term"], report["published"], report["school_id"]),
+                        (21, 7, "2024-2025", "Term 1", 1, 1),
+                    )
+                    self.assertNotIn("Term 1", report_schema)
+                    upgraded.execute(
+                        "INSERT INTO report_cards(student_id,academic_year,term,school_id) VALUES(7,'2025/26','Semester A',1)"
                     )
                     self.assertEqual(foreign_key_issues, [])
                     self.assertEqual(
