@@ -53,16 +53,17 @@ class SchoolConfigurationTests(unittest.TestCase):
             connection.commit()
         finally:
             connection.close()
-        initialize_configuration_schema(portal.get_db_connection)
         connection = portal.get_db_connection()
         try:
             connection.execute(
-                """INSERT INTO campuses(school_id,code,name,is_main)
-                   VALUES (1,'MAIN','School A Main Campus',1)"""
+                """INSERT INTO campuses(school_id,code,name,is_main,city,county,country_code,
+                   contact_email,contact_phone)
+                   VALUES (1,'MAIN','School A Main Campus',1,'Monrovia','Montserrado','LR',
+                   'main@school-a.example','+231000000001')"""
             )
             connection.execute(
-                """INSERT INTO campuses(school_id,code,name,is_main)
-                   VALUES (?,'MAIN','School B Main Campus',1)""", (self.school_b,)
+                """INSERT INTO campuses(school_id,code,name,is_main,city,country_code)
+                   VALUES (?,'MAIN','School B Main Campus',1,'Accra','GH')""", (self.school_b,)
             )
             connection.commit()
             self.campus_a = connection.execute(
@@ -73,6 +74,7 @@ class SchoolConfigurationTests(unittest.TestCase):
             ).fetchone()["id"]
         finally:
             connection.close()
+        initialize_configuration_schema(portal.get_db_connection)
         self.client = portal.app.test_client()
 
     def tearDown(self):
@@ -112,6 +114,14 @@ class SchoolConfigurationTests(unittest.TestCase):
             ).fetchone()["n"]
             self.assertEqual(history_before, history_after)
             self.assertEqual(connection.execute("SELECT id FROM schools WHERE id=1").fetchone()["id"], 1)
+            campus_override = connection.execute(
+                "SELECT overrides_json FROM campus_configurations WHERE school_id=1 AND campus_id=?",
+                (self.campus_a,),
+            ).fetchone()
+            import json
+            campus_config = json.loads(campus_override["overrides_json"])
+            self.assertEqual(campus_config["branding"]["display_name"], "School A Main Campus")
+            self.assertEqual(campus_config["contact"]["email"], "main@school-a.example")
         finally:
             connection.close()
 
