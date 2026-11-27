@@ -207,6 +207,16 @@ class StaffRecordLifecycleTests(unittest.TestCase):
             self.assertEqual(user["status"],"suspended")
             self.assertEqual(assignment["active"],0)
             self.assertEqual([r["event_type"] for r in events],["onboarded","offboarded"])
+            event_id=db.execute(
+                "SELECT id FROM staff_lifecycle_events WHERE membership_id=(SELECT id FROM staff_memberships WHERE user_id=?) ORDER BY id DESC LIMIT 1",
+                (self.inactive_id,),
+            ).fetchone()["id"]
+            with self.assertRaises(Exception):
+                db.execute("UPDATE staff_lifecycle_events SET notes='changed' WHERE id=?",(event_id,))
+            db.rollback()
+            with self.assertRaises(Exception):
+                db.execute("DELETE FROM staff_lifecycle_events WHERE id=?",(event_id,))
+            db.rollback()
         finally:
             db.close()
 
@@ -252,6 +262,16 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         self.login()
         response=self.client.get(f"/staff-records/{other_id}")
         self.assertEqual(response.status_code,404)
+
+    def test_non_admin_cannot_view_staff_records_and_admin_cannot_offboard_self(self):
+        self.login()
+        self_id=self.admin_id
+        denied=self.client.post(f"/staff-records/{self_id}",data={"action":"offboard","notes":"self"},follow_redirects=True)
+        self.assertEqual(denied.status_code,403)
+        self.client.post("/logout")
+        self.client.post("/login",data={"username":"existing_teacher","password":"existing-teacher-password"})
+        denied=self.client.get(f"/staff-records/{self.teacher_id}")
+        self.assertEqual(denied.status_code,403)
 
     def test_tenant_triggers_reject_cross_school_staff_membership_and_subjects(self):
         db=portal.get_db_connection()
