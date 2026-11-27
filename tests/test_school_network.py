@@ -31,11 +31,28 @@ class SchoolNetworkTests(unittest.TestCase):
         self.client = portal.app.test_client()
         connection = portal.get_db_connection()
         try:
-            connection.execute("DELETE FROM school_network_audit")
-            connection.execute("DELETE FROM school_contacts")
-            connection.execute("DELETE FROM campuses")
-            connection.execute("DELETE FROM school_group_memberships")
-            connection.execute("DELETE FROM school_groups")
+            existing_tables = {
+                row["name"] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            # Remove all identity rows that reference users before resetting
+            # fixture accounts. These tables are introduced by the membership
+            # layer and are present even when a test only exercises School Network.
+            for table in (
+                "identity_recovery_tokens",
+                "membership_invitations",
+                "identity_security_events",
+                "school_memberships",
+                "school_network_audit",
+                "school_contacts",
+                "campuses",
+                "school_group_memberships",
+                "school_groups",
+                "audit_log",
+            ):
+                if table in existing_tables:
+                    connection.execute(f"DELETE FROM {table}")
             connection.execute("DELETE FROM users")
             connection.execute("DELETE FROM schools WHERE id <> 1")
             connection.execute(
