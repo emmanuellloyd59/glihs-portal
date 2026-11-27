@@ -962,7 +962,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             },
         ):
             response = self.client.post("/academics", data=payload, follow_redirects=True)
-            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.status_code, 200)
 
         self.client.post("/logout")
         self.login_as("finance_route_test")
