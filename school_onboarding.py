@@ -227,6 +227,8 @@ def _validate_payload(payload, profile, services):
         errors.append("A valid proposed school administrator email is required.")
     if not re.fullmatch(r"[A-Z]{2}", country):
         errors.append("Select a valid two-letter country code.")
+    if not _clean(payload.get("city"),100):
+        errors.append("City or locality is required.")
     if profile and profile["region_required"] and not region:
         errors.append(profile["region_label"] + " is required for this country.")
     if profile and profile["registration_number_required"] and not _clean(payload.get("registration_number"), 100):
@@ -566,20 +568,23 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             country_name = profile["country_name"] if profile else checked["country_code"]
             region_label = profile["region_label"] if profile else "Administrative region"
             region = checked["region"]
-            city = checked["city"] or "Not provided"
+            city = checked["city"]
             owner = checked["owner_name"] or checked["contact_email"]
             cursor = connection.execute(
                 """INSERT INTO schools
                    (name,slug,status,lifecycle_status,legal_name,institution_type,classification,
                     ownership_type,owner_name,registration_number,website_url,description,
-                    address_line1,city,county,region,country_code,contact_email,contact_phone,
-                    created_at,updated_at)
-                   VALUES (?,?,'suspended','pending',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)""",
+                    address_line1,address_line2,city,county,region,postal_code,country_code,timezone,
+                    contact_email,contact_phone,created_at,updated_at)
+                   VALUES (?,?,'suspended','pending',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)""",
                 (checked["name"],slug,checked["legal_name"],checked["institution_type"],
                  checked["classification"],checked["ownership_type"],owner,
                  _clean(data.get("registration_number"),100) or None,_clean(data.get("website_url"),255) or None,
                  _clean(data.get("description"),2000) or None,_clean(data.get("address_line1"),180) or None,
-                 city,_clean(data.get("county"),100) or region or None,region or None,checked["country_code"],checked["contact_email"],
+                 _clean(data.get("address_line2"),180) or None,checked["city"],
+                 _clean(data.get("county"),100) or region or None,region or None,
+                 _clean(data.get("postal_code"),24) or None,checked["country_code"],
+                 _clean(data.get("timezone"),64) or None,checked["contact_email"],
                  _clean(data.get("contact_phone"),40) or None),
             )
             school_id = cursor.lastrowid
