@@ -901,7 +901,8 @@ def get_user_by_username(username):
     try:
         row = connection.execute(
             """
-            SELECT u.id, u.username, u.password_hash, u.role, u.is_super_admin, u.school_id
+            SELECT u.id, u.username, u.password_hash, u.role, u.is_super_admin, u.school_id,
+                   COALESCE(u.auth_version, 1) AS auth_version
             FROM users u
             WHERE u.username = ? AND u.status = 'active'
               AND (
