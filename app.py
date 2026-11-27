@@ -1428,7 +1428,7 @@ def admin_users():
                    u.created_at, u.approved_at, s.id AS linked_student_id,
                    s.full_name AS linked_student_name, s.admission_number AS linked_admission_number
             FROM users u LEFT JOIN students s
-                ON s.account_user_id = u.id AND s.school_id = u.school_id
+                ON s.account_user_id = u.id
             ORDER BY CASE u.status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END,
                      u.username COLLATE NOCASE
             """
