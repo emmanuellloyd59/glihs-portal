@@ -241,8 +241,8 @@ def migrate_report_card_term_flexibility(connection):
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='report_cards'"
     ).fetchone()
     sql = (schema["sql"] or "") if schema else ""
-    normalized_sql = " ".join(sql.lower().split())
-    if ("term in ('term 1', 'term 2', 'term 3')" not in normalized_sql
+    normalized_sql = "".join(sql.lower().split())
+    if ("termin('term1','term2','term3')" not in normalized_sql
             and "unique(school_id,student_id,academic_year,term)" in normalized_sql):
         return
     connection.execute("DROP TABLE IF EXISTS report_cards_migrating")
