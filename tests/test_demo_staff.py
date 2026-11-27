@@ -25,7 +25,12 @@ class DemoStaffProvisioningTests(unittest.TestCase):
 
     def setUp(self):
         db = portal.get_db_connection()
+        # Staff lifecycle tables retain immutable audit references to users and schools.
+        # This disposable test DB is reset with FK checks disabled only during cleanup.
+        db.execute("PRAGMA foreign_keys = OFF")
         for table in (
+            "staff_documents", "staff_responsibilities", "staff_qualifications",
+            "staff_employment", "staff_profiles", "staff_memberships", "staff_departments",
             "homework_submissions", "homework_assignments", "parent_student_links",
             "finance_payments", "school_announcements", "learning_materials",
             "class_timetable", "grades", "attendance", "report_cards",
@@ -37,6 +42,8 @@ class DemoStaffProvisioningTests(unittest.TestCase):
             if exists:
                 db.execute("DELETE FROM " + table)
         db.execute("DELETE FROM schools WHERE id <> 1")
+        db.commit()
+        db.execute("PRAGMA foreign_keys = ON")
         db.execute(
             """INSERT INTO users (username,password_hash,role,status,is_super_admin,school_id)
                VALUES (?,?, 'super_admin','active',1,NULL)""",
