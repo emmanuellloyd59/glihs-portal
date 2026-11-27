@@ -82,7 +82,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     "school_admin": {
         "school.view_dashboard", "school.manage_profile", "school.view_configuration", "school.manage_configuration",
         "school.manage_campuses", "school.manage_memberships", "school.manage_roles",
-        "school.view_staff", "school.manage_staff", "school.manage_academic_calendar",
+        "school.view_staff", "school.view_analytics", "school.manage_staff", "school.manage_academic_calendar",
         "school.manage_grading", "academic.view_records", "academic.manage_records",
         "academic.manage_attendance", "academic.publish_results", "academic.manage_classes",
         "finance.view", "finance.manage_fees", "finance.record_payments",
@@ -104,7 +104,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "learning.view", "learning.manage_assignments", "communication.view", "communication.manage",
     },
     "registrar": {
-        "school.view_dashboard", "academic.view_records", "academic.manage_records",
+        "school.view_dashboard", "school.view_analytics", "academic.view_records", "academic.manage_records",
         "academic.manage_attendance", "academic.publish_results", "academic.manage_classes",
         "finance.view", "communication.view",
     },
@@ -131,7 +131,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     },
     "external_service_provider": {"provider.access_assigned_services"},
     "admissions_officer": {"school.view_dashboard", "school.view_staff", "academic.view_records", "academic.manage_records"},
-    "academic_admin": {"school.view_dashboard", "school.view_staff", "academic.view_records", "academic.manage_records", "academic.manage_classes", "academic.publish_results"},
+    "academic_admin": {"school.view_dashboard", "school.view_staff", "school.view_analytics", "academic.view_records", "academic.manage_records", "academic.manage_classes", "academic.publish_results"},
     "attendance_officer": {"school.view_dashboard", "academic.view_records", "academic.manage_attendance"},
     "librarian": {"school.view_dashboard", "academic.view_records", "communication.view"},
     "counselor": {"school.view_dashboard", "academic.view_records", "communication.view"},
