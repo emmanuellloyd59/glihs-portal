@@ -179,7 +179,7 @@ def resolve_membership(connection, user_id, session_data):
             SELECT m.id AS membership_id, m.school_id, m.campus_id, m.role,
                    m.status AS membership_status
             FROM school_memberships m
-            JOIN schools s ON s.id=m.school_id AND s.status='active'
+            JOIN schools s ON s.id=m.school_id AND s.status='active' AND s.lifecycle_status='active'
             WHERE m.id=? AND m.user_id=? AND m.status='active'
               AND (m.campus_id IS NULL OR EXISTS (
                 SELECT 1 FROM campuses c WHERE c.id=m.campus_id
@@ -190,7 +190,7 @@ def resolve_membership(connection, user_id, session_data):
         SELECT m.id AS membership_id, m.school_id, m.campus_id, m.role,
                m.status AS membership_status
         FROM school_memberships m
-        JOIN schools s ON s.id=m.school_id AND s.status='active'
+        JOIN schools s ON s.id=m.school_id AND s.status='active' AND s.lifecycle_status='active'
         WHERE m.user_id=? AND m.status='active'
           AND (m.campus_id IS NULL OR EXISTS (
             SELECT 1 FROM campuses c WHERE c.id=m.campus_id
@@ -218,7 +218,7 @@ def resolve_membership(connection, user_id, session_data):
                 SELECT m.id AS membership_id,m.school_id,m.campus_id,m.role,
                        m.status AS membership_status
                 FROM school_memberships m JOIN schools s
-                  ON s.id=m.school_id AND s.status='active'
+                  ON s.id=m.school_id AND s.status='active' AND s.lifecycle_status='active'
                 WHERE m.user_id=? AND m.status='active'
                 ORDER BY m.is_primary DESC,m.id LIMIT 1
             """, (user_id,)).fetchone()
@@ -242,7 +242,7 @@ def create_membership_blueprint(connection_factory):
             current_user.role not in {"school_admin", "principal"}):
             abort(403)
         school = connection.execute(
-            "SELECT id FROM schools WHERE id=? AND status='active'", (school_id,)
+            "SELECT id FROM schools WHERE id=? AND status='active' AND lifecycle_status='active'", (school_id,)
         ).fetchone()
         if not school:
             abort(404)
@@ -290,7 +290,7 @@ def create_membership_blueprint(connection_factory):
             row = connection.execute("""
                 SELECT m.id, m.school_id, m.campus_id
                 FROM school_memberships m
-                JOIN schools s ON s.id=m.school_id AND s.status='active'
+                JOIN schools s ON s.id=m.school_id AND s.status='active' AND s.lifecycle_status='active'
                 WHERE m.id=? AND m.user_id=? AND m.status='active'
                   AND (m.campus_id IS NULL OR EXISTS (
                     SELECT 1 FROM campuses c WHERE c.id=m.campus_id
@@ -415,7 +415,7 @@ def create_membership_blueprint(connection_factory):
             if invite is None or invite["expires_at"] <= _stamp():
                 return jsonify({"error": "Invitation is invalid or expired."}), 400
             school_active = connection.execute(
-                "SELECT 1 FROM schools WHERE id=? AND status='active'",
+                "SELECT 1 FROM schools WHERE id=? AND status='active' AND lifecycle_status='active'",
                 (invite["school_id"],),
             ).fetchone()
             if not school_active:
