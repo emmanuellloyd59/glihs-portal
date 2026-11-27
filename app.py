@@ -1645,12 +1645,17 @@ def academics():
                ORDER BY a.attendance_date DESC, a.id DESC LIMIT 100""",
             (school_id, school_id, current_user.role, int(current_user.id)),
         ).fetchall()
+        from authorization import has_permission
+        can_enter = (
+            has_permission(connection, "academic.manage_records", school_id=school_id)
+            or has_permission(connection, "academic.manage_attendance", school_id=school_id)
+        )
     finally:
         connection.close()
     return render_template(
         "academics.html", students=students, grades=grades,
         attendance_rows=attendance_rows,
-        can_enter=current_user.role in ACADEMIC_ENTRY_ROLES,
+        can_enter=can_enter,
         today=datetime.now().strftime("%Y-%m-%d"),
     )
 
@@ -1951,13 +1956,15 @@ def report_cards():
                 "SELECT published, published_at FROM report_cards WHERE student_id = ? AND school_id = ? AND academic_year = ? AND term = ?",
                 (student_id, require_school_context(), academic_year, term),
             ).fetchone()
+        from authorization import has_permission
+        can_publish = has_permission(connection, "academic.publish_results", school_id=report_school_id)
     finally:
         connection.close()
 
     return render_template(
         "report_cards.html", students=students, selected_student=selected_student,
         academic_year=academic_year, term=term, subject_rows=subject_rows,
-        publication=publication, can_publish=current_user.role in REPORT_CARD_PUBLISH_ROLES,
+        publication=publication, can_publish=can_publish,
     )
 
 
