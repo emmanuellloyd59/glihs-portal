@@ -115,6 +115,13 @@ class SchoolNetworkTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_registration_page_is_public_and_renders_institution_fields(self):
+        response = self.client.get("/school-network/register")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Register your institution", response.data)
+        self.assertIn(b"Ownership classification", response.data)
+        self.assertIn(b"Country code", response.data)
+
     def test_public_registration_creates_pending_inactive_institution_and_contact(self):
         response = self.client.post("/api/v1/schools", json=self.registration_payload())
         self.assertEqual(response.status_code, 202)
