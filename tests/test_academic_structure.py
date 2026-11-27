@@ -69,7 +69,7 @@ class AcademicStructureTests(unittest.TestCase):
             _snapshot(db,1,1,"create year"); db.commit()
             self.assertEqual(db.execute("SELECT version_no FROM academic_structure_versions WHERE school_id=1 ORDER BY version_no DESC").fetchone()[0],2)
             payload=db.execute("SELECT snapshot_json FROM academic_structure_versions WHERE school_id=1").fetchone()[0]
-            self.assertIn("2025/26",payload)
+            self.assertIn("2024-2025",payload)
         finally: db.close()
 
     def test_database_triggers_reject_cross_tenant_academic_relationships(self):
