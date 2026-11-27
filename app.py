@@ -543,6 +543,7 @@ def initialize_database():
         # Remove the legacy global admission-number constraint only after all
         # records have a school owner, so the new constraint can be tenant-scoped.
         migrate_student_admission_number_uniqueness(connection)
+        migrate_report_card_term_flexibility(connection)
 
         # Student identifiers are school-scoped. Apply this after the legacy
         # students table has its school_id column and after its admission migration.
@@ -664,6 +665,10 @@ def initialize_database():
         connection.execute("PRAGMA foreign_keys = ON")
     finally:
         connection.close()
+
+    academic_initializer = globals().get("initialize_academic_structure")
+    if callable(academic_initializer):
+        academic_initializer(get_db_connection)
 
 initialize_database()
 
@@ -1781,8 +1786,8 @@ def academics():
         connection.close()
     return render_template(
         "academics.html", students=students, grades=grades,
-        attendance_rows=attendance_rows,
-        can_enter=can_enter,
+        attendance_rows=attendance_rows, academic_periods=academic_periods,
+        subjects=subjects, can_enter=can_enter,
         today=datetime.now().strftime("%Y-%m-%d"),
     )
 
@@ -1859,6 +1864,9 @@ def timetable():
         permission_connection.close()
     connection = get_db_connection()
     try:
+        class_levels = get_school_class_levels(connection, school_id)
+        subjects = get_school_subjects(connection, school_id)
+        subject_names = {row["name"] for row in subjects}
         if request.method == "POST":
             if not can_manage:
                 abort(403)
@@ -2042,6 +2050,8 @@ def report_cards():
     from authorization import require_permission
     require_permission("academic.view_records", get_db_connection, school_id=report_school_id)
     if request.method == "POST":
+        if current_user.role not in REPORT_CARD_PUBLISH_ROLES:
+            abort(403)
         require_permission("academic.publish_results", get_db_connection, school_id=report_school_id)
 
     connection = get_db_connection()
@@ -2191,6 +2201,7 @@ def report_cards():
     return render_template(
         "report_cards.html", students=students, selected_student=selected_student,
         academic_year=academic_year, term=term, subject_rows=subject_rows,
+        academic_periods=academic_periods, academic_period_id=academic_period_id,
         publication=publication, can_publish=can_publish,
     )
 
@@ -3099,6 +3110,10 @@ from student_information import (
 )
 initialize_student_information_schema(get_db_connection)
 app.register_blueprint(create_student_information_blueprint(get_db_connection, INSTANCE_DIR, require_school_context))
+
+# Configurable academic years, periods, grade levels, subjects and class structures.
+from academic_structure import initialize_academic_structure, register_academic_structure_routes
+register_academic_structure_routes(globals())
 
 if __name__ == "__main__":
     app.run(port=5000, debug=False)
