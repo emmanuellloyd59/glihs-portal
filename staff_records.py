@@ -472,7 +472,7 @@ def register_staff_records_routes(ns):
                     content=uploaded.stream.read(5242881)
                     if not content or len(content)>5242880: abort(400)
                     signatures={"pdf":content.startswith(b"%PDF-"),"png":content.startswith(b"\x89PNG\r\n\x1a\n"),
-                                "jpg":content.startswith(b"\xff\xd8\xff"),"jpeg":content.startswith(b"\\xff\\xd8\\xff")}
+                                "jpg":content.startswith(b"\xff\xd8\xff"),"jpeg":content.startswith(b"\xff\xd8\xff")}
                     if not signatures.get(extension,False): abort(400)
                     digest=hashlib.sha256(content).hexdigest()
                     key=str(uuid.uuid4())+"."+extension
