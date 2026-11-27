@@ -280,6 +280,7 @@ def register_staff_records_routes(ns):
                     fields={key:request.form.get(key,"").strip() for key in (
                         "employee_number","preferred_name","phone","email","address",
                         "emergency_contact_name","emergency_contact_phone","date_of_birth","gender","profile_notes")}
+                    fields["employee_number"]=fields["employee_number"] or None
                     if fields["date_of_birth"]:
                         try:
                             if date.fromisoformat(fields["date_of_birth"]).isoformat()!=fields["date_of_birth"]: raise ValueError
@@ -317,7 +318,7 @@ def register_staff_records_routes(ns):
                     if (len(fields["job_title"])>120 or len(fields["work_location"])>160
                         or len(fields["responsibilities_summary"])>2000
                         or fields["employment_type"] not in {"full_time","part_time","contract","temporary","volunteer","intern","other"}
-                        or fields["employment_status"] not in {"draft","active","on_leave","suspended","retired"}):
+                        or fields["employment_status"] not in {"draft","active","on_leave"}):
                         abort(400)
                     for key in ("start_date","end_date"):
                         if fields[key]:
