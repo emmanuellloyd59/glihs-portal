@@ -206,7 +206,19 @@ def initialize_student_information_schema(connection_factory):
                   BEGIN SELECT RAISE(ABORT,'student tenant mismatch'); END
                 """)
         for operation in ("INSERT","UPDATE"):
-            trigger = f"trg_student_admissions_school_{operation.lower()}"
+            trigger = f"trg_student_guardians_parent_membership_{operation.lower()}"
+            db.execute(f"""
+              CREATE TRIGGER IF NOT EXISTS {trigger}
+              BEFORE {operation} ON student_guardians
+              WHEN NEW.parent_user_id IS NOT NULL AND NOT EXISTS (
+                SELECT 1 FROM school_memberships m
+                WHERE m.user_id=NEW.parent_user_id AND m.school_id=NEW.school_id
+                  AND m.role='parent' AND m.status='active'
+              )
+              BEGIN SELECT RAISE(ABORT,'guardian membership tenant mismatch'); END
+            """)
+        for operation in ("INSERT","UPDATE"):
+            trigger = f"trg_student_admissions_school_{operation.lower()}
             db.execute(f"""
               CREATE TRIGGER IF NOT EXISTS {trigger}
               BEFORE {operation} ON student_admissions
@@ -580,7 +592,7 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
             parent_user_id=payload.get("parent_user_id")
             if parent_user_id is not None:
                 linked=db.execute("""SELECT 1 FROM users u JOIN school_memberships m ON m.user_id=u.id
-                  WHERE u.id=? AND u.role='parent' AND u.status='active'
+                  WHERE u.id=? AND u.status='active' AND m.role='parent'
                     AND m.school_id=? AND m.status='active'""",(parent_user_id,school_id)).fetchone()
                 if not linked:
                     return jsonify({"error":"Guardian login must be an active parent membership in this school."}),400
