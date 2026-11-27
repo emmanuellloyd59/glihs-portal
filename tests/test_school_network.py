@@ -32,19 +32,19 @@ class SchoolNetworkTests(unittest.TestCase):
         connection = portal.get_db_connection()
         try:
             # This class uses a disposable database. Clear every table's test
-        # data except the legacy pilot school row, with FK checks temporarily
-        # disabled so newly added modules cannot leave an unlisted user reference.
-        connection.execute("PRAGMA foreign_keys = OFF")
-        table_names = [
-            row["name"] for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' "
-                "AND name NOT LIKE 'sqlite_%' AND name <> 'schools'"
-            ).fetchall()
-        ]
-        for table_name in table_names:
-            connection.execute('DELETE FROM "' + table_name.replace('"', '""') + '"')
-        connection.commit()
-        connection.execute("PRAGMA foreign_keys = ON")
+            # data except the legacy pilot school row, with FK checks temporarily
+            # disabled so newly added modules cannot leave an unlisted user reference.
+            connection.execute("PRAGMA foreign_keys = OFF")
+            table_names = [
+                row["name"] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name NOT LIKE 'sqlite_%' AND name <> 'schools'"
+                ).fetchall()
+            ]
+            for table_name in table_names:
+                connection.execute('DELETE FROM "' + table_name.replace('"', '""') + '"')
+            connection.commit()
+            connection.execute("PRAGMA foreign_keys = ON")
             connection.execute(
                 """INSERT INTO users
                    (username, full_name, password_hash, role, status, is_super_admin, school_id)
