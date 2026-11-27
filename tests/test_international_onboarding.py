@@ -17,31 +17,22 @@ from school_onboarding import initialize_onboarding_schema  # noqa: E402
 class InternationalOnboardingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.temp_dir = tempfile.TemporaryDirectory()
         cls.original_database = portal.DATABASE
-        portal.DATABASE = Path(cls.temp_dir.name) / "international_onboarding.sqlite3"
         portal.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False, SESSION_COOKIE_SECURE=False)
-        portal.initialize_database()
-        initialize_school_network_schema(portal.get_db_connection)
-        initialize_onboarding_schema(portal.get_db_connection)
 
     @classmethod
     def tearDownClass(cls):
         portal.DATABASE = cls.original_database
-        cls.temp_dir.cleanup()
 
     def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        portal.DATABASE = Path(self.temp_dir.name) / "international_onboarding.sqlite3"
+        portal.initialize_database()
+        initialize_school_network_schema(portal.get_db_connection)
+        initialize_onboarding_schema(portal.get_db_connection)
         self.client = portal.app.test_client()
         connection = portal.get_db_connection()
         try:
-            for table in ("onboarding_notification_outbox", "school_admin_invitations",
-                          "school_service_requests", "onboarding_events", "onboarding_applications",
-                          "onboarding_rate_limits", "country_requirement_profiles",
-                          "school_contacts", "campuses", "school_group_memberships",
-                          "school_network_audit", "school_groups"):
-                connection.execute("DELETE FROM " + table)
-            connection.execute("DELETE FROM users")
-            connection.execute("DELETE FROM schools WHERE id<>1")
             connection.execute(
                 """INSERT INTO users(username,full_name,password_hash,role,status,is_super_admin,school_id)
                    VALUES ('platform-owner','Platform Owner',?,'super_admin','active',1,NULL)""",
@@ -50,9 +41,12 @@ class InternationalOnboardingTests(unittest.TestCase):
             connection.commit()
         finally:
             connection.close()
-        initialize_onboarding_schema(portal.get_db_connection)
         with self.client.session_transaction() as session:
             session.clear()
+
+    def tearDown(self):
+        portal.DATABASE = self.original_database
+        self.temp_dir.cleanup()
 
     def login_owner(self):
         return self.client.post("/login", data={
@@ -224,7 +218,7 @@ class InternationalOnboardingTests(unittest.TestCase):
         })
         self.assertEqual(configured.status_code, 200, configured.get_data(as_text=True))
         self.assertEqual(self.client.get("/api/v1/onboarding/countries").status_code, 200)
-        invalid_payload = self.payload(country_code="KE", region="", registration_number="",
+        invalid_payload = self.payload(country_code="KE", region="", county="", registration_number="",
                                        city="", owner_name="", contact_phone="")
         draft = self.client.post("/api/v1/onboarding/applications", json=invalid_payload)
         self.assertEqual(draft.status_code, 201)
