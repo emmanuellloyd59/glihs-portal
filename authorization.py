@@ -80,7 +80,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "academic.manage_attendance", "academic.publish_results", "academic.manage_classes",
         "finance.view", "finance.manage_fees", "finance.record_payments",
         "finance.refund_payments", "finance.export", "learning.view",
-        "learning.manage_courses", "learning.manage_assignments", "communication.view", "communication.manage", "audit.view",
+        "learning.manage_courses", "learning.manage_assignments", "learning.manage_materials", "communication.view", "communication.manage", "audit.view",
     },
     "principal": {
         "school.view_dashboard", "school.view_configuration", "school.view_staff", "school.manage_staff",
@@ -88,6 +88,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "academic.manage_records", "academic.manage_attendance", "academic.publish_results",
         "academic.manage_classes", "finance.view", "finance.manage_fees",
         "finance.record_payments", "learning.view", "learning.manage_courses",
+        "learning.manage_assignments", "learning.manage_materials",
         "communication.view", "communication.manage", "audit.view",
     },
     "vice_principal": {
