@@ -1520,24 +1520,37 @@ def academics():
                 return redirect(url_for("academics"))
 
             if action == "grade":
-                subject = request.form.get("subject", "").strip()
+                subject_id_text = request.form.get("subject_id", "").strip()
+                subject_row = connection.execute(
+                    "SELECT id,name FROM subjects WHERE id=? AND school_id=? AND active=1",
+                    (subject_id_text, school_id),
+                ).fetchone() if subject_id_text.isdigit() else None
+                period_id_text = request.form.get("academic_period_id", "").strip()
+                period_row = connection.execute(
+                    """SELECT p.id,p.name,p.academic_year_id,y.label AS academic_year
+                       FROM academic_periods p
+                       JOIN academic_years y ON y.id=p.academic_year_id AND y.school_id=p.school_id
+                       WHERE p.id=? AND p.school_id=? AND p.status='active'
+                         AND y.status IN ('draft','active')""",
+                    (int(period_id_text), school_id),
+                ).fetchone() if period_id_text.isdigit() else None
+                if subject_row is None or period_row is None:
+                    flash("Choose a configured subject and an active period from this school's academic calendar.", "danger")
+                    return redirect(url_for("academics"))
+                subject = subject_row["name"]
+                academic_year = period_row["academic_year"]
+                term = period_row["name"]
+                academic_year_id = period_row["academic_year_id"]
+                academic_period_id = period_row["id"]
                 if current_user.role == "teacher" and not teacher_has_class_subject(
                     connection, current_user.id, school_id, student["class_level"], subject
                 ):
                     abort(403)
                 assessment = request.form.get("assessment", "").strip()
-                academic_year = request.form.get("academic_year", "").strip()
-                term = request.form.get("term", "").strip()
                 score_text = request.form.get("score", "").strip()
                 max_text = request.form.get("max_score", "").strip()
                 if not subject or len(subject) > 80 or not assessment or len(assessment) > 100:
-                    flash("Enter a subject and assessment name within the stated limits.", "danger")
-                    return redirect(url_for("academics"))
-                if (len(academic_year) != 9 or academic_year[4] != "-"
-                        or not academic_year[:4].isdigit() or not academic_year[5:].isdigit()
-                        or int(academic_year[5:]) != int(academic_year[:4]) + 1
-                        or term not in {"Term 1", "Term 2", "Term 3"}):
-                    flash("Choose a valid academic year (for example 2026-2027) and term.", "danger")
+                    flash("Choose a subject and enter an assessment name within the stated limits.", "danger")
                     return redirect(url_for("academics"))
                 try:
                     score, max_score = float(score_text), float(max_text)
@@ -1557,9 +1570,11 @@ def academics():
                 try:
                     connection.execute(
                         """INSERT INTO grades
-                           (student_id, subject, assessment, score, max_score, recorded_by, academic_year, term, school_id)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (student_id, subject, assessment, score, max_score, current_user.id, academic_year, term, require_school_context()),
+                           (student_id, subject, assessment, score, max_score, recorded_by,
+                            academic_year, term, school_id, academic_year_id, academic_period_id, subject_id)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (student_id, subject, assessment, score, max_score, current_user.id,
+                         academic_year, term, school_id, academic_year_id, academic_period_id, subject_row["id"]),
                     )
                     connection.commit()
                     write_audit(current_user.id, "grade_recorded", str(student_id),
@@ -1598,6 +1613,16 @@ def academics():
                 flash("Unknown academic action.", "danger")
             return redirect(url_for("academics"))
 
+        academic_periods = connection.execute(
+            """SELECT p.id,p.name,p.period_type,y.label AS academic_year
+               FROM academic_periods p JOIN academic_years y
+                 ON y.id=p.academic_year_id AND y.school_id=p.school_id
+               WHERE p.school_id=? AND p.status='active' AND y.status IN ('draft','active')
+               ORDER BY y.id DESC,p.sequence_no""",(school_id,)
+        ).fetchall()
+        subjects = connection.execute(
+            "SELECT id,name FROM subjects WHERE school_id=? AND active=1 ORDER BY name",(school_id,)
+        ).fetchall()
         grades = connection.execute(
             """SELECT g.id, s.full_name, s.admission_number, s.class_level, g.subject,
                       g.assessment, g.score, g.max_score, g.academic_year, g.term,
@@ -1636,7 +1661,7 @@ def academics():
         connection.close()
     return render_template(
         "academics.html", students=students, grades=grades,
-        attendance_rows=attendance_rows,
+        attendance_rows=attendance_rows, academic_periods=academic_periods, subjects=subjects,
         can_enter=current_user.role in ACADEMIC_ENTRY_ROLES,
         today=datetime.now().strftime("%Y-%m-%d"),
     )
