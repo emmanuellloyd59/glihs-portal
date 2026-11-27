@@ -63,6 +63,10 @@ class SchoolNetworkTests(unittest.TestCase):
                    VALUES ('school_admin_b', 'School Admin B', ?, 'school_admin', 'active', 0, 1)""",
                 (generate_password_hash("school-admin-password"),),
             )
+            connection.execute("""
+                INSERT INTO school_memberships(user_id,school_id,role,status,is_primary)
+                SELECT id,school_id,role,'active',1 FROM users WHERE school_id IS NOT NULL
+            """)
             connection.commit()
         finally:
             connection.close()
