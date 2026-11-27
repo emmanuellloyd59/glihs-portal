@@ -631,25 +631,6 @@ def initialize_database():
     finally:
         connection.close()
 
-    # Reinitialization against a disposable/test database must rebuild every
-    # registered module schema, not only the legacy core tables. Initial import
-    # remains safe because modules are registered later and are initialized below.
-    for initializer_name in (
-        "initialize_school_network_schema",
-        "initialize_onboarding_schema",
-        "initialize_configuration_schema",
-        "initialize_membership_schema",
-        "initialize_authorization_schema",
-        "initialize_subscription_schema",
-        "initialize_student_information_schema",
-        "initialize_academic_structure",
-        "initialize_staff_records",
-    ):
-        initializer = globals().get(initializer_name)
-        if callable(initializer):
-            initializer(get_db_connection)
-
-
 initialize_database()
 
 
