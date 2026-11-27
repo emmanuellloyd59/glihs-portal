@@ -104,6 +104,7 @@ def initialize_membership_schema(connection_factory):
                 token_hash TEXT NOT NULL UNIQUE,
                 school_id INTEGER NOT NULL REFERENCES schools(id),
                 campus_id INTEGER,
+                linked_student_id INTEGER REFERENCES students(id),
                 role TEXT NOT NULL,
                 invited_by INTEGER NOT NULL REFERENCES users(id),
                 status TEXT NOT NULL DEFAULT 'pending'
@@ -115,6 +116,9 @@ def initialize_membership_schema(connection_factory):
                 FOREIGN KEY (school_id, campus_id) REFERENCES campuses(school_id, id)
             )
         """)
+        invitation_columns = {r["name"] for r in connection.execute("PRAGMA table_info(membership_invitations)")}
+        if "linked_student_id" not in invitation_columns:
+            connection.execute("ALTER TABLE membership_invitations ADD COLUMN linked_student_id INTEGER REFERENCES students(id)")
         connection.execute("""
             CREATE INDEX IF NOT EXISTS idx_membership_invites_email_status
             ON membership_invitations(lower(email), status, expires_at)
@@ -324,6 +328,7 @@ def create_membership_blueprint(connection_factory):
         email = str(payload.get("email", "")).strip().lower()
         role = str(payload.get("role", "")).strip()
         campus_id = payload.get("campus_id")
+        linked_student_id = payload.get("linked_student_id")
         if len(email) > 254 or "@" not in email or role not in SCHOOL_ROLES:
             return jsonify({"error": "A valid email and school role are required."}), 400
         if role in {"school_admin", "principal"} and current_user.role != "school_admin":
@@ -335,6 +340,17 @@ def create_membership_blueprint(connection_factory):
         connection = connection_factory()
         try:
             _school_admin(connection, school_id)
+            if role in {"student", "parent"}:
+                if not isinstance(linked_student_id, int) or isinstance(linked_student_id, bool):
+                    return jsonify({"error": "A verified student record is required for student or parent memberships."}), 400
+                student = connection.execute(
+                    "SELECT id,account_user_id FROM students WHERE id=? AND school_id=? AND status='active'",
+                    (linked_student_id, school_id),
+                ).fetchone()
+                if not student or (role == "student" and student["account_user_id"] is not None):
+                    return jsonify({"error": "The student record is unavailable or already linked to a login."}), 409
+            elif linked_student_id is not None:
+                return jsonify({"error": "linked_student_id is only valid for student or parent memberships."}), 400
             if campus_id is not None:
                 if not isinstance(campus_id, int) or isinstance(campus_id, bool):
                     return jsonify({"error": "Invalid campus."}), 400
@@ -346,9 +362,9 @@ def create_membership_blueprint(connection_factory):
             expires = _stamp(_now() + timedelta(days=7))
             connection.execute("""
                 INSERT INTO membership_invitations
-                    (email,token_hash,school_id,campus_id,role,invited_by,expires_at)
-                VALUES(?,?,?,?,?,?,?)
-            """, (email, _hash_token(token), school_id, campus_id, role,
+                    (email,token_hash,school_id,campus_id,linked_student_id,role,invited_by,expires_at)
+                VALUES(?,?,?,?,?,?,?,?)
+            """, (email, _hash_token(token), school_id, campus_id, linked_student_id, role,
                   int(current_user.id), expires))
             _record(connection, int(current_user.id), school_id, "membership_invited", role)
             connection.commit()
@@ -434,6 +450,19 @@ def create_membership_blueprint(connection_factory):
                 VALUES(?,?,?,?,'active',0,?,?)
             """, (user_id, invite["school_id"], invite["campus_id"], invite["role"],
                   invite["invited_by"], _stamp()))
+            if invite["role"] == "student":
+                changed = connection.execute(
+                    "UPDATE students SET account_user_id=? WHERE id=? AND school_id=? AND account_user_id IS NULL",
+                    (user_id, invite["linked_student_id"], invite["school_id"]),
+                ).rowcount
+                if changed != 1:
+                    connection.rollback()
+                    return jsonify({"error": "Student account link is no longer available."}), 409
+            elif invite["role"] == "parent":
+                connection.execute("""
+                    INSERT OR IGNORE INTO parent_student_links(parent_user_id,student_id,school_id,created_by)
+                    VALUES(?,?,?,?)
+                """, (user_id, invite["linked_student_id"], invite["school_id"], invite["invited_by"]))
             connection.execute("""
                 UPDATE membership_invitations SET status='accepted',accepted_by=?,accepted_at=?
                 WHERE id=? AND status='pending'
