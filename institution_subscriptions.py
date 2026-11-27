@@ -119,7 +119,7 @@ def effective_access(connection, school_id, now=None):
     """Return access policy without mutating subscription or institution state."""
     now = now or datetime.now(timezone.utc)
     row = connection.execute(
-        """SELECT l.state AS institution_state,s.status,s.period_end,s.grace_ends_at,
+        """SELECT l.state AS institution_state,s.status,s.period_end,s.trial_ends_at,s.grace_ends_at,
                   p.entitlements_json,p.usage_limits_json
            FROM institution_lifecycle l
            LEFT JOIN institution_subscriptions s ON s.school_id=l.school_id
