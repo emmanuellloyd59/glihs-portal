@@ -14,7 +14,7 @@
 
 <div class="row g-3 mb-4">
   <div class="col-12 col-md-4"><div class="surface-card p-3 h-100"><div class="small text-secondary">Employment status</div><strong>{{ member.employment_status|replace('_',' ')|title }}</strong></div></div>
-  <div class="col-12 col-md-4"><div class="surface-card p-3 h-100"><div class="small text-secondary">Department</div><strong>{% if member.department_id %}Assigned department{% else %}Not assigned{% endif %}</strong></div></div>
+  <div class="col-12 col-md-4"><div class="surface-card p-3 h-100"><div class="small text-secondary">Department</div><strong>{{ member.department_name or 'Not assigned' }}</strong></div></div>
   <div class="col-12 col-md-4"><div class="surface-card p-3 h-100"><div class="small text-secondary">School account</div><strong>{{ member.account_status|title }}</strong></div></div>
 </div>
 
@@ -65,6 +65,11 @@
     <div class="col-12"><button class="btn btn-outline-primary">Add qualification</button></div>
   </form>
   {% if qualifications %}<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Qualification</th><th>Institution / field</th><th>Awarded</th><th>Verification</th></tr></thead><tbody>{% for q in qualifications %}<tr><td>{{ q.qualification }}</td><td>{{ q.institution }}<div class="small text-secondary">{{ q.field_of_study }}</div></td><td>{{ q.award_date or '—' }}</td><td>{{ q.verification_status|title }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="text-secondary">No qualifications recorded.</p>{% endif %}
+</section>
+
+<section class="surface-card p-4 mb-4">
+  <p class="eyebrow text-primary mb-1">Teaching assignments</p><h2 class="h4 fw-bold mb-3">Assigned classes and subjects</h2>
+  {% if teacher_assignments %}<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Class / level</th><th>Subject</th><th>Assigned</th></tr></thead><tbody>{% for a in teacher_assignments %}<tr><td>{{ a.class_level }}</td><td>{{ a.subject }}</td><td>{{ a.created_at }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="text-secondary mb-0">No active teacher class or subject assignments.</p>{% endif %}
 </section>
 
 <section class="surface-card p-4 mb-4">
