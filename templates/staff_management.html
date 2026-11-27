@@ -58,6 +58,8 @@
       <td><span class="badge text-bg-light border">{{ user.role.replace('_',' ').title() }}</span></td>
       <td><span class="badge {% if user.status == 'active' %}text-bg-success{% elif user.status == 'pending' %}text-bg-warning{% else %}text-bg-danger{% endif %}">{{ user.status.title() }}</span></td>
       <td>
+      <div class="d-flex flex-column gap-2" style="min-width:180px;">
+      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('staff_record_detail',user_id=user.id) }}">Open staff record</a>
       {% if user.id != current_user.id and user.role in manageable_roles %}
         <div class="d-flex flex-column gap-2" style="min-width:180px;">
         {% if user.status == 'active' %}<form method="post" action="{{ url_for('staff_management') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="suspend"><input type="hidden" name="user_id" value="{{ user.id }}"><button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Suspend this staff account? The person will lose login access.')">Suspend account</button></form>
@@ -65,6 +67,7 @@
         {% if can_manage_roles and user.role not in ['student','parent','super_admin'] %}<form method="post" action="{{ url_for('staff_management') }}" class="d-flex flex-column gap-1"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="change_role"><input type="hidden" name="user_id" value="{{ user.id }}"><label class="small text-secondary" for="role-{{ user.id }}">Change role</label><select class="form-select form-select-sm" id="role-{{ user.id }}" name="role" required>{% for key, label in assignable_roles.items() %}<option value="{{ key }}" {% if key == user.role %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><button class="btn btn-sm btn-outline-primary" type="submit">Save role</button></form>{% endif %}
         </div>
       {% else %}<span class="small text-secondary">{% if user.id == current_user.id %}Your account{% else %}No actions available{% endif %}</span>{% endif %}
+      </div>
       </td>
     </tr>
   {% endfor %}
