@@ -352,6 +352,11 @@ def require_permission(permission, connection_factory, school_id=None, campus_id
     resolved_school = school_id
     if resolved_school is None:
         resolved_school = getattr(current_user, "school_id", None)
+    if (resolved_school is None and PERMISSIONS.get(permission) != "platform"
+            and getattr(current_user, "is_super_admin", False)
+            and getattr(current_user, "role", None) == "super_admin"):
+        from flask import session
+        resolved_school = session.get("active_school_id")
     resolved_campus = campus_id
     if resolved_campus is None:
         resolved_campus = getattr(current_user, "campus_id", None)
