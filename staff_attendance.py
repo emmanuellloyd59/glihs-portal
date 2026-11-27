@@ -15,7 +15,8 @@ def register_staff_attendance_routes(ns):
     require_school_context = ns["require_school_context"]
     generate_password_hash = ns["generate_password_hash"]
     staff_roles = ns["STAFF_ROLES"]
-    class_levels = ns["TIMETABLE_CLASS_LEVELS"]
+    get_school_class_levels = ns["get_school_class_levels"]
+    get_school_subjects = ns["get_school_subjects"]
 
     staff_manage_roles = {"super_admin", "school_admin", "principal", "vice_principal"}
     attendance_report_roles = {
