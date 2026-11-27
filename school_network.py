@@ -795,12 +795,13 @@ def create_school_network_blueprint(connection_factory):
             if not selected:
                 abort(400)
             school_id = selected
+            _require_platform_permission(connection_factory, "platform.manage_schools")
             access = "platform"
         else:
             school_id = getattr(current_user, "school_id", None)
-            if school_id is None or current_user.role != "school_admin":
+            if school_id is None:
                 abort(403)
-            access = _school_access(school_id, connection_factory)
+            access = _school_access(school_id, connection_factory, "school.manage_profile")
         connection = connection_factory()
         try:
             school = connection.execute("SELECT * FROM schools WHERE id=?", (school_id,)).fetchone()
