@@ -509,6 +509,14 @@ def create_authorization_blueprint(connection_factory):
             return jsonify({"error": "A user or role subject is required."}), 400
         if subject_type == "role" and subject_id not in DEFAULT_ROLE_PERMISSIONS:
             return jsonify({"error": "Unknown authorization role."}), 400
+        if subject_type == "user" and not subject_id.isdigit():
+            return jsonify({"error": "User grant subject must be a numeric identity ID."}), 400
+        if scope_type == "platform" and scope_id is not None:
+            return jsonify({"error": "Platform grants do not take a scope ID."}), 400
+        if scope_type in {"organization", "school", "campus"} and (
+            not isinstance(scope_id, int) or isinstance(scope_id, bool)
+        ):
+            return jsonify({"error": "A numeric scope_id is required."}), 400
         if scope_type in {"platform", "organization"}:
             require_permission("platform.manage_global_policies", connection_factory)
             if scope_type == "platform" and PERMISSIONS[permission] != "platform":
