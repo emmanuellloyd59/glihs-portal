@@ -165,6 +165,20 @@ class StudentInformationTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(converted.status_code,201)
         self.assertTrue(converted.get_json()["student_identifier"].startswith("STU-"))
 
+    def test_identifier_allocator_skips_existing_values(self):
+        self.create_student(1,"EXISTING-ID","STU-2026-00001","Existing Identifier Student")
+        self.login_as("registrar_demo","test-registrar-password")
+        created=self.client.post("/api/v1/admissions",json={
+            "application_number":"APP-ID-SKIP","applicant_name":"New Identifier Student",
+            "requested_class":"Grade 7"
+        })
+        admission_id=created.get_json()["admission_id"]
+        self.client.post(f"/api/v1/admissions/{admission_id}/review",json={"status":"accepted"})
+        converted=self.client.post(f"/api/v1/admissions/{admission_id}/convert",
+            json={"admission_number":"NEW-ID-2","class_level":"Grade 7"})
+        self.assertEqual(converted.status_code,201)
+        self.assertEqual(converted.get_json()["student_identifier"],"STU-2026-00002")
+
     def test_withdrawal_is_audited_and_preserves_student_row(self):
         student_id=self.create_student()
         self.login_as("registrar_demo","test-registrar-password")
