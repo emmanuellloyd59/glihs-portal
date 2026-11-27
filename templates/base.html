@@ -60,14 +60,18 @@
                     {% if current_user.is_authenticated %}
                         <a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a>
                         {% if current_user.is_super_admin %}
+                            <a class="nav-link" href="{{ url_for('school_network.platform_schools') }}">School Network</a>
                             <a class="nav-link" href="{{ url_for('select_school_context') }}">Select School Workspace</a>
                             <a class="nav-link" href="{{ url_for('admin_users') }}">Administrator Management</a>
+                        {% elif current_user.role == 'school_admin' %}
+                            <a class="nav-link" href="{{ url_for('school_network.school_profile') }}">Institution Profile</a>
                         {% endif %}
                         <form action="{{ url_for('logout') }}" method="POST" class="d-inline">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="nav-link border-0 bg-transparent">Sign Out</button>
                         </form>
                     {% else %}
+                        <a class="nav-link" href="{{ url_for('school_network.register_form') }}">Register Institution</a>
                         <a class="nav-link" href="{{ url_for('request_staff_access') }}">Request Staff Access</a>
                         <a class="btn btn-sm btn-light fw-bold px-3 ms-lg-2" href="{{ url_for('login') }}">Portal Login <span aria-hidden="true">→</span></a>
                     {% endif %}
