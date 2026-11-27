@@ -32,6 +32,19 @@ class QmarkToFormatTests(unittest.TestCase):
             "CREATE FUNCTION f() RETURNS text AS $body$ SELECT '?'; $body$ LANGUAGE SQL; SELECT %s",
         )
 
+    def test_preserves_escape_string_backslash_quotes(self):
+        statement = r"SELECT E'escaped \\' ? text' AS value WHERE id = ?"
+        self.assertEqual(
+            qmark_to_format(statement, 1),
+            r"SELECT E'escaped \\' ? text' AS value WHERE id = %s",
+        )
+
+    def test_unterminated_lexical_constructs_fail_closed(self):
+        for statement in ("SELECT 'unfinished ?", 'SELECT "unfinished ?', "SELECT /* unfinished ?", "SELECT $ unfinished ?"):
+            with self.subTest(statement=statement):
+                with self.assertRaises(SQLPlaceholderError):
+                    qmark_to_format(statement, 0)
+
     def test_preserves_psycopg_escaped_question_operator(self):
         self.assertEqual(qmark_to_format("payload ?? 'key' WHERE id = ?", 1),
                          "payload ?? 'key' WHERE id = %s")
