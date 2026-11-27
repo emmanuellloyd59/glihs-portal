@@ -68,6 +68,8 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         self.connection.rollback()
 
     def _seed_two_schools(self):
+        # Each test owns a fresh isolated schema; install the real schema before seeding.
+        apply_postgresql_migrations(self.connection)
         school_a = self.connection.execute(
             "INSERT INTO schools (name,slug) VALUES (%s,%s) RETURNING id",
             ("School A", "school-a-" + self.schema[-8:]),
