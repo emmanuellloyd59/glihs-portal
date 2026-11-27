@@ -558,7 +558,7 @@ def register_staff_records_routes(ns):
                 JOIN users u ON u.id=m.user_id AND u.school_id=m.school_id
                 WHERE d.id=? AND d.school_id=? AND m.user_id=? AND d.archived_at IS NULL
             """,(document_id,school_id,user_id)).fetchone()
-            if row is None or row["role"] not in manageable_staff_roles(): abort(404)
+            if row is None or (row["role"] not in manageable_staff_roles() and int(user_id)!=int(current_user.id)): abort(404)
             path=Path(ns["INSTANCE_DIR"])/"private_staff_documents"/str(school_id)/row["storage_key"]
             if not path.is_file(): abort(404)
             return send_file(path,as_attachment=True,download_name=row["original_filename"])
