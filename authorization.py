@@ -14,6 +14,11 @@ from flask_login import current_user, login_required
 
 SCOPE_TYPES = ("platform", "organization", "school", "campus")
 EFFECTS = ("allow", "deny")
+DELEGATION_PROTECTED = {
+    "platform.manage_schools", "platform.manage_operators", "platform.manage_global_policies",
+    "organization.manage_schools", "school.manage_roles", "school.manage_memberships",
+    "school.manage_configuration", "school.manage_campuses",
+}
 
 PERMISSIONS = {
     "platform.manage_schools": "platform",
@@ -525,6 +530,16 @@ def create_authorization_blueprint(connection_factory):
             if not isinstance(school_id, int) or isinstance(school_id, bool):
                 return jsonify({"error": "An authorized school_id is required."}), 400
             require_permission("school.manage_roles", connection_factory, school_id=school_id)
+            if permission in DELEGATION_PROTECTED:
+                return jsonify({"error": "This high-impact permission cannot be delegated through a school-scoped grant."}), 403
+            if effect == "allow":
+                check_connection = connection_factory()
+                try:
+                    if not has_permission(check_connection, permission, school_id,
+                                          scope_id if scope_type == "campus" else None):
+                        return jsonify({"error": "You cannot delegate a permission you do not hold."}), 403
+                finally:
+                    check_connection.close()
             required_scope = PERMISSIONS[permission]
             if required_scope == "platform" or (required_scope == "organization" and scope_type != "organization") or (required_scope == "campus" and scope_type != "campus"):
                 return jsonify({"error": "This permission cannot be granted at the requested scope."}), 403
