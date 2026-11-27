@@ -467,9 +467,9 @@ def create_authorization_blueprint(connection_factory):
             if not isinstance(school_id, int) or isinstance(school_id, bool):
                 return jsonify({"error": "An authorized school_id is required."}), 400
             require_permission("school.manage_roles", connection_factory, school_id=school_id)
-            scope_rank = {"platform": 0, "organization": 1, "school": 2, "campus": 3}
-            if scope_rank[scope_type] < scope_rank[PERMISSIONS[permission]]:
-                return jsonify({"error": "The grant scope is broader than this permission's permitted scope."}), 403
+            required_scope = PERMISSIONS[permission]
+            if required_scope == "platform" or (required_scope == "organization" and scope_type != "organization") or (required_scope == "campus" and scope_type != "campus"):
+                return jsonify({"error": "This permission cannot be granted at the requested scope."}), 403
             connection = connection_factory()
             try:
                 school = connection.execute("SELECT id FROM schools WHERE id=?", (school_id,)).fetchone()
