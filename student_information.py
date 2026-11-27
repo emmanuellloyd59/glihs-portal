@@ -840,10 +840,14 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
         try:
             db.execute("BEGIN IMMEDIATE")
             for admission,name,level in normalized:
-                cur=db.execute("""INSERT INTO students(admission_number,full_name,class_level,school_id)
-                  VALUES(?,?,?,?) ON CONFLICT(school_id,admission_number) DO NOTHING""",
-                  (admission,name,level,school_id))
-                if cur.rowcount: inserted+=1
+                exists=db.execute("SELECT 1 FROM students WHERE school_id=? AND lower(admission_number)=lower(?)",
+                                  (school_id,admission)).fetchone()
+                if exists:
+                    continue
+                identifier=allocate_student_identifier(db,school_id)
+                db.execute("""INSERT INTO students(admission_number,student_id_number,full_name,class_level,school_id)
+                  VALUES(?,?,?,?,?)""",(admission,identifier,name,level,school_id))
+                inserted+=1
             audit(db,school_id,"student_import_completed","school",f"inserted={inserted}; skipped={len(normalized)-inserted}")
             db.commit()
             return jsonify({"inserted":inserted,"skipped":len(normalized)-inserted,"received":len(normalized)}),201
