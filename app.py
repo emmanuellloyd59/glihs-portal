@@ -1529,19 +1529,60 @@ def academics():
                 subject_id_text = request.form.get("subject_id", "").strip()
                 subject_row = connection.execute(
                     "SELECT id,name FROM subjects WHERE id=? AND school_id=? AND active=1",
-                    (subject_id_text, school_id),
+                    (int(subject_id_text), school_id),
                 ).fetchone() if subject_id_text.isdigit() else None
+                # Compatibility for older integrations that still submit subject labels.
+                if subject_row is None:
+                    legacy_subject = request.form.get("subject", "").strip()
+                    if legacy_subject and len(legacy_subject) <= 80 and not any(ord(ch)<32 for ch in legacy_subject):
+                        if current_user.role == "teacher" and not teacher_has_class_subject(
+                            connection, current_user.id, school_id, student["class_level"], legacy_subject
+                        ):
+                            abort(403)
+                        connection.execute(
+                            "INSERT OR IGNORE INTO subjects(school_id,name) VALUES(?,?)",
+                            (school_id, legacy_subject),
+                        )
+                        subject_row = connection.execute(
+                            "SELECT id,name FROM subjects WHERE school_id=? AND lower(name)=lower(?) AND active=1",
+                            (school_id, legacy_subject),
+                        ).fetchone()
                 period_id_text = request.form.get("academic_period_id", "").strip()
                 period_row = connection.execute(
                     """SELECT p.id,p.name,p.academic_year_id,y.label AS academic_year
-                       FROM academic_periods p
-                       JOIN academic_years y ON y.id=p.academic_year_id AND y.school_id=p.school_id
+                       FROM academic_periods p JOIN academic_years y
+                         ON y.id=p.academic_year_id AND y.school_id=p.school_id
                        WHERE p.id=? AND p.school_id=? AND p.status='active'
                          AND y.status IN ('draft','active')""",
                     (int(period_id_text), school_id),
                 ).fetchone() if period_id_text.isdigit() else None
+                # Compatibility for pre-engine forms: preserve their labels as
+                # school-owned custom periods instead of forcing Term 1/2/3.
+                if period_row is None and not period_id_text:
+                    legacy_year = request.form.get("academic_year", "").strip()
+                    legacy_period = request.form.get("term", "").strip()
+                    if legacy_year and len(legacy_year)<=80 and legacy_period and len(legacy_period)<=80:
+                        connection.execute(
+                            "INSERT OR IGNORE INTO academic_years(school_id,label,status) VALUES(?,?,'active')",
+                            (school_id,legacy_year),
+                        )
+                        year_row=connection.execute(
+                            "SELECT id FROM academic_years WHERE school_id=? AND label=?",
+                            (school_id,legacy_year),
+                        ).fetchone()
+                        connection.execute(
+                            "INSERT OR IGNORE INTO academic_periods(school_id,academic_year_id,name,period_type,status) VALUES(?,?,?,'custom','active')",
+                            (school_id,year_row["id"],legacy_period),
+                        )
+                        period_row=connection.execute(
+                            """SELECT p.id,p.name,p.academic_year_id,y.label AS academic_year
+                               FROM academic_periods p JOIN academic_years y
+                                 ON y.id=p.academic_year_id AND y.school_id=p.school_id
+                               WHERE p.school_id=? AND y.label=? AND p.name=?""",
+                            (school_id,legacy_year,legacy_period),
+                        ).fetchone()
                 if subject_row is None or period_row is None:
-                    flash("Choose a configured subject and an active period from this school's academic calendar.", "danger")
+                    flash("Choose a configured subject and an active academic period from this school's calendar.", "danger")
                     return redirect(url_for("academics"))
                 subject = subject_row["name"]
                 academic_year = period_row["academic_year"]
