@@ -1765,6 +1765,11 @@ def timetable():
     connection = get_db_connection()
     try:
         class_levels = get_school_class_levels(connection, school_id)
+        subjects = connection.execute(
+            "SELECT id,name FROM subjects WHERE school_id=? AND active=1 ORDER BY name",
+            (school_id,),
+        ).fetchall()
+        subject_names = {row["name"] for row in subjects}
         if request.method == "POST":
             if not can_manage:
                 abort(403)
@@ -1803,7 +1808,7 @@ def timetable():
 
             if (
                 class_level not in class_levels
-                or not subject or len(subject) > 80
+                or subject not in subject_names or len(subject) > 80
                 or not teacher_text.isdigit()
                 or weekday not in TIMETABLE_DAYS
                 or not valid_time(start_time) or not valid_time(end_time)
@@ -1876,7 +1881,7 @@ def timetable():
         connection.close()
     return render_template(
         "timetable.html", entries=entries, teachers=teachers, can_manage=can_manage,
-        days=TIMETABLE_DAYS, class_levels=class_levels,
+        days=TIMETABLE_DAYS, class_levels=class_levels, subjects=subjects,
     )
 
 
