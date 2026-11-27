@@ -33,7 +33,7 @@ class QmarkToFormatTests(unittest.TestCase):
         )
 
     def test_preserves_escape_string_backslash_quotes(self):
-        statement = r"SELECT E'escaped \\' ? text' AS value WHERE id = ?"
+        statement = r"SELECT E'escaped \\\' ? text' AS value WHERE id = ?"
         self.assertEqual(
             qmark_to_format(statement, 1),
             r"SELECT E'escaped \\' ? text' AS value WHERE id = %s",
