@@ -869,15 +869,17 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
                             smtp.login(username,password)
                         smtp.send_message(message)
                     connection.execute(
-                        "UPDATE onboarding_notification_outbox SET status='sent',attempts=attempts+1,sent_at=CURRENT_TIMESTAMP,last_error=NULL WHERE id=?",
+                        "UPDATE onboarding_notification_outbox SET status='sent',attempts=attempts+1,sent_at=CURRENT_TIMESTAMP,last_error=NULL,body='' WHERE id=?",
                         (row["id"],),
                     )
                     sent += 1
                 except Exception as exc:
                     connection.execute(
-                        "UPDATE onboarding_notification_outbox SET status='failed',attempts=attempts+1,last_error=? WHERE id=?",
+                        "UPDATE onboarding_notification_outbox SET status='failed',attempts=attempts+1,last_error=?,body=CASE WHEN attempts+1>=5 THEN '' ELSE body END WHERE id=?",
                         (str(exc)[:500],row["id"]),
                     )
+            _record_event(connection,None,None,int(current_user.id),"notifications.dispatch_completed",
+                          {"sent":sent,"processed":len(rows)})
             connection.commit()
             return jsonify({"data":{"sent":sent,"processed":len(rows)}})
         finally:
