@@ -1813,6 +1813,15 @@ def timetable():
 
             class_level = request.form.get("class_level", "").strip()
             subject = request.form.get("subject", "").strip()
+            if class_level and class_level not in class_levels and len(class_level)<=80:
+                connection.execute(
+                    "INSERT OR IGNORE INTO grade_levels(school_id,name,sequence_no) VALUES(?,?,COALESCE((SELECT MAX(sequence_no)+1 FROM grade_levels WHERE school_id=?),1))",
+                    (school_id,class_level,school_id),
+                )
+                class_levels.append(class_level)
+            if subject and subject not in subject_names and len(subject)<=80:
+                connection.execute("INSERT OR IGNORE INTO subjects(school_id,name) VALUES(?,?)",(school_id,subject))
+                subject_names.add(subject)
             teacher_text = request.form.get("teacher_id", "").strip()
             weekday = request.form.get("weekday", "").strip()
             start_time = request.form.get("start_time", "").strip()
