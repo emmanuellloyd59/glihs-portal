@@ -14,6 +14,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import app as portal
 from school_network import initialize_school_network_schema
 from identity_memberships import initialize_membership_schema
+from authorization import initialize_authorization_schema
 
 
 class MultiSchoolIdentityTests(unittest.TestCase):
@@ -25,6 +26,7 @@ class MultiSchoolIdentityTests(unittest.TestCase):
         portal.initialize_database()
         initialize_school_network_schema(portal.get_db_connection)
         initialize_membership_schema(portal.get_db_connection)
+        initialize_authorization_schema(portal.get_db_connection)
         connection = portal.get_db_connection()
         try:
             connection.execute(
