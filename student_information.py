@@ -30,8 +30,8 @@ def initialize_student_information_schema(connection_factory):
     """Add student-management tables and tenant-scoped identifier constraints."""
     db = connection_factory()
     try:
-        db.execute("BEGIN IMMEDIATE")
         db.executescript("""
+        BEGIN IMMEDIATE;
         CREATE TABLE IF NOT EXISTS student_identifier_config (
           school_id INTEGER PRIMARY KEY REFERENCES schools(id),
           pattern TEXT NOT NULL DEFAULT 'STU-{year}-{sequence:05d}',
@@ -266,18 +266,13 @@ def allocate_student_identifier(connection, school_id):
     return identifier
 
 
-def create_student_information_blueprint(connection_factory, instance_path):
+def create_student_information_blueprint(connection_factory, instance_path, school_context_resolver):
     bp = Blueprint("student_information", __name__)
     storage_root = Path(instance_path) / "student_documents"
 
     def school_context(permission):
         from authorization import require_permission
-        school_id = getattr(current_user, "school_id", None)
-        if school_id is None and getattr(current_user, "is_super_admin", False):
-            from flask import session
-            school_id = session.get("active_school_id")
-        if school_id is None:
-            abort(403)
+        school_id = school_context_resolver()
         require_permission(permission, connection_factory, school_id=int(school_id))
         return int(school_id)
 
