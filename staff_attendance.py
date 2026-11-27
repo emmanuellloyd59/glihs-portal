@@ -235,6 +235,19 @@ def register_staff_attendance_routes(ns):
                                  (SELECT id FROM staff_memberships WHERE school_id=? AND user_id=?)""",
                             (employment_status,school_id,school_id,target["id"]),
                         )
+                        lifecycle_membership = connection.execute(
+                            "SELECT id FROM staff_memberships WHERE school_id=? AND user_id=?",
+                            (school_id,target["id"]),
+                        ).fetchone()
+                        if lifecycle_membership:
+                            connection.execute(
+                                """INSERT INTO staff_lifecycle_events
+                                   (school_id,membership_id,event_type,event_date,actor_user_id)
+                                   VALUES(?,?,?,?,?)""",
+                                (school_id,lifecycle_membership["id"],
+                                 "account_suspended" if action=="suspend" else "account_reactivated",
+                                 datetime.now().date().isoformat(),int(current_user.id)),
+                            )
                         if action == "suspend" and target["role"] == "teacher":
                             revoked_count = connection.execute(
                                 """UPDATE teacher_class_assignments
