@@ -33,6 +33,7 @@ This is the traceability index for architecture and governance work. Status refl
 | WEB-001 | School Websites | Build school website management as a bounded capability | ADR-0001, ADR-0002 | Future `modules/school_websites/` | Domain resolution, tenant content and public/private access tests | Each school manages its own website/content without cross-tenant exposure | Planned |
 | MKT-001 | Education Marketplace | Define marketplace provider/listing/purchase boundary | Future ADR | Future `modules/education_marketplace/` | Ownership, moderation, payment and provider authorization tests | Marketplace cannot bypass school finance or tenant policies | Planned |
 | CONF-001 | School Configuration Centre | Deliver tenant-owned school settings, sparse campus overrides, version history and audit | ADR-0005 | school_configuration.py and templates/school_configuration/ | Migration preservation, validation, version conflict, campus ownership and cross-tenant tests | Each school controls its own identity, academic/regional preferences, modules and policies without affecting another tenant | In progress |
+| IDN-001 | Identity and Access | Separate global identities from school/campus memberships; support multi-school roles, invitations, revocation, recovery and session isolation | ADR-0006 | identity_memberships.py, app.py, tests/test_identity_memberships.py | Legacy credential preservation, multi-school role switching, cross-user ID guessing, inactive membership, session isolation, invitation/recovery tests | One account can hold multiple scoped memberships; every request derives tenant context from a verified active membership | Implemented on feature branch; CI and security review pending |
 
 ## Update protocol
 
@@ -81,3 +82,17 @@ Do not mark an item verified based only on code presence, test names, or a previ
 - GitHub Actions run #937: https://github.com/emmanuellloyd59/glihs-portal/actions/runs/46007524624 — 180 tests passed on Python 3.11 and 180 passed on Python 3.14.
 - Latest documentation head 389255859f90fb8d74022daf94afabf89ecb393e passed both Python CI jobs in run #938: https://github.com/emmanuellloyd59/glihs-portal/actions/runs/46007544089.
 - Manual browser/accessibility review, production migration rehearsal, PostgreSQL/RLS, and downstream module enforcement/integration remain pending.
+
+
+## IDN-001 implementation record
+
+- Branch: `feature/multi-school-identity-memberships`, stacked on `feature/school-configuration-centre`.
+- Added `identity_memberships.py` with additive/idempotent membership, invitation, recovery-token and security-event schema.
+- Existing users are backfilled into memberships without rebuilding the users table or changing existing IDs, password hashes, or account status. Legacy account creation is bridged by materializing a membership on first authenticated use.
+- Authenticated tenant context now resolves from the selected active membership; membership switching checks membership ownership, school/campus lifecycle, and rebinds a clean session. Password recovery increments an auth version to invalidate older sessions.
+- Added invitation acceptance/revocation, parent/student linked-record requirements, one-time hashed invitation and recovery tokens, and SMTP-only delivery when configured.
+- Added `tests/test_identity_memberships.py` for credential preservation, cross-school role switching, cross-user membership ID guessing, revoked membership denial, membership list isolation and independent sessions.
+- Updated access-control test cleanup to remove membership-dependent rows before deleting users.
+- Known limitations: separate least-privilege platform-operator grants are not implemented; invitation/recovery landing pages are API-oriented; recovery throttling, email outbox/retry, MFA/device UI, student multi-enrollment redesign, PostgreSQL/RLS and complete legacy route campus-scope audit remain follow-up work.
+- No production data migration, merge, deployment, or hosting/secret changes.
+- CI status must be checked against the final PR head before acceptance.
