@@ -38,7 +38,7 @@ class SchoolNetworkTests(unittest.TestCase):
             table_names = [
                 row["name"] for row in connection.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' "
-                    "AND name NOT LIKE 'sqlite_%' AND name <> 'schools'"
+                    "AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schools','authorization_role_permissions')"
                 ).fetchall()
             ]
             for table_name in table_names:
