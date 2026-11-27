@@ -798,7 +798,7 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             if school["lifecycle_status"] != "active":
                 return _json_error("school_not_active","Administrator invitations are available only after institution activation.",409)
             existing = connection.execute(
-                "SELECT id FROM users WHERE lower(username)=lower(?)",(email,)
+                "SELECT id FROM users WHERE lower(username)=lower(?) OR lower(email)=lower(?)",(email,email)
             ).fetchone()
             if existing:
                 return _json_error("account_exists","An account with this email/username already exists. Use the existing account invitation workflow.",409)
