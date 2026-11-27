@@ -1747,6 +1747,37 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
 
 
 
+
+    def test_registrar_cannot_access_or_manage_homework_assignments(self):
+        self.login_as("registrar_route_test")
+        self.assertEqual(self.client.get("/assignments").status_code, 403)
+        self.assertEqual(self.client.post("/assignments", data={
+            "action": "create",
+            "class_level": "Grade 7",
+            "subject": "Mathematics",
+            "title": "Unauthorized registrar homework",
+            "instructions": "Must not be created by registrar.",
+            "due_date": "2099-12-31",
+        }).status_code, 403)
+        self.assertEqual(self.client.post("/assignments", data={
+            "action": "grade",
+            "submission_id": "1",
+            "score": "90",
+            "feedback": "Must not be graded by registrar.",
+        }).status_code, 403)
+        connection = portal.get_db_connection()
+        try:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM homework_assignments WHERE title='Unauthorized registrar homework'"
+                ).fetchone()[0],
+                0,
+            )
+        finally:
+            connection.close()
+
+
+
 class StartupMigrationTests(unittest.TestCase):
     def test_legacy_database_migrates_without_losing_records_and_is_idempotent(self):
         """Exercise the real startup migration on a disposable legacy SQLite file."""
