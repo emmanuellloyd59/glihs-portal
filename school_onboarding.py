@@ -244,8 +244,13 @@ def _validate_payload(payload, profile, services):
     if any(not isinstance(item, str) or item not in allowed for item in requested):
         errors.append("One or more requested services are unavailable.")
     if payload.get("institution_type", "independent") not in {"independent", "group_affiliated"}:
-        errors.append("Choose a valid institution type.")
-    if payload.get("ownership_type") and payload["ownership_type"] not in {
+        errors.append("Choose a valid institution relationship.")
+    if payload.get("classification") not in {
+        "early_childhood","primary","secondary","combined","vocational","technical",
+        "tertiary","special_education","other"
+    }:
+        errors.append("Choose a valid institutional classification.")
+    if payload.get("ownership_type") not in {
         "government","private","faith_based","community","nonprofit","public_private","other"
     }:
         errors.append("Choose a valid ownership type.")
@@ -493,7 +498,7 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             if errors:
                 return jsonify({"error":{"code":"validation_error","messages":errors}}),422
             duplicate = connection.execute(
-                """SELECT id FROM schools WHERE country_code=? AND
+                """SELECT id FROM schools WHERE (country_code=? OR country_code IS NULL) AND
                    (lower(name)=lower(?) OR (?<>'' AND lower(coalesce(registration_number,''))=lower(?))) LIMIT 1""",
                 (checked["country_code"],checked["name"],_clean(data.get("registration_number"),100),
                  _clean(data.get("registration_number"),100)),
