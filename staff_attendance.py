@@ -187,7 +187,7 @@ def register_staff_attendance_routes(ns):
                     abort(403)
 
                 if action in {"suspend", "reactivate"}:
-                    require_permission("school.manage_memberships", get_db_connection, school_id=school_id)
+                    require_permission("school.manage_staff", get_db_connection, school_id=school_id)
                     if action == "suspend" and target["status"] != "active":
                         flash("Only active accounts can be suspended.", "info")
                     elif action == "reactivate" and target["status"] != "suspended":
