@@ -48,17 +48,20 @@ def register_homework_routes(ns):
     @login_required
     def assignments():
         role = current_user.role
-        if role not in staff_roles | {"student"}:
-            abort(403)
         school_id = require_school_context()
+        from authorization import require_permission
+        if request.method == "GET":
+            require_permission("learning.view", get_db_connection, school_id=school_id)
+        elif request.form.get("action", "create").strip() == "submit":
+            require_permission("learning.submit_work", get_db_connection, school_id=school_id)
+        else:
+            require_permission("learning.manage_assignments", get_db_connection, school_id=school_id)
         connection = get_db_connection()
         student, submissions = None, []
         try:
             if request.method == "POST":
                 action = request.form.get("action", "create").strip()
                 if action == "create":
-                    if role not in staff_roles:
-                        abort(403)
                     level = request.form.get("class_level", "").strip()
                     subject = request.form.get("subject", "").strip()
                     title = request.form.get("title", "").strip()
@@ -119,8 +122,6 @@ def register_homework_routes(ns):
                     return redirect(url_for("assignments"))
 
                 if action == "grade":
-                    if role not in staff_roles:
-                        abort(403)
                     sid = request.form.get("submission_id","").strip()
                     feedback = request.form.get("feedback","").strip()
                     if not sid.isdigit() or len(feedback) > 2000:
@@ -172,7 +173,7 @@ def register_homework_routes(ns):
                     assignment_rows = connection.execute("""SELECT a.*,u.full_name AS teacher_name,
                         u.username AS teacher_username,s.id AS submission_id,s.response_text,s.submitted_at,
                         s.score,s.feedback,s.graded_at FROM homework_assignments a
-                        JOIN users u ON u.id=a.created_by AND u.school_id=a.school_id
+                        JOIN users u ON u.id=a.created_by
                         LEFT JOIN homework_submissions s ON s.assignment_id=a.id AND s.student_id=? AND s.school_id=a.school_id
                         WHERE a.school_id=? AND a.class_level=? AND a.status='published'
                         ORDER BY a.due_date,a.created_at DESC""",
@@ -187,7 +188,7 @@ def register_homework_routes(ns):
                 params = [school_id] + ([int(current_user.id)] if role == "teacher" else [])
                 assignment_rows = connection.execute("""SELECT a.*,u.full_name AS teacher_name,
                     u.username AS teacher_username FROM homework_assignments a
-                    JOIN users u ON u.id=a.created_by AND u.school_id=a.school_id
+                    JOIN users u ON u.id=a.created_by
                     WHERE a.school_id=? AND a.status='published'""" + own +
                     " ORDER BY a.due_date,a.created_at DESC",params).fetchall()
                 own_submission = """ AND a.created_by=? AND EXISTS (
@@ -205,9 +206,11 @@ def register_homework_routes(ns):
                     JOIN students st ON st.id=s.student_id AND st.school_id=s.school_id
                     WHERE s.school_id=? AND a.status='published'""" + own_submission +
                     " ORDER BY s.submitted_at DESC",sub_params).fetchall()
+            from authorization import has_permission
+            can_manage_assignments = has_permission(connection, "learning.manage_assignments", school_id=school_id)
         finally:
             connection.close()
         return render_template("assignments.html",assignments=assignment_rows,
-            submissions=submissions,student=student,role=role,can_create=role in staff_roles,
-            can_grade=role in staff_roles,class_levels=class_levels,
+            submissions=submissions,student=student,role=role,can_create=can_manage_assignments,
+            can_grade=can_manage_assignments,class_levels=class_levels,
             today=datetime.now().date().isoformat())

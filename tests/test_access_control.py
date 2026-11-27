@@ -31,6 +31,9 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
 
     def setUp(self):
         connection = portal.get_db_connection()
+        connection.execute(
+            "UPDATE schools SET status='active', lifecycle_status='active' WHERE id=1"
+        )
         # Clear dependent records before their referenced parents. This fixture
         # shares the initialized test database with timetable, content, finance,
         # and homework tables, all of which may retain user/student references.
@@ -40,6 +43,19 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             ).fetchall()
         }
         for table in (
+            "student_documents",
+            "student_disciplinary_records",
+            "student_withdrawals",
+            "student_transfers",
+            "student_academic_history",
+            "student_guardians",
+            "student_admissions",
+            "authorization_grants",
+            "authorization_audit",
+            "identity_recovery_tokens",
+            "membership_invitations",
+            "identity_security_events",
+            "school_memberships",
             "parent_student_links",
             "homework_submissions",
             "homework_assignments",
@@ -74,6 +90,11 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
                  1 if role == "super_admin" else 0,
                  None if role == "super_admin" else 1),
             )
+        # Accounts are created after startup's legacy membership backfill.
+        connection.execute(
+            """INSERT INTO school_memberships (user_id, school_id, role, status, is_primary)
+               SELECT id, school_id, role, 'active', 1 FROM users WHERE school_id IS NOT NULL"""
+        )
         connection.commit()
         connection.close()
         with self.client.session_transaction() as session:
@@ -329,7 +350,8 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         connection = portal.get_db_connection()
         try:
             role = connection.execute(
-                "SELECT role FROM users WHERE id=?", (teacher_id,)
+                "SELECT role FROM school_memberships WHERE user_id=? AND school_id=1 AND status='active'",
+                (teacher_id,),
             ).fetchone()["role"]
             self.assertEqual(role, "attendance_officer")
             active_count = connection.execute(
@@ -622,7 +644,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             "full_name": "Fictional Student",
             "class_level": "Grade 7",
         }, follow_redirects=True)
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 403)
         connection = portal.get_db_connection()
         try:
             count = connection.execute(

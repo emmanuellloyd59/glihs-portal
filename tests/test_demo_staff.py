@@ -25,7 +25,16 @@ class DemoStaffProvisioningTests(unittest.TestCase):
 
     def setUp(self):
         db = portal.get_db_connection()
+        db.execute("PRAGMA foreign_keys = OFF")
+        db.execute(
+            "UPDATE schools SET status='active', lifecycle_status='active' WHERE id=1"
+        )
         for table in (
+            "authorization_grants", "authorization_audit",
+            "student_documents", "student_disciplinary_records", "student_withdrawals",
+            "student_transfers", "student_academic_history", "student_guardians",
+            "student_admissions", "identity_recovery_tokens", "membership_invitations",
+            "identity_security_events", "school_memberships",
             "homework_submissions", "homework_assignments", "parent_student_links",
             "finance_payments", "school_announcements", "learning_materials",
             "class_timetable", "grades", "attendance", "report_cards",
@@ -36,7 +45,11 @@ class DemoStaffProvisioningTests(unittest.TestCase):
             ).fetchone()
             if exists:
                 db.execute("DELETE FROM " + table)
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='student_identifier_config'").fetchone():
+            db.execute("DELETE FROM student_identifier_config WHERE school_id <> 1")
         db.execute("DELETE FROM schools WHERE id <> 1")
+        db.commit()
+        db.execute("PRAGMA foreign_keys = ON")
         db.execute(
             """INSERT INTO users (username,password_hash,role,status,is_super_admin,school_id)
                VALUES (?,?, 'super_admin','active',1,NULL)""",
@@ -46,6 +59,10 @@ class DemoStaffProvisioningTests(unittest.TestCase):
             """INSERT INTO users (username,password_hash,role,status,is_super_admin,school_id)
                VALUES (?,?, 'teacher','active',0,1)""",
             ("teacher_demo", generate_password_hash("test-teacher-password")),
+        )
+        db.execute(
+            """INSERT INTO school_memberships (user_id, school_id, role, status, is_primary)
+               SELECT id, school_id, role, 'active', 1 FROM users WHERE school_id IS NOT NULL"""
         )
         db.commit()
         db.close()

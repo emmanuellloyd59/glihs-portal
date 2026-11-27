@@ -30,7 +30,13 @@ class PortalTestSupport:
         cls.client = portal.app.test_client()
 
     def setUp(self):
+        # Recreate the core schema when a subclass switches to an isolated DB.
+        portal.initialize_database()
         connection = portal.get_db_connection()
+        # The disposable integration-test database contains several newer
+        # tenant tables with user foreign keys. Temporarily disable FK checks
+        # only while clearing fixtures, then restore enforcement before inserts.
+        connection.execute("PRAGMA foreign_keys = OFF")
         # New Version 3 modules reference users and students. Clear dependent rows
         # first so repeated test runs remain isolated and respect SQLite foreign keys.
         existing_tables = {
@@ -38,7 +44,7 @@ class PortalTestSupport:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
         }
-        for table_name in ("homework_submissions", "homework_assignments", "parent_student_links", "finance_payments", "school_announcements", "learning_materials", "teacher_class_assignments", "class_timetable"):
+        for table_name in ("authorization_grants", "authorization_audit", "student_documents", "student_disciplinary_records", "student_withdrawals", "student_transfers", "student_academic_history", "student_guardians", "student_admissions", "identity_recovery_tokens", "membership_invitations", "identity_security_events", "school_memberships", "homework_submissions", "homework_assignments", "parent_student_links", "finance_payments", "school_announcements", "learning_materials", "teacher_class_assignments", "class_timetable"):
             if table_name in existing_tables:
                 connection.execute("DELETE FROM " + table_name)
         connection.execute("DELETE FROM grades")
@@ -48,6 +54,8 @@ class PortalTestSupport:
         connection.execute("DELETE FROM audit_log")
         connection.execute("DELETE FROM students")
         connection.execute("DELETE FROM users")
+        connection.commit()
+        connection.execute("PRAGMA foreign_keys = ON")
         connection.execute(
             "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, ?, 1)",
             ("teacher_demo", generate_password_hash("test-teacher-password"), "teacher"),
@@ -73,6 +81,12 @@ class PortalTestSupport:
         connection.execute(
             "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, 'principal', 1)",
             ("principal_demo", generate_password_hash("test-principal-password")),
+        )
+        # Test accounts are created after app startup, so explicitly create the
+        # memberships that production backfill normally creates for legacy users.
+        connection.execute(
+            """INSERT INTO school_memberships (user_id, school_id, role, status, is_primary)
+               SELECT id, school_id, role, 'active', 1 FROM users WHERE school_id IS NOT NULL"""
         )
         connection.commit()
         connection.close()
@@ -214,9 +228,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
     def test_student_cannot_open_staff_student_records(self):
         self.login_as("student_demo", "test-student-password")
         response = self.client.get("/students", follow_redirects=True)
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"not authorized to view student records", response.data)
-        self.assertNotIn(b"Registered Students", response.data)
+        self.assertEqual(response.status_code, 403)
 
     def test_teacher_cannot_register_official_student_records(self):
         self.login_as("teacher_demo", "test-teacher-password")
@@ -229,8 +241,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
             },
             follow_redirects=True,
         )
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"You are not authorized to register students.", response.data)
+        self.assertEqual(response.status_code, 403)
         connection = portal.get_db_connection()
         count = connection.execute(
             "SELECT COUNT(*) FROM students WHERE admission_number='DEMO-001'"
@@ -1202,7 +1213,8 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         connection = portal.get_db_connection()
         try:
             connection.execute(
-                "UPDATE users SET school_id = NULL WHERE username = ?",
+                """UPDATE school_memberships SET status = 'suspended'
+                   WHERE user_id=(SELECT id FROM users WHERE username = ?)""",
                 ("teacher_demo",),
             )
             connection.commit()
@@ -1553,8 +1565,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(dashboard.status_code, 200)
         self.assertIn(b"Parent / Guardian Workspace", dashboard.data)
         records = self.client.get("/students", follow_redirects=True)
-        self.assertEqual(records.status_code, 200)
-        self.assertIn(b"not authorized to view student records", records.data)
+        self.assertEqual(records.status_code, 403)
         self.assertEqual(self.client.get("/announcements").status_code, 200)
 
 if __name__ == "__main__":

@@ -167,16 +167,25 @@ def _is_platform_owner():
     )
 
 
-def _school_access(school_id, connection_factory):
-    """Authorize by server-side identity and re-check the tenant lifecycle."""
-    if _is_platform_owner():
-        return "platform"
+def _require_platform_permission(connection_factory, permission):
+    from authorization import require_permission
+    require_permission(permission, connection_factory)
+
+
+def _school_access(school_id, connection_factory, permission="school.manage_profile"):
+    """Authorize by scoped RBAC/ABAC and re-check the tenant lifecycle."""
     if not current_user.is_authenticated:
         abort(401)
-    if getattr(current_user, "school_id", None) != school_id:
-        abort(404)
-    if getattr(current_user, "role", None) not in {"school_admin", "principal"}:
-        abort(403)
+    # Conceal other tenants' identifiers from school-scoped users: the
+    # response is identical whether a foreign school exists or not.
+    if not _is_platform_owner():
+        actor_school_id = getattr(current_user, "school_id", None)
+        if actor_school_id is None or int(actor_school_id) != int(school_id):
+            abort(404)
+    from authorization import require_permission
+    require_permission(permission, connection_factory, school_id=school_id)
+    if _is_platform_owner():
+        return "platform"
     connection = connection_factory()
     try:
         school = connection.execute(
@@ -435,6 +444,7 @@ def create_school_network_blueprint(connection_factory):
     def api_list_groups():
         if not _is_platform_owner():
             abort(403)
+        _require_platform_permission(connection_factory, "platform.manage_schools")
         connection = connection_factory()
         try:
             rows = connection.execute("SELECT * FROM school_groups ORDER BY name COLLATE NOCASE").fetchall()
@@ -447,6 +457,7 @@ def create_school_network_blueprint(connection_factory):
     def platform_create_group_form():
         if not _is_platform_owner():
             abort(403)
+        _require_platform_permission(connection_factory, "platform.manage_schools")
         name = _clean(request.form.get("group_name"), 160)
         slug = _clean(request.form.get("group_slug") or _slugify(name), 63).lower()
         owner = _clean(request.form.get("group_owner"), 160)
@@ -475,8 +486,12 @@ def create_school_network_blueprint(connection_factory):
         connection = connection_factory()
         try:
             if _is_platform_owner():
+                _require_platform_permission(connection_factory, "platform.manage_schools")
                 rows = connection.execute("SELECT * FROM schools ORDER BY created_at DESC, id DESC").fetchall()
-            elif current_user.school_id is not None and current_user.role in {"school_admin", "principal"}:
+            elif current_user.school_id is not None:
+                from authorization import require_permission
+                require_permission("school.view_dashboard", connection_factory,
+                                   school_id=current_user.school_id)
                 rows = connection.execute(
                     "SELECT * FROM schools WHERE id=? AND status='active' AND lifecycle_status='active'",
                     (current_user.school_id,),
@@ -492,7 +507,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.get("/api/v1/schools/<int:school_id>")
     @login_required
     def api_get_school(school_id):
-        _school_access(school_id, connection_factory)
+        _school_access(school_id, connection_factory, "school.view_dashboard")
         connection = connection_factory()
         try:
             row = connection.execute("SELECT * FROM schools WHERE id=?", (school_id,)).fetchone()
@@ -508,7 +523,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.patch("/api/v1/schools/<int:school_id>")
     @login_required
     def api_update_school(school_id):
-        access = _school_access(school_id, connection_factory)
+        access = _school_access(school_id, connection_factory, "school.manage_profile")
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
@@ -551,6 +566,7 @@ def create_school_network_blueprint(connection_factory):
     def api_review_school(school_id):
         if not _is_platform_owner():
             abort(403)
+        _require_platform_permission(connection_factory, "platform.manage_schools")
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
@@ -590,6 +606,7 @@ def create_school_network_blueprint(connection_factory):
     def api_create_group():
         if not _is_platform_owner():
             abort(403)
+        _require_platform_permission(connection_factory, "platform.manage_schools")
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
@@ -623,7 +640,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.get("/api/v1/schools/<int:school_id>/campuses")
     @login_required
     def api_list_campuses(school_id):
-        _school_access(school_id, connection_factory)
+        _school_access(school_id, connection_factory, "school.view_dashboard")
         connection = connection_factory()
         try:
             rows = connection.execute("SELECT * FROM campuses WHERE school_id=? ORDER BY is_main DESC, name", (school_id,)).fetchall()
@@ -634,7 +651,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.post("/api/v1/schools/<int:school_id>/campuses")
     @login_required
     def api_create_campus(school_id):
-        access = _school_access(school_id, connection_factory)
+        access = _school_access(school_id, connection_factory, "school.manage_campuses")
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
@@ -675,7 +692,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.patch("/api/v1/schools/<int:school_id>/campuses/<int:campus_id>")
     @login_required
     def api_update_campus(school_id, campus_id):
-        access = _school_access(school_id, connection_factory)
+        access = _school_access(school_id, connection_factory, "school.manage_campuses")
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
@@ -723,7 +740,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.post("/api/v1/schools/<int:school_id>/contacts")
     @login_required
     def api_create_contact(school_id):
-        access = _school_access(school_id, connection_factory)
+        access = _school_access(school_id, connection_factory, "school.manage_profile")
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
@@ -763,6 +780,7 @@ def create_school_network_blueprint(connection_factory):
     def platform_schools():
         if not _is_platform_owner():
             abort(403)
+        _require_platform_permission(connection_factory, "platform.manage_schools")
         connection = connection_factory()
         try:
             rows = connection.execute(
@@ -786,12 +804,13 @@ def create_school_network_blueprint(connection_factory):
             if not selected:
                 abort(400)
             school_id = selected
+            _require_platform_permission(connection_factory, "platform.manage_schools")
             access = "platform"
         else:
             school_id = getattr(current_user, "school_id", None)
-            if school_id is None or current_user.role != "school_admin":
+            if school_id is None:
                 abort(403)
-            access = _school_access(school_id, connection_factory)
+            access = _school_access(school_id, connection_factory, "school.manage_profile")
         connection = connection_factory()
         try:
             school = connection.execute("SELECT * FROM schools WHERE id=?", (school_id,)).fetchone()
@@ -860,6 +879,7 @@ def create_school_network_blueprint(connection_factory):
     def platform_school_review_form(school_id):
         if not _is_platform_owner():
             abort(403)
+        _require_platform_permission(connection_factory, "platform.manage_schools")
         action = _clean(request.form.get("action"), 24).lower()
         # Delegate to the same transition rules as the API via an internal request-free helper.
         transitions = {

@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+# Keep only the latest test run for a branch; pushes during an active suite
+# supersede stale runs rather than building an unbounded CI queue.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest

@@ -21,6 +21,10 @@ class SchoolNetworkTests(unittest.TestCase):
         portal.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False, SESSION_COOKIE_SECURE=False)
         portal.initialize_database()
         initialize_school_network_schema(portal.get_db_connection)
+        from identity_memberships import initialize_membership_schema
+        from authorization import initialize_authorization_schema
+        initialize_membership_schema(portal.get_db_connection)
+        initialize_authorization_schema(portal.get_db_connection)
 
     @classmethod
     def tearDownClass(cls):
@@ -31,13 +35,21 @@ class SchoolNetworkTests(unittest.TestCase):
         self.client = portal.app.test_client()
         connection = portal.get_db_connection()
         try:
-            connection.execute("DELETE FROM school_network_audit")
-            connection.execute("DELETE FROM school_contacts")
-            connection.execute("DELETE FROM campuses")
-            connection.execute("DELETE FROM school_group_memberships")
-            connection.execute("DELETE FROM school_groups")
-            connection.execute("DELETE FROM users")
+            # This class uses a disposable database. Clear every table's test
+            # data except the legacy pilot school row, with FK checks temporarily
+            # disabled so newly added modules cannot leave an unlisted user reference.
+            connection.execute("PRAGMA foreign_keys = OFF")
+            table_names = [
+                row["name"] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schools','authorization_role_permissions')"
+                ).fetchall()
+            ]
+            for table_name in table_names:
+                connection.execute('DELETE FROM "' + table_name.replace('"', '""') + '"')
             connection.execute("DELETE FROM schools WHERE id <> 1")
+            connection.commit()
+            connection.execute("PRAGMA foreign_keys = ON")
             connection.execute(
                 """INSERT INTO users
                    (username, full_name, password_hash, role, status, is_super_admin, school_id)
@@ -56,6 +68,10 @@ class SchoolNetworkTests(unittest.TestCase):
                    VALUES ('school_admin_b', 'School Admin B', ?, 'school_admin', 'active', 0, 1)""",
                 (generate_password_hash("school-admin-password"),),
             )
+            connection.execute("""
+                INSERT INTO school_memberships(user_id,school_id,role,status,is_primary)
+                SELECT id,school_id,role,'active',1 FROM users WHERE school_id IS NOT NULL
+            """)
             connection.commit()
         finally:
             connection.close()

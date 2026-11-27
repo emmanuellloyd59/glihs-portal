@@ -341,8 +341,8 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
     @bp.get("/api/v1/onboarding/applications")
     @login_required
     def list_applications():
-        if not platform_owner_check():
-            abort(403)
+        from authorization import require_permission
+        require_permission("platform.manage_schools", connection_factory)
         status = _clean(request.args.get("status"),24)
         connection = connection_factory()
         try:
@@ -656,8 +656,8 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
     @bp.put("/api/v1/onboarding/countries/<country_code>")
     @login_required
     def configure_country(country_code):
-        if not platform_owner_check():
-            abort(403)
+        from authorization import require_permission
+        require_permission("platform.manage_global_policies", connection_factory)
         payload = request.get_json(silent=True)
         if not isinstance(payload,dict):
             return _json_error("invalid_json","A JSON object is required.",400)
@@ -700,9 +700,11 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
     @login_required
     def onboarding_progress(school_id):
         is_owner = platform_owner_check()
-        if not is_owner and (getattr(current_user,"school_id",None) != school_id or
-                             getattr(current_user,"role",None) not in {"school_admin","principal"}):
-            abort(404)
+        from authorization import require_permission
+        if is_owner:
+            require_permission("platform.manage_schools", connection_factory)
+        else:
+            require_permission("school.view_dashboard", connection_factory, school_id=school_id)
         connection = connection_factory()
         try:
             school = connection.execute(
@@ -711,7 +713,7 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             if not school:
                 abort(404)
             admins = connection.execute(
-                "SELECT COUNT(*) FROM users WHERE school_id=? AND role='school_admin' AND status='active'",(school_id,)
+                "SELECT COUNT(*) FROM school_memberships WHERE school_id=? AND role='school_admin' AND status='active'",(school_id,)
             ).fetchone()[0]
             services = connection.execute(
                 "SELECT service_key,status FROM school_service_requests WHERE school_id=? ORDER BY service_key",(school_id,)
@@ -742,12 +744,12 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
     @bp.post("/api/v1/onboarding/schools/<int:school_id>/configuration/complete")
     @login_required
     def complete_configuration(school_id):
+        from authorization import require_permission
         if platform_owner_check():
-            actor_id = int(current_user.id)
+            require_permission("platform.manage_schools", connection_factory)
         else:
-            if getattr(current_user,"school_id",None) != school_id or getattr(current_user,"role",None) != "school_admin":
-                abort(404)
-            actor_id = int(current_user.id)
+            require_permission("school.manage_configuration", connection_factory, school_id=school_id)
+        actor_id = int(current_user.id)
         connection = connection_factory()
         try:
             school = connection.execute(
@@ -758,7 +760,7 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             if school["status"] != "active" or school["lifecycle_status"] != "active":
                 return _json_error("school_not_active","Institution must be activated before configuration can be completed.",409)
             admin = connection.execute(
-                "SELECT 1 FROM users WHERE school_id=? AND role='school_admin' AND status='active' LIMIT 1",(school_id,)
+                "SELECT 1 FROM school_memberships WHERE school_id=? AND role='school_admin' AND status='active' LIMIT 1",(school_id,)
             ).fetchone()
             contact = connection.execute(
                 "SELECT 1 FROM school_contacts WHERE school_id=? AND status='active' LIMIT 1",(school_id,)
@@ -781,8 +783,8 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
     @bp.post("/api/v1/onboarding/schools/<int:school_id>/invite-administrator")
     @login_required
     def invite_administrator(school_id):
-        if not platform_owner_check():
-            abort(403)
+        from authorization import require_permission
+        require_permission("platform.manage_operators", connection_factory)
         payload = request.get_json(silent=True)
         if not isinstance(payload,dict):
             return _json_error("invalid_json","A JSON object is required.",400)
@@ -798,7 +800,7 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             if school["lifecycle_status"] != "active":
                 return _json_error("school_not_active","Administrator invitations are available only after institution activation.",409)
             existing = connection.execute(
-                "SELECT id FROM users WHERE lower(username)=lower(?)",(email,)
+                "SELECT id FROM users WHERE lower(username)=lower(?) OR lower(email)=lower(?)",(email,email)
             ).fetchone()
             if existing:
                 return _json_error("account_exists","An account with this email/username already exists. Use the existing account invitation workflow.",409)
@@ -856,15 +858,22 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             school = connection.execute("SELECT lifecycle_status,status FROM schools WHERE id=?",(invitation["school_id"],)).fetchone()
             if not school or school["lifecycle_status"] not in {"approved","active"}:
                 return _json_error("school_not_approved","Institution is not approved for administrator onboarding.",409)
-            if connection.execute("SELECT 1 FROM users WHERE lower(username)=lower(?)",(invitation["email"],)).fetchone():
+            if connection.execute("SELECT 1 FROM users WHERE lower(username)=lower(?) OR lower(email)=lower(?)",(invitation["email"],invitation["email"])).fetchone():
                 return _json_error("account_exists","An account already exists for this email.",409)
             if school["lifecycle_status"] != "active" or school["status"] != "active":
                 return _json_error("school_not_active","The institution must be active before an administrator account can be created.",409)
             status = "active"
             cursor = connection.execute(
-                """INSERT INTO users(username,full_name,password_hash,role,status,is_super_admin,school_id)
-                   VALUES (?,?,?,'school_admin',?,0,?)""",
-                (invitation["email"],invitation["full_name"],generate_password_hash(password),status,invitation["school_id"]),
+                """INSERT INTO users(username,full_name,email,password_hash,role,status,is_super_admin,school_id)
+                   VALUES (?,?,?,?, 'school_admin',?,0,?)""",
+                (invitation["email"],invitation["full_name"],invitation["email"],
+                 generate_password_hash(password),status,invitation["school_id"]),
+            )
+            connection.execute(
+                """INSERT OR IGNORE INTO school_memberships
+                   (user_id,school_id,role,status,is_primary,accepted_at)
+                   VALUES(?,?,'school_admin','active',1,CURRENT_TIMESTAMP)""",
+                (cursor.lastrowid,invitation["school_id"]),
             )
             connection.execute(
                 "UPDATE school_admin_invitations SET accepted_at=CURRENT_TIMESTAMP,accepted_user_id=? WHERE id=?",
@@ -886,8 +895,8 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
     @bp.post("/api/v1/onboarding/notifications/dispatch")
     @login_required
     def dispatch_notifications():
-        if not platform_owner_check():
-            abort(403)
+        from authorization import require_permission
+        require_permission("platform.manage_global_policies", connection_factory)
         host = os.environ.get("SMTP_HOST")
         if not host:
             return _json_error("email_not_configured","SMTP is not configured; notifications remain safely queued.",503)

@@ -373,10 +373,6 @@ def initialize_database():
         if "student_id_number" not in student_columns:
             connection.execute("ALTER TABLE students ADD COLUMN student_id_number TEXT")
         connection.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_student_id_number "
-            "ON students(student_id_number) WHERE student_id_number IS NOT NULL"
-        )
-        connection.execute(
             """UPDATE students
                SET student_id_number = 'CMHS-' || strftime('%Y', 'now') || '-' || printf('%05d', id)
                WHERE student_id_number IS NULL"""
@@ -514,6 +510,15 @@ def initialize_database():
         # records have a school owner, so the new constraint can be tenant-scoped.
         migrate_student_admission_number_uniqueness(connection)
 
+        # Student identifiers are school-scoped. Apply this after the legacy
+        # students table has its school_id column and after its admission migration.
+        connection.execute("DROP INDEX IF EXISTS idx_students_student_id_number")
+        connection.execute("DROP INDEX IF EXISTS idx_students_school_student_id_number")
+        connection.execute(
+            "CREATE UNIQUE INDEX idx_students_school_student_id_number "
+            "ON students(school_id, student_id_number) WHERE student_id_number IS NOT NULL"
+        )
+
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_users_school_role ON users(school_id, role)"
         )
@@ -625,7 +630,6 @@ def initialize_database():
         connection.execute("PRAGMA foreign_keys = ON")
     finally:
         connection.close()
-
 
 initialize_database()
 
@@ -839,40 +843,59 @@ def teacher_has_class_subject(connection, teacher_id, school_id, class_level, su
 
 
 class User(UserMixin):
-    def __init__(self, user_id, username, password_hash, role, is_super_admin=False, school_id=None):
+    def __init__(self, user_id, username, password_hash, role, is_super_admin=False,
+                 school_id=None, membership_id=None, campus_id=None, auth_version=1):
         self.id = str(user_id)
         self.username = username
         self.password_hash = password_hash
         self.role = role
         self.is_super_admin = bool(is_super_admin)
-        # Server-derived tenant context; never trust a school ID from a form/query.
+        # Tenant context comes from the user's verified active membership.
         self.school_id = school_id
+        self.membership_id = membership_id
+        self.campus_id = campus_id
+        self.auth_version = int(auth_version or 1)
 
 
 def get_user_by_id(user_id):
     connection = get_db_connection()
     try:
+        membership_tables = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='school_memberships'"
+        ).fetchone()
+        if membership_tables is None:
+            from identity_memberships import initialize_membership_schema
+            initialize_membership_schema(get_db_connection)
         row = connection.execute(
             """
-            SELECT u.id, u.username, u.password_hash, u.role, u.is_super_admin, u.school_id
+            SELECT u.id, u.username, u.password_hash, u.role, u.is_super_admin, u.school_id,
+                   COALESCE(u.auth_version, 1) AS auth_version
             FROM users u
             WHERE u.id = ? AND u.status = 'active'
               AND (
                   (u.role = 'super_admin' AND u.is_super_admin = 1 AND u.school_id IS NULL)
-                  OR (
-                  u.role != 'super_admin' AND u.is_super_admin = 0 AND EXISTS (
-                      SELECT 1 FROM schools s
-                      WHERE s.id = u.school_id AND s.status = 'active'
-                  )
-              )
+                  OR (u.role != 'super_admin' AND u.is_super_admin = 0)
               )
             """,
             (user_id,),
         ).fetchone()
         if row is None:
             return None
+        session_version = session.get("auth_version")
+        if session_version is not None and int(session_version) != int(row["auth_version"]):
+            return None
+        if row["is_super_admin"] and row["role"] == "super_admin" and row["school_id"] is None:
+            return User(row["id"], row["username"], row["password_hash"],
+                        row["role"], row["is_super_admin"], None,
+                        auth_version=row["auth_version"])
+        from identity_memberships import resolve_membership
+        membership = resolve_membership(connection, row["id"], session)
+        if membership is None:
+            return None
         return User(row["id"], row["username"], row["password_hash"],
-                    row["role"], row["is_super_admin"], row["school_id"])
+                    membership["role"], False, membership["school_id"],
+                    membership["membership_id"], membership["campus_id"],
+                    row["auth_version"])
     finally:
         connection.close()
 
@@ -880,19 +903,21 @@ def get_user_by_id(user_id):
 def get_user_by_username(username):
     connection = get_db_connection()
     try:
+        membership_tables = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='school_memberships'"
+        ).fetchone()
+        if membership_tables is None:
+            from identity_memberships import initialize_membership_schema
+            initialize_membership_schema(get_db_connection)
         row = connection.execute(
             """
-            SELECT u.id, u.username, u.password_hash, u.role, u.is_super_admin, u.school_id
+            SELECT u.id, u.username, u.password_hash, u.role, u.is_super_admin, u.school_id,
+                   COALESCE(u.auth_version, 1) AS auth_version
             FROM users u
             WHERE u.username = ? AND u.status = 'active'
               AND (
                   (u.role = 'super_admin' AND u.is_super_admin = 1 AND u.school_id IS NULL)
-                  OR (
-                  u.role != 'super_admin' AND u.is_super_admin = 0 AND EXISTS (
-                      SELECT 1 FROM schools s
-                      WHERE s.id = u.school_id AND s.status = 'active'
-                  )
-              )
+                  OR (u.role != 'super_admin' AND u.is_super_admin = 0)
               )
             """,
             (username,),
@@ -900,7 +925,8 @@ def get_user_by_username(username):
         if row is None:
             return None
         return User(row["id"], row["username"], row["password_hash"],
-                    row["role"], row["is_super_admin"], row["school_id"])
+                    row["role"], row["is_super_admin"], row["school_id"],
+                    auth_version=row["auth_version"])
     finally:
         connection.close()
 
@@ -921,6 +947,8 @@ def require_super_admin():
         or current_user.school_id is not None
     ):
         abort(403)
+    from authorization import require_permission
+    require_permission("platform.manage_operators", get_db_connection)
     return None
 
 
@@ -969,8 +997,26 @@ def login():
 
         user = get_user_by_username(username)
         if user and check_password_hash(user.password_hash, password):
+            # Start from a clean session, then bind the login to a verified
+            # active membership (or retain the platform-owner identity).
+            session.clear()
+            if not user.is_super_admin:
+                from identity_memberships import resolve_membership
+                connection = get_db_connection()
+                try:
+                    membership = resolve_membership(connection, int(user.id), session)
+                finally:
+                    connection.close()
+                if membership is None:
+                    # Keep inactive-school and unavailable-membership failures
+                    # indistinguishable to avoid tenant/account enumeration.
+                    write_audit(None, "login_failed", username[:64] or None)
+                    flash("Invalid username or password.")
+                    return render_template("login.html")
+                user = get_user_by_id(user.id)
+            session["auth_version"] = int(getattr(user, "auth_version", 1))
             session.permanent = True
-            login_user(user)
+            login_user(user, fresh=True)
             write_audit(user.id, "login_success", user.username)
             return redirect(url_for("dashboard"))
         write_audit(None, "login_failed", username[:64] or None)
@@ -1012,6 +1058,8 @@ def select_school_context():
         or current_user.school_id is not None
     ):
         abort(403)
+    from authorization import require_permission
+    require_permission("platform.manage_schools", get_db_connection)
 
     connection = get_db_connection()
     try:
@@ -1397,7 +1445,7 @@ def admin_users():
                    u.created_at, u.approved_at, s.id AS linked_student_id,
                    s.full_name AS linked_student_name, s.admission_number AS linked_admission_number
             FROM users u LEFT JOIN students s
-                ON s.account_user_id = u.id AND s.school_id = u.school_id
+                ON s.account_user_id = u.id
             ORDER BY CASE u.status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END,
                      u.username COLLATE NOCASE
             """
@@ -1406,7 +1454,7 @@ def admin_users():
             """SELECT l.parent_user_id, l.student_id, l.school_id, s.full_name AS student_name,
                       s.admission_number, u.username AS parent_username
                FROM parent_student_links l
-               JOIN users u ON u.id = l.parent_user_id AND u.school_id = l.school_id
+               JOIN users u ON u.id = l.parent_user_id
                JOIN students s ON s.id = l.student_id AND s.school_id = l.school_id
                ORDER BY u.username COLLATE NOCASE, s.full_name COLLATE NOCASE"""
         ).fetchall()
@@ -1450,9 +1498,15 @@ ACADEMIC_VIEW_ROLES = {
 @login_required
 def academics():
     """Record and review demo grades and daily attendance with role checks."""
-    if current_user.role not in ACADEMIC_VIEW_ROLES:
-        abort(403)
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("academic.view_records", get_db_connection, school_id=school_id)
+    if request.method == "POST":
+        action_requested = request.form.get("action", "").strip()
+        require_permission(
+            "academic.manage_records" if action_requested == "grade" else "academic.manage_attendance",
+            get_db_connection, school_id=school_id,
+        )
 
     connection = get_db_connection()
     try:
@@ -1467,8 +1521,6 @@ def academics():
             (school_id, current_user.role, school_id, int(current_user.id)),
         ).fetchall()
         if request.method == "POST":
-            if current_user.role not in ACADEMIC_ENTRY_ROLES:
-                abort(403)
             action = request.form.get("action", "").strip()
             # Attendance officers may record attendance only, never assessment grades.
             if current_user.role == "attendance_officer" and action != "attendance":
@@ -1571,7 +1623,7 @@ def academics():
                       g.assessment, g.score, g.max_score, g.academic_year, g.term,
                       u.username AS recorded_by, g.created_at
                FROM grades g JOIN students s ON s.id = g.student_id
-               JOIN users u ON u.id = g.recorded_by AND u.school_id = g.school_id
+               JOIN users u ON u.id = g.recorded_by
                WHERE g.school_id = ? AND s.school_id = ?
                  AND (? <> 'teacher' OR (
                      s.class_level IN (
@@ -1591,7 +1643,7 @@ def academics():
             """SELECT a.id, s.full_name, s.admission_number, s.class_level,
                       a.attendance_date, a.status, a.note, u.username AS recorded_by
                FROM attendance a JOIN students s ON s.id = a.student_id
-               JOIN users u ON u.id = a.recorded_by AND u.school_id = a.school_id
+               JOIN users u ON u.id = a.recorded_by
                WHERE a.school_id = ? AND s.school_id = ?
                  AND (? <> 'teacher' OR s.class_level IN (
                      SELECT class_level FROM teacher_class_assignments
@@ -1600,12 +1652,17 @@ def academics():
                ORDER BY a.attendance_date DESC, a.id DESC LIMIT 100""",
             (school_id, school_id, current_user.role, int(current_user.id)),
         ).fetchall()
+        from authorization import has_permission
+        can_enter = (
+            has_permission(connection, "academic.manage_records", school_id=school_id)
+            or has_permission(connection, "academic.manage_attendance", school_id=school_id)
+        )
     finally:
         connection.close()
     return render_template(
         "academics.html", students=students, grades=grades,
         attendance_rows=attendance_rows,
-        can_enter=current_user.role in ACADEMIC_ENTRY_ROLES,
+        can_enter=can_enter,
         today=datetime.now().strftime("%Y-%m-%d"),
     )
 
@@ -1630,10 +1687,16 @@ TIMETABLE_CLASS_LEVELS = ("K2", "K3", "K4", *(f"Grade {i}" for i in range(1, 13)
 @login_required
 def timetable():
     """View and manage a school's timetable without crossing tenant boundaries."""
-    if current_user.role not in TIMETABLE_VIEW_ROLES:
-        abort(403)
     school_id = require_school_context()
-    can_manage = current_user.role in TIMETABLE_MANAGE_ROLES
+    from authorization import require_permission
+    require_permission("academic.view_records", get_db_connection, school_id=school_id)
+    can_manage = False
+    permission_connection = get_db_connection()
+    try:
+        from authorization import has_permission
+        can_manage = has_permission(permission_connection, "academic.manage_classes", school_id=school_id)
+    finally:
+        permission_connection.close()
     connection = get_db_connection()
     try:
         if request.method == "POST":
@@ -1684,9 +1747,11 @@ def timetable():
                 return redirect(url_for("timetable"))
 
             teacher = connection.execute(
-                """SELECT id FROM users
-                   WHERE id = ? AND school_id = ? AND role = 'teacher' AND status = 'active'""",
-                (int(teacher_text), school_id),
+                """SELECT u.id FROM users u
+                   JOIN school_memberships m ON m.user_id=u.id
+                     AND m.school_id=? AND m.role='teacher' AND m.status='active'
+                   WHERE u.id=? AND u.status='active' AND u.is_super_admin=0""",
+                (school_id, int(teacher_text)),
             ).fetchone()
             if teacher is None:
                 flash("Choose an active teacher assigned to this school.", "danger")
@@ -1726,7 +1791,7 @@ def timetable():
             """SELECT t.id, t.class_level, t.subject, t.weekday, t.start_time,
                       t.end_time, t.room, u.full_name AS teacher_name, u.username AS teacher_username
                FROM class_timetable t
-               JOIN users u ON u.id = t.teacher_id AND u.school_id = t.school_id
+               JOIN users u ON u.id = t.teacher_id
                WHERE t.school_id = ?
                  AND (? <> 'teacher' OR t.teacher_id = ?)
                ORDER BY CASE t.weekday
@@ -1738,8 +1803,10 @@ def timetable():
         teachers = []
         if can_manage:
             teachers = connection.execute(
-                """SELECT id, username, full_name FROM users
-                   WHERE school_id = ? AND role = 'teacher' AND status = 'active'
+                """SELECT u.id, u.username, u.full_name FROM users u
+                   JOIN school_memberships m ON m.user_id=u.id
+                     AND m.school_id=? AND m.role='teacher' AND m.status='active'
+                   WHERE u.status='active' AND u.is_super_admin=0
                    ORDER BY full_name COLLATE NOCASE, username COLLATE NOCASE""",
                 (school_id,),
             ).fetchall()
@@ -1768,8 +1835,10 @@ REPORT_CARD_PUBLISH_ROLES = {
 @login_required
 def my_report_cards():
     """Students can see only published reports for their own linked record."""
-    if current_user.role != "student":
-        abort(403)
+    school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("student.view_own", get_db_connection, school_id=school_id,
+                       resource_owner_id=int(current_user.id))
     connection = get_db_connection()
     try:
         student = connection.execute(
@@ -1800,11 +1869,14 @@ def my_report_cards():
 @login_required
 def report_cards():
     """Build subject summaries and control publication for a selected student and term."""
-    if current_user.role not in REPORT_CARD_VIEW_ROLES:        abort(403)
+    report_school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("academic.view_records", get_db_connection, school_id=report_school_id)
+    if request.method == "POST":
+        require_permission("academic.publish_results", get_db_connection, school_id=report_school_id)
 
     connection = get_db_connection()
     try:
-        report_school_id = require_school_context()
         students = connection.execute(
             """SELECT id, admission_number, full_name, class_level FROM students
                WHERE school_id = ? AND status = 'active'
@@ -1893,13 +1965,15 @@ def report_cards():
                 "SELECT published, published_at FROM report_cards WHERE student_id = ? AND school_id = ? AND academic_year = ? AND term = ?",
                 (student_id, require_school_context(), academic_year, term),
             ).fetchone()
+        from authorization import has_permission
+        can_publish = has_permission(connection, "academic.publish_results", school_id=report_school_id)
     finally:
         connection.close()
 
     return render_template(
         "report_cards.html", students=students, selected_student=selected_student,
         academic_year=academic_year, term=term, subject_rows=subject_rows,
-        publication=publication, can_publish=current_user.role in REPORT_CARD_PUBLISH_ROLES,
+        publication=publication, can_publish=can_publish,
     )
 
 
@@ -1910,12 +1984,9 @@ def report_cards():
 @app.route("/students/register", methods=["GET", "POST"])
 @login_required
 def register_student():
-    if current_user.role not in ("super_admin", "school_admin", "registrar", "admissions_officer"):
-        flash("You are not authorized to register students.", "danger")
-        return redirect(url_for("dashboard"))
-    # Enforce tenant context on GET as well as POST so platform admins cannot
-    # open a school-scoped form that they cannot safely submit.
-    require_school_context()
+    school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("student.manage_records", get_db_connection, school_id=school_id)
 
     if request.method == "POST":
         admission_number = request.form.get("admission_number", "").strip()
@@ -1987,7 +2058,8 @@ def register_student():
                  previous_school or None, emergency_contact_name or None,
                  emergency_contact_phone or None, record_notes or None, require_school_context()),
             )
-            student_id_number = f"CMHS-{datetime.now().year}-{cursor.lastrowid:05d}"
+            from student_information import allocate_student_identifier
+            student_id_number = allocate_student_identifier(connection, school_id)
             connection.execute(
                 "UPDATE students SET student_id_number = ? WHERE id = ? AND school_id = ?",
                 (student_id_number, cursor.lastrowid, require_school_context()),
@@ -2009,21 +2081,22 @@ def register_student():
 @app.route("/students/<int:student_id>", methods=["GET"])
 @login_required
 def student_detail(student_id):
-    if current_user.role not in STUDENT_RECORD_ROLES:
-        abort(403)
+    detail_school_id = require_school_context()
+    from authorization import require_permission, has_permission
+    require_permission("student.view_records", get_db_connection, school_id=detail_school_id)
     connection = get_db_connection()
     try:
-        # Only the principal and registrar need the full private profile. Other
-        # instructional roles receive NULLs from SQL, not merely hidden template fields.
+        # Field-level access is evaluated by the policy engine, including explicit
+        # denies and scoped grants; private fields never reach unauthorized templates.
+        can_view_sensitive = has_permission(connection, "student.view_sensitive", school_id=detail_school_id)
         private_profile_fields = (
             "s.date_of_birth, s.previous_school, s.guardian_name, s.guardian_phone, "
             "s.emergency_contact_name, s.emergency_contact_phone, s.record_notes"
-            if current_user.role in {"principal", "registrar"}
+            if can_view_sensitive
             else "NULL AS date_of_birth, NULL AS previous_school, NULL AS guardian_name, "
                  "NULL AS guardian_phone, NULL AS emergency_contact_name, "
                  "NULL AS emergency_contact_phone, NULL AS record_notes"
         )
-        detail_school_id = require_school_context()
         student = connection.execute(
             f"""SELECT s.id, s.student_id_number, s.admission_number, s.full_name,
                        s.class_level, {private_profile_fields}, s.enrollment_date,
@@ -2039,7 +2112,7 @@ def student_detail(student_id):
         if student is None:
             abort(404)
         finance_summary = None
-        if current_user.role in {"principal", "registrar"}:
+        if has_permission(connection, "finance.view", school_id=detail_school_id):
             finance_summary = connection.execute(
                 """SELECT COALESCE(total_fee, 0) AS total_fee,
                           COALESCE(amount_paid, 0) AS amount_paid,
@@ -2076,8 +2149,9 @@ def student_detail(student_id):
 @app.route("/students/<int:student_id>/edit", methods=["GET", "POST"])
 @login_required
 def edit_student(student_id):
-    if current_user.role not in {"principal", "registrar"}:
-        abort(403)
+    edit_school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("student.manage_records", get_db_connection, school_id=edit_school_id)
     connection = get_db_connection()
     try:
         student = connection.execute("SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, require_school_context())).fetchone()
@@ -2149,9 +2223,9 @@ def edit_student(student_id):
 @app.route("/students")
 @login_required
 def list_students():
-    if current_user.role not in STUDENT_RECORD_ROLES:
-        flash("You are not authorized to view student records.", "danger")
-        return redirect(url_for("dashboard"))
+    list_school_id = require_school_context()
+    from authorization import require_permission, has_permission
+    require_permission("student.view_records", get_db_connection, school_id=list_school_id)
 
     class_filter = request.args.get("class_level", "").strip()
     search_query = request.args.get("q", "").strip()[:100]
@@ -2159,14 +2233,15 @@ def list_students():
     try:
         # Teachers need class/identity details for instruction, not private guardian
         # contact information or student birth dates. Expressions are fixed constants.
+        can_view_sensitive = has_permission(connection, "student.view_sensitive", school_id=list_school_id)
         private_student_fields = (
             "s.date_of_birth, s.guardian_name, s.guardian_phone"
-            if current_user.role in {"principal", "registrar"}
+            if can_view_sensitive
             else "NULL AS date_of_birth, NULL AS guardian_name, NULL AS guardian_phone"
         )
         # Do not fetch fee/payment data for roles that cannot view finances. Hiding
         # columns in the template is not a substitute for least-privilege data access.
-        can_view_finances = current_user.role in {"principal", "registrar"}
+        can_view_finances = has_permission(connection, "finance.view", school_id=list_school_id)
         finance_columns = (
             "COALESCE(f.total_fee, 0) AS total_fee, "
             "COALESCE(f.amount_paid, 0) AS amount_paid, "
@@ -2220,15 +2295,16 @@ def list_students():
         connection.close()
     return render_template("students.html", students=students, classes=classes,
                            class_filter=class_filter, search_query=search_query,
-                           can_view_finances=current_user.role in {"principal", "registrar"})
+                           can_view_finances=can_view_finances)
 
 
 @app.route("/student-finances", methods=["GET", "POST"])
 @login_required
 def student_finances():
-    if current_user.role not in {"super_admin", "school_admin", "principal", "registrar", "finance_admin"}:
-        abort(403)
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("finance.manage_fees" if request.method == "POST" else "finance.view",
+                       get_db_connection, school_id=school_id)
 
     connection = get_db_connection()
     try:
@@ -2365,28 +2441,29 @@ def ensure_content_tables(connection):
     """)
     connection.commit()
 
-def can_view_material(role, class_level, archived=False):
+def can_view_material(role, class_level, archived=False, can_manage=False):
     if archived:
-        return role in MATERIALS_MANAGE_ROLES
-    if role in MATERIALS_PUBLISH_ROLES:
-        return True
+        return bool(can_manage)
     if role in {"student", "parent"}:
         # Until student/parent accounts have a verified enrollment link, only school-wide
         # materials are exposed; never trust a class supplied by the browser.
         return class_level.lower() in {"all classes", "school-wide"}
-    return False
+    return True
 
 @app.route("/learning-materials", methods=["GET", "POST"])
 @login_required
 def learning_materials():
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("learning.manage_materials" if request.method == "POST" else "learning.view",
+                       get_db_connection, school_id=school_id)
     role = current_user.role
     connection = get_db_connection()
     try:
+        from authorization import has_permission
+        can_manage_materials = has_permission(connection, "learning.manage_materials", school_id=school_id)
         ensure_content_tables(connection)
         if request.method == "POST":
-            if role not in MATERIALS_PUBLISH_ROLES:
-                abort(403)
             upload = request.files.get("resource_file")
             title = request.form.get("title", "").strip()
             description = request.form.get("description", "").strip()
@@ -2423,7 +2500,7 @@ def learning_materials():
                FROM learning_materials WHERE school_id = ?
                ORDER BY archived, created_at DESC, id DESC""", (school_id,)
         ).fetchall()
-        visible = [row for row in rows if can_view_material(role, row["class_level"], bool(row["archived"]))]
+        visible = [row for row in rows if can_view_material(role, row["class_level"], bool(row["archived"]), can_manage_materials)]
         if role == "teacher":
             assigned_levels = teacher_assigned_class_levels(connection, current_user.id, school_id)
             visible = [
@@ -2434,13 +2511,15 @@ def learning_materials():
     finally:
         connection.close()
     return render_template("learning_materials.html", materials=visible,
-                           can_upload=role in MATERIALS_PUBLISH_ROLES,
-                           can_manage=role in MATERIALS_MANAGE_ROLES)
+                           can_upload=can_manage_materials,
+                           can_manage=can_manage_materials)
 
 @app.route("/learning-materials/<int:material_id>/download")
 @login_required
 def download_learning_material(material_id):
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("learning.view", get_db_connection, school_id=school_id)
     connection = get_db_connection()
     try:
         ensure_content_tables(connection)
@@ -2448,8 +2527,10 @@ def download_learning_material(material_id):
             "SELECT * FROM learning_materials WHERE id=? AND school_id=?",
             (material_id, school_id),
         ).fetchone()
+        from authorization import has_permission
+        can_manage_materials = has_permission(connection, "learning.manage_materials", school_id=school_id)
         if material is None or not can_view_material(
-            current_user.role, material["class_level"], bool(material["archived"])
+            current_user.role, material["class_level"], bool(material["archived"]), can_manage_materials
         ):
             abort(404)
         if current_user.role == "teacher":
@@ -2471,9 +2552,9 @@ def download_learning_material(material_id):
 @app.route("/learning-materials/<int:material_id>/archive", methods=["POST"])
 @login_required
 def archive_learning_material(material_id):
-    if current_user.role not in MATERIALS_MANAGE_ROLES:
-        abort(403)
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("learning.manage_materials", get_db_connection, school_id=school_id)
     connection = get_db_connection()
     try:
         ensure_content_tables(connection)
@@ -2494,13 +2575,16 @@ def archive_learning_material(material_id):
 @login_required
 def announcements():
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("communication.manage" if request.method == "POST" else "communication.view",
+                       get_db_connection, school_id=school_id)
     role = current_user.role
     connection = get_db_connection()
     try:
+        from authorization import has_permission
+        can_manage_communications = has_permission(connection, "communication.manage", school_id=school_id)
         ensure_content_tables(connection)
         if request.method == "POST":
-            if role not in CONTENT_PUBLISH_ROLES:
-                abort(403)
             title = request.form.get("title", "").strip()
             body = request.form.get("body", "").strip()
             audience = request.form.get("audience", "all").strip()
@@ -2509,8 +2593,8 @@ def announcements():
                 flash("Check the announcement title, message length and audience.", "danger")
                 return redirect(url_for("announcements"))
             if edit_id:
-                if role not in CONTENT_MANAGE_ROLES or not edit_id.isdigit():
-                    abort(403)
+                if not edit_id.isdigit():
+                    abort(400)
                 result = connection.execute(
                     """UPDATE school_announcements SET title=?,body=?,audience=?,
                        updated_by=?,updated_at=CURRENT_TIMESTAMP
@@ -2532,7 +2616,7 @@ def announcements():
             write_audit(current_user.id, action, title)
             flash("Announcement saved.", "success")
             return redirect(url_for("announcements"))
-        if role in CONTENT_MANAGE_ROLES:
+        if can_manage_communications:
             rows = connection.execute(
                 """SELECT * FROM school_announcements WHERE school_id=?
                    ORDER BY CASE status WHEN 'published' THEN 0 ELSE 1 END, updated_at DESC""",
@@ -2548,15 +2632,15 @@ def announcements():
     finally:
         connection.close()
     return render_template("announcements.html", announcements=rows,
-                           can_publish=role in CONTENT_PUBLISH_ROLES,
-                           can_manage=role in CONTENT_MANAGE_ROLES)
+                           can_publish=can_manage_communications,
+                           can_manage=can_manage_communications)
 
 @app.route("/announcements/<int:announcement_id>/archive", methods=["POST"])
 @login_required
 def archive_announcement(announcement_id):
-    if current_user.role not in CONTENT_MANAGE_ROLES:
-        abort(403)
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("communication.manage", get_db_connection, school_id=school_id)
     connection = get_db_connection()
     try:
         ensure_content_tables(connection)
@@ -2577,9 +2661,10 @@ def archive_announcement(announcement_id):
 @app.route("/finance/payments", methods=["GET", "POST"])
 @login_required
 def finance_payments():
-    if current_user.role not in {"super_admin", "school_admin", "principal", "registrar", "finance_admin"}:
-        abort(403)
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("finance.record_payments" if request.method == "POST" else "finance.view",
+                       get_db_connection, school_id=school_id)
     connection = get_db_connection()
     try:
         ensure_content_tables(connection)
@@ -2657,9 +2742,10 @@ def finance_payments():
 @login_required
 def parent_children():
     """Show a parent only the children explicitly linked to that account."""
-    if current_user.role != "parent":
-        abort(403)
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("parent.view_linked_children", get_db_connection, school_id=school_id)
+    require_permission("parent.view_child_finances", get_db_connection, school_id=school_id)
     connection = get_db_connection()
     try:
         children = connection.execute(
@@ -2667,7 +2753,7 @@ def parent_children():
                       s.student_id_number
                FROM parent_student_links l
                JOIN students s ON s.id = l.student_id AND s.school_id = l.school_id
-               JOIN users p ON p.id = l.parent_user_id AND p.school_id = l.school_id
+               JOIN users p ON p.id = l.parent_user_id
                WHERE l.parent_user_id = ? AND l.school_id = ?
                  AND p.status = 'active' AND s.status = 'active'
                ORDER BY s.full_name COLLATE NOCASE""",
@@ -2758,6 +2844,43 @@ from school_configuration import (
 initialize_configuration_schema(get_db_connection)
 app.register_blueprint(create_school_configuration_blueprint(get_db_connection))
 
+# Global platform identities may hold several independently scoped school
+# memberships. Backfill is additive and retains existing user IDs/password hashes.
+from identity_memberships import (
+    create_membership_blueprint,
+    initialize_membership_schema,
+)
+initialize_membership_schema(get_db_connection)
+app.register_blueprint(create_membership_blueprint(get_db_connection))
+
+# Central scoped RBAC/ABAC policy engine. Initialize only additive authorization
+# tables and seed least-privilege role defaults; legacy identity rows are untouched.
+from authorization import (
+    create_authorization_blueprint,
+    initialize_authorization_schema,
+)
+initialize_authorization_schema(get_db_connection)
+app.register_blueprint(create_authorization_blueprint(get_db_connection))
+
+
+# Institutional lifecycle and provider-neutral subscription foundation.
+# Schema creation is additive; no existing institution is enrolled, suspended,
+# billed or otherwise changed during application startup.
+from institution_subscriptions import (
+    create_subscription_blueprint,
+    initialize_subscription_schema,
+)
+initialize_subscription_schema(get_db_connection)
+app.register_blueprint(create_subscription_blueprint(get_db_connection))
+
+
+# Comprehensive tenant-aware Student Information Management System.
+from student_information import (
+    create_student_information_blueprint,
+    initialize_student_information_schema,
+)
+initialize_student_information_schema(get_db_connection)
+app.register_blueprint(create_student_information_blueprint(get_db_connection, INSTANCE_DIR, require_school_context))
 
 if __name__ == "__main__":
     app.run(port=5000, debug=False)

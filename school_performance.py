@@ -10,9 +10,25 @@ def register_school_performance_routes(ns):
     @login_required
     def school_performance():
         role=current_user.role
-        if role not in attendance_roles|{"finance_admin"}: abort(403)
-        sid=school_context(); today=date.today(); start=today-timedelta(days=13); year=f"{today.year}-{today.year+1}"
-        se=role in leaders or role=="attendance_officer"; sa=role in attendance_roles; sg=role in leaders; sf=role in finance_roles
+        sid=school_context()
+        from authorization import require_permission
+        # School-wide analytics are a distinct capability; a teacher's
+        # class-level academic permissions must not expose institution-wide data.
+        require_permission("school.view_analytics", dbopen, school_id=sid)
+        today=date.today(); start=today-timedelta(days=13); year=f"{today.year}-{today.year+1}"
+        from authorization import has_permission
+        policy_connection = dbopen()
+        try:
+            se = has_permission(policy_connection, "academic.view_records", school_id=sid)
+            sa = se
+            sg = se
+            sf = has_permission(policy_connection, "finance.view", school_id=sid)
+        finally:
+            policy_connection.close()
+        if se or sa or sg:
+            require_permission("academic.view_records", dbopen, school_id=sid)
+        if sf:
+            require_permission("finance.view", dbopen, school_id=sid)
         db=dbopen()
         try:
             school=db.execute("SELECT name FROM schools WHERE id=? AND status='active'",(sid,)).fetchone()
