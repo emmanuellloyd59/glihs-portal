@@ -22,14 +22,14 @@ class StudentFinanceTests(PortalTestSupport, unittest.TestCase):
             "guardian_phone": "",
         }, follow_redirects=True)
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"CMHS-", response.data)
+        self.assertIn(b"STU-", response.data)
         connection = __import__("app").get_db_connection()
         try:
             row = connection.execute(
                 "SELECT student_id_number FROM students WHERE admission_number = ?",
                 ("ID-DEMO-001",),
             ).fetchone()
-            self.assertTrue(row["student_id_number"].startswith("CMHS-"))
+            self.assertTrue(row["student_id_number"].startswith("STU-"))
         finally:
             connection.close()
 
