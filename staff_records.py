@@ -411,6 +411,8 @@ def register_staff_records_routes(ns):
                         connection.commit()
                         flash("Staff member onboarded and school access activated.","success")
                 elif action=="offboard":
+                    if int(user_id)==int(current_user.id):
+                        abort(403)
                     notes=request.form.get("notes","").strip()
                     if len(notes)>1000: abort(400)
                     connection.execute("""
