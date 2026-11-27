@@ -228,5 +228,5 @@ def register_homework_routes(ns):
             connection.close()
         return render_template("assignments.html",assignments=assignment_rows,
             submissions=submissions,student=student,role=role,can_create=can_manage_assignments,
-            can_grade=can_manage_assignments,class_levels=class_levels,
+            can_grade=can_manage_assignments,class_levels=class_levels,subjects=subjects,
             today=datetime.now().date().isoformat())
