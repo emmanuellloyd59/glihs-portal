@@ -1,8 +1,11 @@
-# CMHS Digital Campus — Version 0.3 Development Preview
+# Digital Education Ecosystem — Version 0.3 Development Preview
 
-CMHS Digital Campus is a Flask-based school-portal demonstration built with Flask, Flask-Login, SQLite, Flask-WTF, and Bootstrap. This branch continues the existing Version 0.2 work and adds Version 0.3 multi-school security foundations. Version 0.3 remains a development preview—not a production release—until the complete tenant-security audit, migration and recovery checks, browser/print verification, durable storage, and staging release gates pass. The current live Render service remains on `main`.
+This repository evolves an existing Flask application into the Digital Education Ecosystem: a connected platform for independent schools, school groups and campuses. CMHS Digital Campus remains the original institution-specific workspace and is not the permanent identity of the platform. The application continues to use Flask, Flask-Login, SQLite, Flask-WTF and Bootstrap. The School Network foundation adds institution registration, profiles, groups, campuses and platform review while preserving existing school IDs and CMHS records. Version 0.3 remains a development preview—not a production release—until the complete tenant-security audit, migration and recovery checks, browser/print verification, durable storage, and staging release gates pass. The current live Render service remains on `main`.
 
 ## What is included
+
+- Neutral Digital Education Ecosystem platform identity with institution-specific branding for authenticated school workspaces.
+- Initial School Network foundation: pending institution registration, unique school identities, institutional profiles, classifications, ownership and location details, school groups, campuses, contacts, platform-owner lifecycle review and versioned API endpoints. This work remains subject to PR review and automated verification.
 
 - Public welcome page and consistent responsive branding.
 - Login with hashed-password verification and protected routes.

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Institution Profile | {{ school.name }}{% endblock %}
+{% block content %}
+<section class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+ <div><p class="eyebrow text-primary mb-1">School Network · Institution profile</p><h1 class="h2 fw-bold mb-1">{{ school.name }}</h1><p class="text-secondary mb-0">{{ school.slug }} · {{ school.lifecycle_status.replace('_',' ').title() }}</p></div>
+ {% if platform_access %}<a class="btn btn-outline-secondary" href="{{ url_for('school_network.platform_schools') }}">Back to School Network</a>{% endif %}
+</section>
+<div class="alert alert-info">This profile belongs to this institution. School administrators can edit their own institution only. Campus and contact records remain scoped to this school.</div>
+<section class="surface-card p-4 mb-4">
+ <h2 class="h5 fw-bold">Institution details</h2>
+ <p class="small text-secondary">Profile edits are available through the authenticated API in this foundation. Lifecycle status is controlled separately by the platform owner.</p>
+ <dl class="row mb-0">
+  <dt class="col-sm-3">Legal name</dt><dd class="col-sm-9">{{ school.legal_name or 'Not supplied' }}</dd>
+  <dt class="col-sm-3">Classification</dt><dd class="col-sm-9">{{ (school.classification or '—').replace('_',' ').title() }}</dd>
+  <dt class="col-sm-3">Ownership</dt><dd class="col-sm-9">{{ (school.ownership_type or '—').replace('_',' ').title() }} · {{ school.owner_name or '—' }}</dd>
+  <dt class="col-sm-3">Registration number</dt><dd class="col-sm-9">{{ school.registration_number or '—' }}</dd>
+  <dt class="col-sm-3">Location</dt><dd class="col-sm-9">{{ school.address_line1 or '' }} {{ school.city or '' }} {{ school.county or '' }} {{ school.country_code or '' }}</dd>
+  <dt class="col-sm-3">Contact</dt><dd class="col-sm-9">{{ school.contact_email or '—' }} · {{ school.contact_phone or '—' }}</dd>
+ </dl>
+</section>
+<section class="surface-card p-4 mb-4">
+ <h2 class="h5 fw-bold">Campuses</h2>
+ <form method="post" class="row g-2 mb-3">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="create_campus">
+  <div class="col-md-4"><label class="form-label">Campus name</label><input class="form-control" name="campus_name" maxlength="160" required></div>
+  <div class="col-md-2"><label class="form-label">Campus code</label><input class="form-control" name="campus_code" maxlength="32" required></div>
+  <div class="col-md-2"><label class="form-label">City</label><input class="form-control" name="campus_city"></div>
+  <div class="col-md-2"><label class="form-label">County</label><input class="form-control" name="campus_county"></div>
+  <div class="col-md-1"><label class="form-label">Country</label><input class="form-control" name="campus_country_code" maxlength="2"></div>
+  <div class="col-md-1 d-flex align-items-end"><button class="btn btn-primary w-100">Add</button></div>
+ </form>
+ {% if campuses %}<div class="table-responsive"><table class="table"><thead><tr><th>Campus</th><th>Code</th><th>Location</th><th>Status</th></tr></thead><tbody>{% for campus in campuses %}<tr><td>{{ campus.name }}{% if campus.is_main %} <span class="badge text-bg-primary">Main</span>{% endif %}</td><td>{{ campus.code }}</td><td>{{ campus.city or '—' }}, {{ campus.county or '' }} {{ campus.country_code or '' }}</td><td>{{ campus.status }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="text-secondary mb-0">No campus records have been added yet.</p>{% endif %}
+</section>
+<section class="surface-card p-4">
+ <h2 class="h5 fw-bold">Institution contacts</h2>
+ {% if contacts %}<div class="table-responsive"><table class="table"><thead><tr><th>Contact</th><th>Type</th><th>Email</th><th>Phone</th></tr></thead><tbody>{% for contact in contacts %}<tr><td>{{ contact.full_name or '—' }}{% if contact.is_primary %} <span class="badge text-bg-primary">Primary</span>{% endif %}</td><td>{{ contact.contact_type }}</td><td>{{ contact.email or '—' }}</td><td>{{ contact.phone or '—' }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="text-secondary mb-0">No additional contacts recorded.</p>{% endif %}
+</section>
+{% endblock %}

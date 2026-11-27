@@ -16,6 +16,7 @@ ADRs capture decisions that materially affect system structure, data ownership, 
 | [ADR-0001](adr/0001-modular-monolith-and-incremental-evolution.md) | Retain Flask and evolve as a modular monolith | Accepted | Application architecture and extraction strategy |
 | ADR-0002 | Tenant boundary and school-scoped authorization | Accepted as product/security policy; implementation incomplete | School/campus ownership and access |
 | ADR-0003 | API compatibility and versioning | Accepted as a future API standard; implementation pending | External/mobile integrations |
+| [ADR-0004](adr/0004-school-network-lifecycle-and-campus-model.md) | Institution lifecycle, school groups and campus ownership | Accepted; initial implementation in progress | School Network and tenant administration |
 
 ## When an ADR is required
 

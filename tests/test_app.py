@@ -116,8 +116,8 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
     def test_home_page_loads_with_new_brand(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"CMHS Digital Campus", response.data)
-        self.assertIn(b"CMHS Digital Campus", response.data)
+        self.assertIn(b"Digital Education Ecosystem", response.data)
+        self.assertIn(b"Register an Institution", response.data)
         self.assertIn(b"DEVELOPMENT PREVIEW", response.data)
         self.assertNotIn(b"DEMONSTRATION VERSION", response.data)
 

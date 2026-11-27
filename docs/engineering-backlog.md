@@ -27,7 +27,8 @@ This is the traceability index for architecture and governance work. Status refl
 | ERP-001 | School ERP | Separate student, staff, academic, timetable and attendance capabilities | ADR-0001, ADR-0002 | Current `app.py`, `staff_attendance.py`; future `modules/school_erp/` | Existing direct-route authorization and two-school suite | No role escalation or tenant leakage; existing records/IDs preserved | Planned |
 | FIN-001 | Education Finance | Isolate finance operations and strengthen transaction/audit boundaries | ADR-0001, ADR-0002 | Current `app.py`; future `modules/education_finance/` | Amount validation, permissions, reconciliation, duplicate and rollback tests | Historical aggregates preserved; no fabricated payment history; mutations audited | Planned |
 | COM-001 | Communication | Extract announcements and add reusable notification interfaces when needed | ADR-0001, ADR-0002 | Current `app.py`; future `modules/communication/` | Publisher permissions, tenant scope, delivery/retry tests when channels exist | No cross-school messages; delivery status and privacy are explicit | Planned |
-| NET-002 | School Network | Formalize school lifecycle, campuses, domains and membership boundaries | ADR-0002 | Existing schools/users schema; future network module | Lifecycle and school/campus boundary tests | School owns campus and records; platform administration remains distinct | Planned |
+| NET-001 | School Network | Implement institution registration, unique identity, profiles, classifications, ownership, locations, contacts, school groups and campuses | ADR-0002, ADR-0004 | `school_network.py`, `templates/school_network/*`, `docs/school-network-api.md`, additive schools metadata and network tables | Registration validation, duplicate identity, lifecycle transitions, group membership, campus ownership, school-admin vs platform-owner tests | CMHS record/ID preserved; new schools remain inactive pending platform approval; school groups do not merge tenant boundaries | In progress; CI verified on feature branch; manual review pending |
+| NET-002 | School Network | Complete school lifecycle, domain verification and membership boundaries | ADR-0002, ADR-0004 | Existing schools/users schema; School Network module | Lifecycle and school/campus boundary tests; domain verification and legacy route audit | School owns campus and records; platform administration remains distinct | Planned |
 | WEB-001 | School Websites | Build school website management as a bounded capability | ADR-0001, ADR-0002 | Future `modules/school_websites/` | Domain resolution, tenant content and public/private access tests | Each school manages its own website/content without cross-tenant exposure | Planned |
 | MKT-001 | Education Marketplace | Define marketplace provider/listing/purchase boundary | Future ADR | Future `modules/education_marketplace/` | Ownership, moderation, payment and provider authorization tests | Marketplace cannot bypass school finance or tenant policies | Planned |
 
@@ -44,3 +45,11 @@ For each item, add:
 - approval/release reference when required.
 
 Do not mark an item verified based only on code presence, test names, or a previous CI run. Evidence must match the current commit.
+
+
+## NET-001 verification record
+
+- Implementation PR: https://github.com/emmanuellloyd59/glihs-portal/pull/53 (draft, stacked on the engineering-governance branch).
+- Tested code commit: 3ec74b656c5302dbafa3097faa41c8deaa12f089.
+- GitHub Actions run #840: https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45944332220 — 158 tests passed on Python 3.11 and 158 passed on Python 3.14.
+- Manual browser/accessibility review, full legacy-route tenant audit, domain verification and production migration rehearsal remain pending. NET-001 is not yet marked accepted or production-ready.
