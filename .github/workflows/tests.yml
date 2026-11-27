@@ -2,7 +2,7 @@ name: Automated tests
 
 on:
   push:
-    branches: [main, "version-4/**", "feature/v4-postgresql-compatibility"]
+    branches: [main, "version-4/**"]
   pull_request:
     branches: [main, "version-4/**"]
   workflow_dispatch:
