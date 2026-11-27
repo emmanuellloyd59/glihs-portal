@@ -334,7 +334,7 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
         try:
             rows = connection.execute(
                 """SELECT country_code,country_name,region_label,region_required,
-                          registration_number_required,version
+                          registration_number_required,requirements_json,version
                    FROM country_requirement_profiles WHERE active=1 AND country_code<>'*' ORDER BY country_name"""
             ).fetchall()
             services = connection.execute(
@@ -367,19 +367,21 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
                 return _json_error("country_unavailable","Registration is not currently available for this country.",422)
             reference = "ONB-" + uuid.uuid4().hex[:12].upper()
             token = secrets.token_urlsafe(32)
+            verification_token = secrets.token_urlsafe(32)
             expires = _stamp(_now()+timedelta(days=14))
             connection.execute(
                 """INSERT INTO onboarding_applications
-                   (reference,applicant_email,resume_token_hash,country_code,payload_json,expires_at)
-                   VALUES (?,?,?,?,?,?)""",
-                (reference,email,_token_hash(token),country,json.dumps(payload),expires),
+                   (reference,applicant_email,resume_token_hash,country_code,payload_json,expires_at,verification_token_hash)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (reference,email,_token_hash(token),country,json.dumps(payload),expires,_token_hash(verification_token)),
             )
             app_id = connection.execute("SELECT last_insert_rowid()").fetchone()[0]
             _record_event(connection,app_id,None,None,"application.draft_created",{"country_code":country})
-            resume_url = request.host_url.rstrip("/") + "/school-network/onboarding"
-            _queue_email(connection,email,"Continue your school registration",
-                         "Your application reference is "+reference+". Save this secure resume token: "+token+
-                         "\nResume page: "+resume_url+"\nThis link expires in 14 days.")
+            verify_url = request.host_url.rstrip("/") + "/api/v1/onboarding/applications/" + reference + "/verify-email"
+            _queue_email(connection,email,"Verify your school registration email",
+                         "Verify your email using this one-time token: "+verification_token+
+                         "\\nVerification endpoint: "+verify_url+
+                         "\\nYour resume token is returned once to your browser. Draft expires in 14 days.")
             connection.commit()
             return jsonify({"data":{"reference":reference,"resume_token":token,"status":"draft",
                                     "expires_at":expires,"email_notification_queued":True}}),201
@@ -482,6 +484,8 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             row = _load_application(connection,reference,token)
             if row["status"] != "draft":
                 return _json_error("invalid_state","This application has already been submitted.",409)
+            if not row["email_verified"]:
+                return _json_error("email_not_verified","Verify the applicant email before submitting the application.",403)
             data = json.loads(row["payload_json"])
             profile = _country_profile(connection,row["country_code"])
             services = connection.execute("SELECT service_key,label FROM onboarding_service_catalog WHERE active=1").fetchall()
@@ -686,8 +690,8 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             school = connection.execute("SELECT name,lifecycle_status FROM schools WHERE id=?",(school_id,)).fetchone()
             if not school:
                 abort(404)
-            if school["lifecycle_status"] not in {"approved","active"}:
-                return _json_error("school_not_approved","Administrator invitations require an approved institution.",409)
+            if school["lifecycle_status"] != "active":
+                return _json_error("school_not_active","Administrator invitations are available only after institution activation.",409)
             existing = connection.execute(
                 "SELECT id FROM users WHERE lower(username)=lower(?)",(email,)
             ).fetchone()
