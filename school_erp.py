@@ -191,6 +191,22 @@ def create_school_erp_blueprint(connection_factory, require_school_context):
                 metrics["grades_recorded"] = db.execute(
                     "SELECT COUNT(*) FROM grades WHERE school_id=?", (sid,)
                 ).fetchone()[0]
+                metrics["teacher_class_assignments"] = db.execute(
+                    "SELECT COUNT(*) FROM teacher_class_assignments WHERE school_id=? AND active=1",
+                    (sid,),
+                ).fetchone()[0] if _has_table(db, "teacher_class_assignments") else 0
+                metrics["assessments"] = db.execute(
+                    "SELECT COUNT(*) FROM configurable_assessments WHERE school_id=?",
+                    (sid,),
+                ).fetchone()[0] if _has_table(db, "configurable_assessments") else 0
+                metrics["report_cards"] = db.execute(
+                    "SELECT COUNT(*) FROM report_cards WHERE school_id=?",
+                    (sid,),
+                ).fetchone()[0]
+                metrics["discipline_records"] = db.execute(
+                    "SELECT COUNT(*) FROM student_disciplinary_records WHERE school_id=?",
+                    (sid,),
+                ).fetchone()[0] if _has_table(db, "student_disciplinary_records") else 0
             if has_permission(db, "finance.view", school_id=sid):
                 metrics["fee_accounts"] = db.execute(
                     "SELECT COUNT(*) FROM student_finances WHERE school_id=?", (sid,)
