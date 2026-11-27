@@ -92,7 +92,7 @@ def initialize_membership_schema(connection_factory):
             ON school_memberships(user_id, status, is_primary)
         """)
         connection.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique
+            CREATE INDEX IF NOT EXISTS idx_users_email_lookup
             ON users(lower(email)) WHERE email IS NOT NULL AND trim(email) <> ''
         """)
         connection.execute("""
@@ -192,6 +192,30 @@ def resolve_membership(connection, user_id, session_data):
           ))
         ORDER BY m.is_primary DESC, m.id LIMIT 1
     """, (user_id,)).fetchone()
+    if row is None:
+        # Compatibility bridge for legacy account-creation routes that still
+        # write users.school_id/role. The first authenticated request materializes
+        # the equivalent membership without changing the legacy account record.
+        legacy = connection.execute(
+            "SELECT school_id,role FROM users WHERE id=? AND is_super_admin=0",
+            (user_id,),
+        ).fetchone()
+        if legacy and legacy["school_id"] is not None and legacy["role"] in SCHOOL_ROLES:
+            connection.execute("""
+                INSERT OR IGNORE INTO school_memberships
+                    (user_id,school_id,role,status,is_primary,accepted_at)
+                SELECT ?,?,?,'active',1,CURRENT_TIMESTAMP
+                WHERE EXISTS (SELECT 1 FROM schools WHERE id=? AND status='active')
+            """, (user_id, legacy["school_id"], legacy["role"], legacy["school_id"]))
+            connection.commit()
+            row = connection.execute("""
+                SELECT m.id AS membership_id,m.school_id,m.campus_id,m.role,
+                       m.status AS membership_status
+                FROM school_memberships m JOIN schools s
+                  ON s.id=m.school_id AND s.status='active'
+                WHERE m.user_id=? AND m.status='active'
+                ORDER BY m.is_primary DESC,m.id LIMIT 1
+            """, (user_id,)).fetchone()
     if row is not None:
         session_data["active_membership_id"] = int(row["membership_id"])
     return row
