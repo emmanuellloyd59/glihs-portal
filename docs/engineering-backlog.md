@@ -65,4 +65,4 @@ Do not mark an item verified based only on code presence, test names, or a previ
 - Automated coverage: `tests/test_international_onboarding.py` (11 cases). Current-commit CI status is not exposed by the connected GitHub status endpoints; execution remains unverified and must be checked in GitHub Actions before acceptance.
 - No merge, deployment, production migration, or production data changes.
 
-- Latest code commit: `2ce23db3202cf72399adf7e483f3ccb09864787f`.
+- Latest code commit: `238cd6d703ad2ab367552ab5d65c37ea8d9c50e4`.
