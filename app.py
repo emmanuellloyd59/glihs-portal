@@ -669,6 +669,18 @@ def initialize_database():
     academic_initializer = globals().get("initialize_academic_structure")
     if academic_initializer is not None:
         academic_initializer(get_db_connection)
+    # Re-initialized test databases must receive tenant identity schemas before
+    # staff triggers reference school_memberships. These initializers are
+    # idempotent and preserve existing account IDs and password hashes.
+    network_initializer = globals().get("initialize_school_network_schema")
+    if network_initializer is not None:
+        network_initializer(get_db_connection)
+    membership_initializer = globals().get("initialize_membership_schema")
+    if membership_initializer is not None:
+        membership_initializer(get_db_connection)
+    authorization_initializer = globals().get("initialize_authorization_schema")
+    if authorization_initializer is not None:
+        authorization_initializer(get_db_connection)
     staff_initializer = globals().get("initialize_staff_records")
     if staff_initializer is not None:
         staff_initializer(get_db_connection)
