@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Accept Administrator Invitation | Digital Education Ecosystem{% endblock %}
+{% block content %}
+<section class="surface-card p-4 p-md-5 mx-auto" style="max-width:620px">
+  <p class="eyebrow text-primary mb-2">School Network</p>
+  <h1 class="h2 fw-bold">Accept administrator invitation</h1>
+  <p class="text-secondary">Set a password for the school administrator account associated with your secure invitation.</p>
+  <div id="invite-status" class="alert alert-info" role="status">Your invitation token is read from the secure link in your email.</div>
+  <form id="invite-form" class="row g-3">
+    <input type="hidden" id="csrf-token" value="{{ csrf_token() }}">
+    <div class="col-12"><label class="form-label" for="invite-token">Invitation token</label><input class="form-control" id="invite-token" required autocomplete="off"></div>
+    <div class="col-12"><label class="form-label" for="password">Create password *</label><input class="form-control" id="password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></div>
+    <div class="col-12"><label class="form-label" for="confirm-password">Confirm password *</label><input class="form-control" id="confirm-password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></div>
+    <div class="col-12"><button class="btn btn-primary" type="submit">Create administrator account</button></div>
+  </form>
+</section>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  $("invite-token").value = params.get("token") || "";
+  $("invite-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const status = $("invite-status");
+    const password = $("password").value;
+    if (password !== $("confirm-password").value) {
+      status.className = "alert alert-danger";
+      status.textContent = "The passwords do not match.";
+      return;
+    }
+    try {
+      const response = await fetch("/api/v1/onboarding/invitations/accept", {
+        method: "POST",
+        headers: {"Content-Type":"application/json","X-CSRFToken":$("csrf-token").value},
+        body: JSON.stringify({token:$("invite-token").value.trim(),password})
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error((result.error && result.error.message) || "Invitation could not be accepted.");
+      status.className = "alert alert-success";
+      status.textContent = "Administrator account created. Account status: " + result.data.status + ". You can now sign in.";
+      $("invite-form").remove();
+      window.history.replaceState(null,"",window.location.pathname);
+    } catch (error) {
+      status.className = "alert alert-danger";
+      status.textContent = error.message;
+    }
+  });
+})();
+</script>
+{% endblock %}
