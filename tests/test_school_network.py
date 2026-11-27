@@ -31,30 +31,19 @@ class SchoolNetworkTests(unittest.TestCase):
         self.client = portal.app.test_client()
         connection = portal.get_db_connection()
         try:
-            existing_tables = {
-                row["name"] for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-            }
-            # Remove all identity rows that reference users before resetting
-            # fixture accounts. These tables are introduced by the membership
-            # layer and are present even when a test only exercises School Network.
-            for table in (
-                "identity_recovery_tokens",
-                "membership_invitations",
-                "identity_security_events",
-                "school_memberships",
-                "school_network_audit",
-                "school_contacts",
-                "campuses",
-                "school_group_memberships",
-                "school_groups",
-                "audit_log",
-            ):
-                if table in existing_tables:
-                    connection.execute(f"DELETE FROM {table}")
-            connection.execute("DELETE FROM users")
-            connection.execute("DELETE FROM schools WHERE id <> 1")
+            # This class uses a disposable database. Clear every table's test
+        # data except the legacy pilot school row, with FK checks temporarily
+        # disabled so newly added modules cannot leave an unlisted user reference.
+        connection.execute("PRAGMA foreign_keys = OFF")
+        table_names = [
+            row["name"] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name NOT LIKE 'sqlite_%' AND name <> 'schools'"
+            ).fetchall()
+        ]
+        for table_name in table_names:
+            connection.execute('DELETE FROM "' + table_name.replace('"', '""') + '"')
+        connection.execute("PRAGMA foreign_keys = ON")
             connection.execute(
                 """INSERT INTO users
                    (username, full_name, password_hash, role, status, is_super_admin, school_id)
