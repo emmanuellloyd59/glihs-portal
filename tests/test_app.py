@@ -226,9 +226,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
     def test_student_cannot_open_staff_student_records(self):
         self.login_as("student_demo", "test-student-password")
         response = self.client.get("/students", follow_redirects=True)
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"not authorized to view student records", response.data)
-        self.assertNotIn(b"Registered Students", response.data)
+        self.assertEqual(response.status_code, 403)
 
     def test_teacher_cannot_register_official_student_records(self):
         self.login_as("teacher_demo", "test-teacher-password")
@@ -241,8 +239,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
             },
             follow_redirects=True,
         )
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"You are not authorized to register students.", response.data)
+        self.assertEqual(response.status_code, 403)
         connection = portal.get_db_connection()
         count = connection.execute(
             "SELECT COUNT(*) FROM students WHERE admission_number='DEMO-001'"
@@ -1214,7 +1211,8 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         connection = portal.get_db_connection()
         try:
             connection.execute(
-                "UPDATE users SET school_id = NULL WHERE username = ?",
+                """UPDATE school_memberships SET status = 'suspended'
+                   WHERE user_id=(SELECT id FROM users WHERE username = ?)""",
                 ("teacher_demo",),
             )
             connection.commit()
