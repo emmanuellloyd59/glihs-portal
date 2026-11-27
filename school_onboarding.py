@@ -350,7 +350,8 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
                 rows = connection.execute(
                     """SELECT a.reference,a.applicant_email,a.country_code,a.status,a.school_id,
                               a.created_at,a.updated_at,s.name AS school_name,s.lifecycle_status,
-                              CASE WHEN s.lifecycle_status='pending' THEN 'verification'
+                              CASE WHEN a.status='draft' THEN 'draft'
+                                   WHEN s.lifecycle_status='pending' THEN 'verification'
                                    WHEN s.lifecycle_status='under_review' THEN 'approval'
                                    WHEN s.lifecycle_status='approved' THEN 'activation'
                                    WHEN s.lifecycle_status='active' AND a.status='completed' THEN 'completed'
