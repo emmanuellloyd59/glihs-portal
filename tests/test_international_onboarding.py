@@ -357,6 +357,8 @@ class InternationalOnboardingTests(unittest.TestCase):
 
     def test_notifications_remain_queued_without_smtp_and_admin_api_is_protected(self):
         self.assertEqual(self.client.post("/api/v1/onboarding/notifications/dispatch").status_code, 401)
+        draft = self.client.post("/api/v1/onboarding/applications",json=self.payload())
+        self.assertEqual(draft.status_code,201)
         self.login_owner()
         response = self.client.post("/api/v1/onboarding/notifications/dispatch")
         self.assertEqual(response.status_code, 503)
