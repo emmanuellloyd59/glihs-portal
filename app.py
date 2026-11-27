@@ -2421,6 +2421,9 @@ def can_view_material(role, class_level, archived=False):
 @login_required
 def learning_materials():
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("learning.manage_courses" if request.method == "POST" else "learning.view",
+                       get_db_connection, school_id=school_id)
     role = current_user.role
     connection = get_db_connection()
     try:
@@ -2482,6 +2485,8 @@ def learning_materials():
 @login_required
 def download_learning_material(material_id):
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("learning.view", get_db_connection, school_id=school_id)
     connection = get_db_connection()
     try:
         ensure_content_tables(connection)
@@ -2512,9 +2517,9 @@ def download_learning_material(material_id):
 @app.route("/learning-materials/<int:material_id>/archive", methods=["POST"])
 @login_required
 def archive_learning_material(material_id):
-    if current_user.role not in MATERIALS_MANAGE_ROLES:
-        abort(403)
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("learning.manage_courses", get_db_connection, school_id=school_id)
     connection = get_db_connection()
     try:
         ensure_content_tables(connection)
@@ -2535,6 +2540,9 @@ def archive_learning_material(material_id):
 @login_required
 def announcements():
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("communication.manage" if request.method == "POST" else "communication.view",
+                       get_db_connection, school_id=school_id)
     role = current_user.role
     connection = get_db_connection()
     try:
@@ -2595,9 +2603,9 @@ def announcements():
 @app.route("/announcements/<int:announcement_id>/archive", methods=["POST"])
 @login_required
 def archive_announcement(announcement_id):
-    if current_user.role not in CONTENT_MANAGE_ROLES:
-        abort(403)
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("communication.manage", get_db_connection, school_id=school_id)
     connection = get_db_connection()
     try:
         ensure_content_tables(connection)
@@ -2618,9 +2626,10 @@ def archive_announcement(announcement_id):
 @app.route("/finance/payments", methods=["GET", "POST"])
 @login_required
 def finance_payments():
-    if current_user.role not in {"super_admin", "school_admin", "principal", "registrar", "finance_admin"}:
-        abort(403)
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("finance.record_payments" if request.method == "POST" else "finance.view",
+                       get_db_connection, school_id=school_id)
     connection = get_db_connection()
     try:
         ensure_content_tables(connection)
@@ -2698,9 +2707,9 @@ def finance_payments():
 @login_required
 def parent_children():
     """Show a parent only the children explicitly linked to that account."""
-    if current_user.role != "parent":
-        abort(403)
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("parent.view_linked_children", get_db_connection, school_id=school_id)
     connection = get_db_connection()
     try:
         children = connection.execute(
