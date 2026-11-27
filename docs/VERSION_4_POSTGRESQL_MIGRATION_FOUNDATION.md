@@ -12,9 +12,9 @@
 - The runner rejects gaps, unknown versions, changed migration names/checksums and unexpected ledger layouts.
 - All pending DDL and ledger entries in one invocation commit atomically; any failure rolls back the complete pending batch.
 - Migration 1 creates a fresh-install core schema for schools, users, students, parent links, finance, grades, report cards, attendance, audit logs, timetables, teacher assignments and homework.
-- Migration 2 adds PostgreSQL trigger guards that reject cross-school student, parent, teacher, staff-actor and homework relationships while allowing explicitly designated super-admin actions.
+- Migration 2 adds PostgreSQL trigger guards that reject cross-school student, parent, teacher, staff-actor and homework relationships while allowing explicitly designated super-admin actions. Additional guards prevent school reassignment of users or students while school-scoped records still reference them.
 - The schema uses PostgreSQL-native identity columns, timestamp/date/time types, numeric financial values, constraints, foreign keys and indexes.
-- `tests/test_postgresql_migrations.py` covers fresh install, replay, generated IDs, checksum/ledger tampering, cross-school relationship rejection, super-admin actor behavior, and transactional rollback against disposable PostgreSQL 17.
+- `tests/test_postgresql_migrations.py` covers fresh install, replay, generated IDs, checksum/ledger tampering, cross-school relationship rejection, unsafe school-reassignment rejection, super-admin actor behavior, and transactional rollback against disposable PostgreSQL 17.
 
 ## Explicit limitations
 
