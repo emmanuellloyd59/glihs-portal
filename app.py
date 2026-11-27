@@ -2723,152 +2723,168 @@ MATERIALS_MANAGE_ROLES = CONTENT_MANAGE_ROLES | {"librarian"}
 
 def ensure_content_tables(connection):
     """Create tenant-scoped content tables without altering existing school data."""
-    # SQLite DDL is transactional only when an explicit transaction is active.
-    # This prevents partial table/trigger creation if legacy ownership checks fail.
-    connection.execute("BEGIN IMMEDIATE")
-    connection.execute("""
-        CREATE TABLE IF NOT EXISTS learning_materials (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            school_id INTEGER NOT NULL REFERENCES schools(id),
-            title TEXT NOT NULL,
-            description TEXT NOT NULL DEFAULT '',
-            class_level TEXT NOT NULL,
-            stored_name TEXT NOT NULL,
-            original_name TEXT NOT NULL,
-            uploaded_by INTEGER NOT NULL REFERENCES users(id),
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1))
-        )
-    """)
-    connection.execute("""
-        CREATE TABLE IF NOT EXISTS school_announcements (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            school_id INTEGER NOT NULL REFERENCES schools(id),
-            title TEXT NOT NULL,
-            body TEXT NOT NULL,
-            audience TEXT NOT NULL CHECK (audience IN ('public','students','staff','all')),
-            status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('published','archived')),
-            created_by INTEGER NOT NULL REFERENCES users(id),
-            updated_by INTEGER NOT NULL REFERENCES users(id),
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    connection.execute("""
-        CREATE TABLE IF NOT EXISTS finance_payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            school_id INTEGER NOT NULL REFERENCES schools(id),
-            student_id INTEGER NOT NULL,
-            academic_year TEXT NOT NULL,
-            amount REAL NOT NULL CHECK (amount > 0),
-            method TEXT NOT NULL CHECK (method IN ('cash','bank_transfer','mobile_money','other')),
-            reference TEXT,
-            receipt_number TEXT NOT NULL UNIQUE,
-            received_by INTEGER NOT NULL REFERENCES users(id),
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(student_id) REFERENCES students(id)
-        )
-    """)
-    connection.execute("""
-        CREATE TRIGGER IF NOT EXISTS trg_finance_payment_school_insert
-        BEFORE INSERT ON finance_payments
-        WHEN (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id
-          OR ((SELECT school_id FROM users WHERE id=NEW.received_by) IS NOT NEW.school_id
-              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.received_by),0) <> 1)
-        BEGIN
-            SELECT RAISE(ABORT, 'school ownership mismatch');
-        END
-    """)
-    connection.execute("""
-        CREATE TRIGGER IF NOT EXISTS trg_finance_payment_school_update
-        BEFORE UPDATE OF student_id, received_by, school_id ON finance_payments
-        WHEN (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id
-          OR ((SELECT school_id FROM users WHERE id=NEW.received_by) IS NOT NEW.school_id
-              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.received_by),0) <> 1)
-        BEGIN
-            SELECT RAISE(ABORT, 'school ownership mismatch');
-        END
-    """)
-    connection.execute("""
-        CREATE TRIGGER IF NOT EXISTS trg_learning_material_school_insert
-        BEFORE INSERT ON learning_materials
-        WHEN (SELECT school_id FROM users WHERE id=NEW.uploaded_by) IS NOT NEW.school_id
-          AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.uploaded_by),0) <> 1
-        BEGIN
-            SELECT RAISE(ABORT, 'school ownership mismatch');
-        END
-    """)
-    connection.execute("""
-        CREATE TRIGGER IF NOT EXISTS trg_learning_material_school_update
-        BEFORE UPDATE OF school_id,uploaded_by ON learning_materials
-        WHEN (SELECT school_id FROM users WHERE id=NEW.uploaded_by) IS NOT NEW.school_id
-          AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.uploaded_by),0) <> 1
-        BEGIN
-            SELECT RAISE(ABORT, 'school ownership mismatch');
-        END
-    """)
-    connection.execute("""
-        CREATE TRIGGER IF NOT EXISTS trg_announcement_school_insert
-        BEFORE INSERT ON school_announcements
-        WHEN ((SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
-              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)
-          OR ((SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
-              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1)
-        BEGIN
-            SELECT RAISE(ABORT, 'school ownership mismatch');
-        END
-    """)
-    connection.execute("""
-        CREATE TRIGGER IF NOT EXISTS trg_announcement_school_update
-        BEFORE UPDATE OF created_by, updated_by, school_id ON school_announcements
-        WHEN ((SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
-              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)
-          OR ((SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
-              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1)
-        BEGIN
-            SELECT RAISE(ABORT, 'school ownership mismatch');
-        END
-    """)
-    connection.execute("""
-        CREATE TRIGGER IF NOT EXISTS trg_user_school_content_dependents_update
-        BEFORE UPDATE OF school_id ON users
-        WHEN EXISTS (SELECT 1 FROM finance_payments
-                     WHERE received_by=OLD.id AND school_id IS NOT NEW.school_id)
-          OR EXISTS (SELECT 1 FROM learning_materials
-                     WHERE uploaded_by=OLD.id AND school_id IS NOT NEW.school_id)
-          OR EXISTS (SELECT 1 FROM school_announcements
-                     WHERE (created_by=OLD.id OR updated_by=OLD.id)
-                       AND school_id IS NOT NEW.school_id)
-        BEGIN
-            SELECT RAISE(ABORT, 'school ownership mismatch');
-        END
-    """)
-    content_integrity_checks = (
-        ("finance payment", """SELECT COUNT(*) FROM finance_payments p
-            JOIN students s ON s.id=p.student_id
-            JOIN users u ON u.id=p.received_by
-            WHERE s.school_id IS NOT p.school_id
-               OR (u.school_id IS NOT p.school_id AND COALESCE(u.is_super_admin,0) <> 1)"""),
-        ("learning material", """SELECT COUNT(*) FROM learning_materials m
-            JOIN users u ON u.id=m.uploaded_by
-            WHERE u.school_id IS NOT m.school_id AND COALESCE(u.is_super_admin,0) <> 1"""),
-        ("announcement", """SELECT COUNT(*) FROM school_announcements a
-            JOIN users creator ON creator.id=a.created_by
-            JOIN users editor ON editor.id=a.updated_by
-            WHERE (creator.school_id IS NOT a.school_id AND COALESCE(creator.is_super_admin,0) <> 1)
-               OR (editor.school_id IS NOT a.school_id AND COALESCE(editor.is_super_admin,0) <> 1)"""),
-    )
-    for relationship_name, query in content_integrity_checks:
-        mismatch_count = connection.execute(query).fetchone()[0]
-        if mismatch_count:
-            raise sqlite3.DatabaseError(
-                f"Content migration stopped: {mismatch_count} {relationship_name} school-ownership mismatch(es)"
+    # Use a savepoint when the caller already has pending writes. This lets
+    # schema setup remain atomic without committing unrelated caller work.
+    owns_transaction = not connection.in_transaction
+    if owns_transaction:
+        connection.execute("BEGIN IMMEDIATE")
+    else:
+        connection.execute("SAVEPOINT content_schema_migration")
+    try:
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS learning_materials (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                school_id INTEGER NOT NULL REFERENCES schools(id),
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                class_level TEXT NOT NULL,
+                stored_name TEXT NOT NULL,
+                original_name TEXT NOT NULL,
+                uploaded_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1))
             )
-    connection.execute(
-        """INSERT OR IGNORE INTO schema_migrations (version,name)
-           VALUES (3,'content-and-finance-school-ownership-guards')"""
-    )
-    connection.commit()
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS school_announcements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                school_id INTEGER NOT NULL REFERENCES schools(id),
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                audience TEXT NOT NULL CHECK (audience IN ('public','students','staff','all')),
+                status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('published','archived')),
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                updated_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS finance_payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                school_id INTEGER NOT NULL REFERENCES schools(id),
+                student_id INTEGER NOT NULL,
+                academic_year TEXT NOT NULL,
+                amount REAL NOT NULL CHECK (amount > 0),
+                method TEXT NOT NULL CHECK (method IN ('cash','bank_transfer','mobile_money','other')),
+                reference TEXT,
+                receipt_number TEXT NOT NULL UNIQUE,
+                received_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(student_id) REFERENCES students(id)
+            )
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_finance_payment_school_insert
+            BEFORE INSERT ON finance_payments
+            WHEN (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id
+              OR ((SELECT school_id FROM users WHERE id=NEW.received_by) IS NOT NEW.school_id
+                  AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.received_by),0) <> 1)
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_finance_payment_school_update
+            BEFORE UPDATE OF student_id, received_by, school_id ON finance_payments
+            WHEN (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id
+              OR ((SELECT school_id FROM users WHERE id=NEW.received_by) IS NOT NEW.school_id
+                  AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.received_by),0) <> 1)
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_learning_material_school_insert
+            BEFORE INSERT ON learning_materials
+            WHEN (SELECT school_id FROM users WHERE id=NEW.uploaded_by) IS NOT NEW.school_id
+              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.uploaded_by),0) <> 1
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_learning_material_school_update
+            BEFORE UPDATE OF school_id,uploaded_by ON learning_materials
+            WHEN (SELECT school_id FROM users WHERE id=NEW.uploaded_by) IS NOT NEW.school_id
+              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.uploaded_by),0) <> 1
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_announcement_school_insert
+            BEFORE INSERT ON school_announcements
+            WHEN ((SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
+                  AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)
+              OR ((SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
+                  AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1)
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_announcement_school_update
+            BEFORE UPDATE OF created_by, updated_by, school_id ON school_announcements
+            WHEN ((SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
+                  AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)
+              OR ((SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
+                  AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1)
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_user_school_content_dependents_update
+            BEFORE UPDATE OF school_id ON users
+            WHEN EXISTS (SELECT 1 FROM finance_payments
+                         WHERE received_by=OLD.id AND school_id IS NOT NEW.school_id)
+              OR EXISTS (SELECT 1 FROM learning_materials
+                         WHERE uploaded_by=OLD.id AND school_id IS NOT NEW.school_id)
+              OR EXISTS (SELECT 1 FROM school_announcements
+                         WHERE (created_by=OLD.id OR updated_by=OLD.id)
+                           AND school_id IS NOT NEW.school_id)
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        content_integrity_checks = (
+            ("finance payment", """SELECT COUNT(*) FROM finance_payments p
+                JOIN students s ON s.id=p.student_id
+                JOIN users u ON u.id=p.received_by
+                WHERE s.school_id IS NOT p.school_id
+                   OR (u.school_id IS NOT p.school_id AND COALESCE(u.is_super_admin,0) <> 1)"""),
+            ("learning material", """SELECT COUNT(*) FROM learning_materials m
+                JOIN users u ON u.id=m.uploaded_by
+                WHERE u.school_id IS NOT m.school_id AND COALESCE(u.is_super_admin,0) <> 1"""),
+            ("announcement", """SELECT COUNT(*) FROM school_announcements a
+                JOIN users creator ON creator.id=a.created_by
+                JOIN users editor ON editor.id=a.updated_by
+                WHERE (creator.school_id IS NOT a.school_id AND COALESCE(creator.is_super_admin,0) <> 1)
+                   OR (editor.school_id IS NOT a.school_id AND COALESCE(editor.is_super_admin,0) <> 1)"""),
+        )
+        for relationship_name, query in content_integrity_checks:
+            mismatch_count = connection.execute(query).fetchone()[0]
+            if mismatch_count:
+                raise sqlite3.DatabaseError(
+                    f"Content migration stopped: {mismatch_count} {relationship_name} school-ownership mismatch(es)"
+                )
+        connection.execute(
+            """INSERT OR IGNORE INTO schema_migrations (version,name)
+               VALUES (3,'content-and-finance-school-ownership-guards')"""
+        )
+            if owns_transaction:
+                connection.commit()
+            else:
+                connection.execute("RELEASE SAVEPOINT content_schema_migration")
+
+    except Exception:
+        if owns_transaction:
+            connection.rollback()
+        else:
+            connection.execute("ROLLBACK TO SAVEPOINT content_schema_migration")
+            connection.execute("RELEASE SAVEPOINT content_schema_migration")
+        raise
 
 def can_view_material(role, class_level, archived=False):
     if archived:
