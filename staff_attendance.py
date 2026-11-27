@@ -68,6 +68,9 @@ def register_staff_attendance_routes(ns):
             try:
                 class_levels = get_school_class_levels(connection, school_id)
                 subject_names = {row["name"] for row in get_school_subjects(connection, school_id)}
+                # Release the subject-catalogue import write before permission checks
+                # open a second SQLite connection to append authorization audit events.
+                connection.commit()
                 if action == "assign_teacher":
                     require_permission("academic.manage_classes", get_db_connection, school_id=school_id)
                     teacher_text = request.form.get("teacher_id", "").strip()
