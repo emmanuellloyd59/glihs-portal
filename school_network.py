@@ -556,6 +556,7 @@ def create_school_network_blueprint(connection_factory):
             return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
         action = _clean(payload.get("action"), 24).lower()
         transitions = {
+            "start_review": ({"pending"}, "under_review", "suspended"),
             "approve": ({"pending", "under_review"}, "approved", "suspended"),
             "reject": ({"pending", "under_review"}, "rejected", "suspended"),
             "activate": ({"approved"}, "active", "active"),
@@ -862,6 +863,7 @@ def create_school_network_blueprint(connection_factory):
         action = _clean(request.form.get("action"), 24).lower()
         # Delegate to the same transition rules as the API via an internal request-free helper.
         transitions = {
+            "start_review": ({"pending"}, "under_review", "suspended"),
             "approve": ({"pending", "under_review"}, "approved", "suspended"),
             "reject": ({"pending", "under_review"}, "rejected", "suspended"),
             "activate": ({"approved"}, "active", "active"),
