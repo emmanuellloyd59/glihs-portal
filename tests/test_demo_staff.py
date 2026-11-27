@@ -29,6 +29,7 @@ class DemoStaffProvisioningTests(unittest.TestCase):
             "UPDATE schools SET status='active', lifecycle_status='active' WHERE id=1"
         )
         for table in (
+            "authorization_grants", "authorization_audit",
             "student_documents", "student_disciplinary_records", "student_withdrawals",
             "student_transfers", "student_academic_history", "student_guardians",
             "student_admissions", "identity_recovery_tokens", "membership_invitations",
