@@ -30,11 +30,11 @@ This module extends the existing `students` table and existing student pages. It
 - `GET /api/v1/students/duplicate-check?full_name=...&date_of_birth=...` — possible matches for manual identity review.
 - `GET|PUT /api/v1/students/identifier-config` — read or configure the school identifier pattern.
 - `GET|POST /api/v1/admissions`; `POST /api/v1/admissions/{id}/review`; `POST /api/v1/admissions/{id}/convert`.
-- `GET|POST /api/v1/students/{id}/guardians`.
+- `GET|POST /api/v1/students/{id}/guardians`; `PUT /api/v1/student-guardians/{id}`; `DELETE /api/v1/student-guardians/{id}` (archive).
 - `GET|POST /api/v1/students/{id}/academic-history`.
-- `POST /api/v1/students/{id}/transfers`; `POST /api/v1/student-transfers/{id}/review`; `POST /api/v1/students/{id}/withdraw`.
+- `POST /api/v1/students/{id}/transfers`; `POST /api/v1/student-transfers/{id}/review` (completion of an outbound transfer marks the source-school record transferred); `POST /api/v1/students/{id}/withdraw`.
 - `GET|POST /api/v1/students/{id}/disciplinary-records`.
-- `GET|POST /api/v1/students/{id}/documents`; `GET /api/v1/student-documents/{id}/download`.
+- `GET|POST /api/v1/students/{id}/documents`; `GET /api/v1/student-documents/{id}/download`; `DELETE /api/v1/student-documents/{id}` (archive, never hard-delete).
 - `GET /api/v1/students/report/summary`; `GET /api/v1/students/export.csv`; `POST /api/v1/students/import.csv`.
 
 ## Permission model
