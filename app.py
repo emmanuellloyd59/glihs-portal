@@ -2856,10 +2856,6 @@ initialize_authorization_schema(get_db_connection)
 app.register_blueprint(create_authorization_blueprint(get_db_connection))
 
 
-if __name__ == "__main__":
-    app.run(port=5000, debug=False)
-
-
 # Institutional lifecycle and provider-neutral subscription foundation.
 # Schema creation is additive; no existing institution is enrolled, suspended,
 # billed or otherwise changed during application startup.
@@ -2869,3 +2865,15 @@ from institution_subscriptions import (
 )
 initialize_subscription_schema(get_db_connection)
 app.register_blueprint(create_subscription_blueprint(get_db_connection))
+
+
+# Comprehensive tenant-aware Student Information Management System.
+from student_information import (
+    create_student_information_blueprint,
+    initialize_student_information_schema,
+)
+initialize_student_information_schema(get_db_connection)
+app.register_blueprint(create_student_information_blueprint(get_db_connection, INSTANCE_DIR))
+
+if __name__ == "__main__":
+    app.run(port=5000, debug=False)
