@@ -839,14 +839,17 @@ def teacher_has_class_subject(connection, teacher_id, school_id, class_level, su
 
 
 class User(UserMixin):
-    def __init__(self, user_id, username, password_hash, role, is_super_admin=False, school_id=None):
+    def __init__(self, user_id, username, password_hash, role, is_super_admin=False,
+                 school_id=None, membership_id=None, campus_id=None):
         self.id = str(user_id)
         self.username = username
         self.password_hash = password_hash
         self.role = role
         self.is_super_admin = bool(is_super_admin)
-        # Server-derived tenant context; never trust a school ID from a form/query.
+        # Tenant context comes from the user's verified active membership.
         self.school_id = school_id
+        self.membership_id = membership_id
+        self.campus_id = campus_id
 
 
 def get_user_by_id(user_id):
@@ -871,8 +874,16 @@ def get_user_by_id(user_id):
         ).fetchone()
         if row is None:
             return None
+        if row["is_super_admin"] and row["role"] == "super_admin" and row["school_id"] is None:
+            return User(row["id"], row["username"], row["password_hash"],
+                        row["role"], row["is_super_admin"], None)
+        from identity_memberships import resolve_membership
+        membership = resolve_membership(connection, row["id"], session)
+        if membership is None:
+            return None
         return User(row["id"], row["username"], row["password_hash"],
-                    row["role"], row["is_super_admin"], row["school_id"])
+                    membership["role"], False, membership["school_id"],
+                    membership["membership_id"], membership["campus_id"])
     finally:
         connection.close()
 
@@ -969,8 +980,22 @@ def login():
 
         user = get_user_by_username(username)
         if user and check_password_hash(user.password_hash, password):
+            # Start from a clean session, then bind the login to a verified
+            # active membership (or retain the platform-owner identity).
+            session.clear()
+            if not user.is_super_admin:
+                from identity_memberships import resolve_membership
+                connection = get_db_connection()
+                try:
+                    membership = resolve_membership(connection, int(user.id), session)
+                finally:
+                    connection.close()
+                if membership is None:
+                    flash("This account has no active school membership.")
+                    return render_template("login.html")
+                user = get_user_by_id(user.id)
             session.permanent = True
-            login_user(user)
+            login_user(user, fresh=True)
             write_audit(user.id, "login_success", user.username)
             return redirect(url_for("dashboard"))
         write_audit(None, "login_failed", username[:64] or None)
@@ -2757,6 +2782,15 @@ from school_configuration import (
 )
 initialize_configuration_schema(get_db_connection)
 app.register_blueprint(create_school_configuration_blueprint(get_db_connection))
+
+# Global platform identities may hold several independently scoped school
+# memberships. Backfill is additive and retains existing user IDs/password hashes.
+from identity_memberships import (
+    create_membership_blueprint,
+    initialize_membership_schema,
+)
+initialize_membership_schema(get_db_connection)
+app.register_blueprint(create_membership_blueprint(get_db_connection))
 
 
 if __name__ == "__main__":
