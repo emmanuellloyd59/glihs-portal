@@ -643,7 +643,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             "full_name": "Fictional Student",
             "class_level": "Grade 7",
         }, follow_redirects=True)
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 403)
         connection = portal.get_db_connection()
         try:
             count = connection.execute(
@@ -962,7 +962,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             },
         ):
             response = self.client.post("/academics", data=payload, follow_redirects=True)
-            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.status_code, 403)
 
         self.client.post("/logout")
         self.login_as("finance_route_test")
