@@ -20,6 +20,7 @@ Required registration fields include institution name, identity slug (or a gener
 - POST /platform/schools/{school_id}/review — CSRF-protected platform UI action.
 
 Allowed transitions:
+- pending → under_review
 - pending or under_review → approved
 - pending or under_review → rejected
 - approved → active
