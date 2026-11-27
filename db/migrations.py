@@ -214,8 +214,107 @@ POSTGRESQL_MIGRATIONS = (
             "CREATE INDEX idx_homework_submissions_school_assignment ON homework_submissions(school_id, assignment_id, submitted_at)",
         ),
     ),
+    Migration(
+        2,
+        "postgresql-school-ownership-integrity-guards",
+        (
+            """CREATE FUNCTION cmhs_assert_user_school(
+                p_user_id BIGINT, p_school_id BIGINT, p_allow_super_admin BOOLEAN
+            ) RETURNS VOID LANGUAGE plpgsql AS $
+            DECLARE v_school_id BIGINT; v_is_super_admin SMALLINT;
+            BEGIN
+                IF p_user_id IS NULL THEN RETURN; END IF;
+                SELECT school_id, is_super_admin
+                  INTO v_school_id, v_is_super_admin
+                  FROM users WHERE id = p_user_id;
+                IF NOT FOUND OR (
+                    v_school_id IS DISTINCT FROM p_school_id
+                    AND NOT (p_allow_super_admin AND v_is_super_admin = 1)
+                ) THEN
+                    RAISE EXCEPTION 'school ownership mismatch: user %', p_user_id
+                        USING ERRCODE = '23514';
+                END IF;
+            END;
+            $""",
+            """CREATE FUNCTION cmhs_assert_student_school(
+                p_student_id BIGINT, p_school_id BIGINT
+            ) RETURNS VOID LANGUAGE plpgsql AS $
+            DECLARE v_school_id BIGINT;
+            BEGIN
+                SELECT school_id INTO v_school_id FROM students WHERE id = p_student_id;
+                IF NOT FOUND OR v_school_id IS DISTINCT FROM p_school_id THEN
+                    RAISE EXCEPTION 'school ownership mismatch: student %', p_student_id
+                        USING ERRCODE = '23514';
+                END IF;
+            END;
+            $""",
+            """CREATE FUNCTION cmhs_assert_homework_school(
+                p_assignment_id BIGINT, p_school_id BIGINT
+            ) RETURNS VOID LANGUAGE plpgsql AS $
+            DECLARE v_school_id BIGINT;
+            BEGIN
+                SELECT school_id INTO v_school_id
+                  FROM homework_assignments WHERE id = p_assignment_id;
+                IF NOT FOUND OR v_school_id IS DISTINCT FROM p_school_id THEN
+                    RAISE EXCEPTION 'school ownership mismatch: homework assignment %', p_assignment_id
+                        USING ERRCODE = '23514';
+                END IF;
+            END;
+            $""",
+            """CREATE FUNCTION cmhs_school_ownership_guard()
+            RETURNS TRIGGER LANGUAGE plpgsql AS $
+            DECLARE v_school_id BIGINT := (to_jsonb(NEW)->>'school_id')::BIGINT;
+            BEGIN
+                CASE TG_TABLE_NAME
+                WHEN 'students' THEN
+                    PERFORM cmhs_assert_user_school(
+                        (to_jsonb(NEW)->>'account_user_id')::BIGINT, v_school_id, FALSE
+                    );
+                WHEN 'parent_student_links' THEN
+                    PERFORM cmhs_assert_user_school(NEW.parent_user_id, v_school_id, FALSE);
+                    PERFORM cmhs_assert_student_school(NEW.student_id, v_school_id);
+                    PERFORM cmhs_assert_user_school(NEW.created_by, v_school_id, TRUE);
+                WHEN 'student_finances' THEN
+                    PERFORM cmhs_assert_student_school(NEW.student_id, v_school_id);
+                    PERFORM cmhs_assert_user_school(NEW.updated_by, v_school_id, TRUE);
+                WHEN 'grades' THEN
+                    PERFORM cmhs_assert_student_school(NEW.student_id, v_school_id);
+                    PERFORM cmhs_assert_user_school(NEW.recorded_by, v_school_id, TRUE);
+                WHEN 'attendance' THEN
+                    PERFORM cmhs_assert_student_school(NEW.student_id, v_school_id);
+                    PERFORM cmhs_assert_user_school(NEW.recorded_by, v_school_id, TRUE);
+                WHEN 'report_cards' THEN
+                    PERFORM cmhs_assert_student_school(NEW.student_id, v_school_id);
+                    PERFORM cmhs_assert_user_school(NEW.published_by, v_school_id, TRUE);
+                WHEN 'teacher_class_assignments' THEN
+                    PERFORM cmhs_assert_user_school(NEW.teacher_id, v_school_id, FALSE);
+                    PERFORM cmhs_assert_user_school(NEW.created_by, v_school_id, TRUE);
+                WHEN 'class_timetable' THEN
+                    PERFORM cmhs_assert_user_school(NEW.teacher_id, v_school_id, FALSE);
+                    PERFORM cmhs_assert_user_school(NEW.created_by, v_school_id, TRUE);
+                WHEN 'homework_assignments' THEN
+                    PERFORM cmhs_assert_user_school(NEW.created_by, v_school_id, TRUE);
+                WHEN 'homework_submissions' THEN
+                    PERFORM cmhs_assert_student_school(NEW.student_id, v_school_id);
+                    PERFORM cmhs_assert_homework_school(NEW.assignment_id, v_school_id);
+                    PERFORM cmhs_assert_user_school(NEW.graded_by, v_school_id, TRUE);
+                END CASE;
+                RETURN NEW;
+            END;
+            $""",
+            "CREATE TRIGGER trg_students_school_guard BEFORE INSERT OR UPDATE ON students FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
+            "CREATE TRIGGER trg_parent_student_links_school_guard BEFORE INSERT OR UPDATE ON parent_student_links FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
+            "CREATE TRIGGER trg_student_finances_school_guard BEFORE INSERT OR UPDATE ON student_finances FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
+            "CREATE TRIGGER trg_grades_school_guard BEFORE INSERT OR UPDATE ON grades FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
+            "CREATE TRIGGER trg_attendance_school_guard BEFORE INSERT OR UPDATE ON attendance FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
+            "CREATE TRIGGER trg_report_cards_school_guard BEFORE INSERT OR UPDATE ON report_cards FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
+            "CREATE TRIGGER trg_teacher_assignments_school_guard BEFORE INSERT OR UPDATE ON teacher_class_assignments FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
+            "CREATE TRIGGER trg_timetable_school_guard BEFORE INSERT OR UPDATE ON class_timetable FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
+            "CREATE TRIGGER trg_homework_assignments_school_guard BEFORE INSERT OR UPDATE ON homework_assignments FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
+            "CREATE TRIGGER trg_homework_submissions_school_guard BEFORE INSERT OR UPDATE ON homework_submissions FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
+        ),
+    ),
 )
-
 
 def _validate_migration_set(migrations):
     versions = [migration.version for migration in migrations]
