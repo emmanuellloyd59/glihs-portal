@@ -92,6 +92,54 @@ def initialize_academic_structure(dbopen):
         CREATE INDEX IF NOT EXISTS idx_academic_periods_tenant_year ON academic_periods(school_id,academic_year_id);
         CREATE INDEX IF NOT EXISTS idx_academic_classes_tenant_year ON academic_classes(school_id,academic_year_id);
         CREATE INDEX IF NOT EXISTS idx_course_enrollments_student ON course_enrollments(school_id,student_id,academic_year_id);
+        CREATE TRIGGER IF NOT EXISTS trg_period_tenant_insert BEFORE INSERT ON academic_periods
+        WHEN NOT EXISTS (SELECT 1 FROM academic_years y WHERE y.id=NEW.academic_year_id AND y.school_id=NEW.school_id)
+        BEGIN SELECT RAISE(ABORT,'academic period tenant mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_period_tenant_update BEFORE UPDATE OF school_id,academic_year_id ON academic_periods
+        WHEN NOT EXISTS (SELECT 1 FROM academic_years y WHERE y.id=NEW.academic_year_id AND y.school_id=NEW.school_id)
+        BEGIN SELECT RAISE(ABORT,'academic period tenant mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_class_tenant_insert BEFORE INSERT ON academic_classes
+        WHEN NOT EXISTS (SELECT 1 FROM academic_years y JOIN grade_levels g ON g.school_id=y.school_id WHERE y.id=NEW.academic_year_id AND g.id=NEW.grade_level_id AND y.school_id=NEW.school_id)
+        BEGIN SELECT RAISE(ABORT,'academic class tenant mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_class_tenant_update BEFORE UPDATE OF school_id,academic_year_id,grade_level_id ON academic_classes
+        WHEN NOT EXISTS (SELECT 1 FROM academic_years y JOIN grade_levels g ON g.school_id=y.school_id WHERE y.id=NEW.academic_year_id AND g.id=NEW.grade_level_id AND y.school_id=NEW.school_id)
+        BEGIN SELECT RAISE(ABORT,'academic class tenant mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_section_tenant_insert BEFORE INSERT ON class_sections
+        WHEN NOT EXISTS (SELECT 1 FROM academic_classes c WHERE c.id=NEW.class_id AND c.school_id=NEW.school_id)
+        BEGIN SELECT RAISE(ABORT,'class section tenant mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_section_tenant_update BEFORE UPDATE OF school_id,class_id ON class_sections
+        WHEN NOT EXISTS (SELECT 1 FROM academic_classes c WHERE c.id=NEW.class_id AND c.school_id=NEW.school_id)
+        BEGIN SELECT RAISE(ABORT,'class section tenant mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_curriculum_tenant_insert BEFORE INSERT ON curriculum_subjects
+        WHEN NOT EXISTS (SELECT 1 FROM grade_levels g JOIN subjects s ON s.school_id=g.school_id WHERE g.id=NEW.grade_level_id AND s.id=NEW.subject_id AND g.school_id=NEW.school_id)
+        BEGIN SELECT RAISE(ABORT,'curriculum tenant mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_curriculum_tenant_update BEFORE UPDATE OF school_id,grade_level_id,subject_id ON curriculum_subjects
+        WHEN NOT EXISTS (SELECT 1 FROM grade_levels g JOIN subjects s ON s.school_id=g.school_id WHERE g.id=NEW.grade_level_id AND s.id=NEW.subject_id AND g.school_id=NEW.school_id)
+        BEGIN SELECT RAISE(ABORT,'curriculum tenant mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_enrollment_tenant_insert BEFORE INSERT ON course_enrollments
+        WHEN NOT EXISTS (
+          SELECT 1 FROM students st
+          JOIN class_sections cs ON cs.id=NEW.class_section_id AND cs.school_id=st.school_id
+          JOIN academic_classes ac ON ac.id=cs.class_id AND ac.school_id=cs.school_id AND ac.academic_year_id=NEW.academic_year_id
+          JOIN subjects su ON su.id=NEW.subject_id AND su.school_id=st.school_id
+          JOIN academic_years ay ON ay.id=NEW.academic_year_id AND ay.school_id=st.school_id
+          WHERE st.id=NEW.student_id AND st.school_id=NEW.school_id
+            AND (NEW.academic_period_id IS NULL OR EXISTS
+              (SELECT 1 FROM academic_periods p WHERE p.id=NEW.academic_period_id AND p.school_id=NEW.school_id AND p.academic_year_id=NEW.academic_year_id))
+        )
+        BEGIN SELECT RAISE(ABORT,'course enrollment tenant or year mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_enrollment_tenant_update BEFORE UPDATE OF school_id,student_id,class_section_id,subject_id,academic_year_id,academic_period_id ON course_enrollments
+        WHEN NOT EXISTS (
+          SELECT 1 FROM students st
+          JOIN class_sections cs ON cs.id=NEW.class_section_id AND cs.school_id=st.school_id
+          JOIN academic_classes ac ON ac.id=cs.class_id AND ac.school_id=cs.school_id AND ac.academic_year_id=NEW.academic_year_id
+          JOIN subjects su ON su.id=NEW.subject_id AND su.school_id=st.school_id
+          JOIN academic_years ay ON ay.id=NEW.academic_year_id AND ay.school_id=st.school_id
+          WHERE st.id=NEW.student_id AND st.school_id=NEW.school_id
+            AND (NEW.academic_period_id IS NULL OR EXISTS
+              (SELECT 1 FROM academic_periods p WHERE p.id=NEW.academic_period_id AND p.school_id=NEW.school_id AND p.academic_year_id=NEW.academic_year_id))
+        )
+        BEGIN SELECT RAISE(ABORT,'course enrollment tenant or year mismatch'); END;
         """)
         # Add nullable references to existing grade/report rows. Existing textual
         # columns remain authoritative for old reports and are never rewritten.
