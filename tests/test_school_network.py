@@ -155,6 +155,9 @@ class SchoolNetworkTests(unittest.TestCase):
         self.login("network_owner", "network-owner-password")
         created = self.client.post("/api/v1/schools", json=self.registration_payload())
         school_id = created.get_json()["data"]["id"]
+        review = self.client.post(f"/api/v1/schools/{school_id}/review", json={"action": "start_review"})
+        self.assertEqual(review.status_code, 200)
+        self.assertEqual(review.get_json()["data"]["lifecycle_status"], "under_review")
         approve = self.client.post(f"/api/v1/schools/{school_id}/review", json={"action": "approve"})
         self.assertEqual(approve.status_code, 200)
         self.assertEqual(approve.get_json()["data"]["lifecycle_status"], "approved")
