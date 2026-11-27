@@ -899,6 +899,12 @@ def get_user_by_id(user_id):
 def get_user_by_username(username):
     connection = get_db_connection()
     try:
+        membership_tables = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='school_memberships'"
+        ).fetchone()
+        if membership_tables is None:
+            from identity_memberships import initialize_membership_schema
+            initialize_membership_schema(get_db_connection)
         row = connection.execute(
             """
             SELECT u.id, u.username, u.password_hash, u.role, u.is_super_admin, u.school_id,
