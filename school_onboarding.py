@@ -144,7 +144,12 @@ def initialize_onboarding_schema(connection_factory):
             sent_at TEXT
         );
         """)
-        app_columns = {row[1] for row in connection.execute('PRAGMA table_info(onboarding_applications)')}\n        if 'verification_token_hash' not in app_columns:\n            connection.execute('ALTER TABLE onboarding_applications ADD COLUMN verification_token_hash TEXT')\n        if 'email_verified' not in app_columns:\n            connection.execute('ALTER TABLE onboarding_applications ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0')\n        for code, label in SERVICES:
+        app_columns = {row[1] for row in connection.execute("PRAGMA table_info(onboarding_applications)")}
+        if "verification_token_hash" not in app_columns:
+            connection.execute("ALTER TABLE onboarding_applications ADD COLUMN verification_token_hash TEXT")
+        if "email_verified" not in app_columns:
+            connection.execute("ALTER TABLE onboarding_applications ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0")
+        for code, label in SERVICES:
             connection.execute(
                 "INSERT OR IGNORE INTO onboarding_service_catalog(service_key,label) VALUES (?,?)",
                 (code, label),
@@ -220,7 +225,18 @@ def _validate_payload(payload, profile, services):
         errors.append(profile["region_label"] + " is required for this country.")
     if profile and profile["registration_number_required"] and not _clean(payload.get("registration_number"), 100):
         errors.append("Institutional registration or license number is required for this country.")
-    configured = json.loads(profile["requirements_json"] or "{}") if profile else {}\n    required_fields = configured.get("required_fields", []) if isinstance(configured, dict) else []\n    field_labels = {"registration_number":"Institutional registration number", "region": profile["region_label"] if profile else "Administrative region", "city":"City", "owner_name":"Responsible owner or authority", "contact_phone":"Institutional phone", "website_url":"Official website"}\n    for field in required_fields if isinstance(required_fields, list) else []:\n        if field in field_labels and not _clean(payload.get(field), 255):\n            errors.append(field_labels[field] + " is required for this country.")\n    requested = payload.get("requested_services", [])
+    configured = json.loads(profile["requirements_json"] or "{}") if profile else {}
+    required_fields = configured.get("required_fields", []) if isinstance(configured, dict) else []
+    field_labels = {
+        "registration_number": "Institutional registration number",
+        "region": profile["region_label"] if profile else "Administrative region",
+        "city": "City", "owner_name": "Responsible owner or authority",
+        "contact_phone": "Institutional phone", "website_url": "Official website",
+    }
+    for field in required_fields if isinstance(required_fields, list) else []:
+        if field in field_labels and not _clean(payload.get(field), 255):
+            errors.append(field_labels[field] + " is required for this country.")
+    requested = payload.get("requested_services", [])
     if not isinstance(requested, list) or not requested:
         errors.append("Select at least one requested service.")
         requested = []
@@ -370,7 +386,33 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
         finally:
             connection.close()
 
-    @bp.post("/api/v1/onboarding/applications/<reference>/verify-email")\n    def verify_application_email(reference):\n        payload = request.get_json(silent=True) or {}\n        token = _clean(payload.get("verification_token"), 200)\n        connection = connection_factory()\n        try:\n            row = connection.execute("SELECT * FROM onboarding_applications WHERE reference=?", (reference,)).fetchone()\n            if not row or not token or not row["verification_token_hash"] or not hmac.compare_digest(row["verification_token_hash"], _token_hash(token)):\n                abort(404)\n            if row["expires_at"] < _stamp():\n                abort(410)\n            connection.execute("UPDATE onboarding_applications SET email_verified=1,verification_token_hash=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?", (row["id"],))\n            _record_event(connection,row["id"],row["school_id"],None,"application.email_verified",{})\n            connection.commit()\n            return jsonify({"data":{"reference":reference,"email_verified":True}})\n        finally:\n            connection.close()\n\n    @bp.get("/api/v1/onboarding/applications/<reference>")
+    @bp.post("/api/v1/onboarding/applications/<reference>/verify-email")
+    def verify_application_email(reference):
+        payload = request.get_json(silent=True) or {}
+        token = _clean(payload.get("verification_token"), 200)
+        connection = connection_factory()
+        try:
+            row = connection.execute(
+                "SELECT * FROM onboarding_applications WHERE reference=?", (reference,)
+            ).fetchone()
+            if not row or not token or not row["verification_token_hash"] or not hmac.compare_digest(
+                row["verification_token_hash"], _token_hash(token)
+            ):
+                abort(404)
+            if row["expires_at"] < _stamp():
+                abort(410)
+            connection.execute(
+                """UPDATE onboarding_applications
+                   SET email_verified=1,verification_token_hash=NULL,updated_at=CURRENT_TIMESTAMP
+                   WHERE id=?""", (row["id"],)
+            )
+            _record_event(connection,row["id"],row["school_id"],None,"application.email_verified",{})
+            connection.commit()
+            return jsonify({"data":{"reference":reference,"email_verified":True}})
+        finally:
+            connection.close()
+
+    @bp.get("/api/v1/onboarding/applications/<reference>")
     def get_draft(reference):
         token = request.headers.get("X-Onboarding-Token") or request.args.get("token","")
         connection = connection_factory()
@@ -416,7 +458,7 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
                 verify_url = request.host_url.rstrip("/") + "/api/v1/onboarding/applications/" + reference + "/verify-email"
                 _queue_email(connection,email,"Verify your updated school registration email",
                              "Your application email was changed. Verify the new address using this one-time token: "+
-                             verification_token+"\\nVerification endpoint: "+verify_url)
+                             verification_token+"\nVerification endpoint: "+verify_url)
             else:
                 connection.execute(
                     """UPDATE onboarding_applications SET applicant_email=?,country_code=?,payload_json=?,
@@ -703,7 +745,9 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
                 return _json_error("school_not_approved","Institution is not approved for administrator onboarding.",409)
             if connection.execute("SELECT 1 FROM users WHERE lower(username)=lower(?)",(invitation["email"],)).fetchone():
                 return _json_error("account_exists","An account already exists for this email.",409)
-            if school["lifecycle_status"] != "active" or school["status"] != "active":\n                return _json_error("school_not_active","The institution must be active before an administrator account can be created.",409)\n            status = "active"
+            if school["lifecycle_status"] != "active" or school["status"] != "active":
+                return _json_error("school_not_active","The institution must be active before an administrator account can be created.",409)
+            status = "active"
             cursor = connection.execute(
                 """INSERT INTO users(username,full_name,password_hash,role,status,is_super_admin,school_id)
                    VALUES (?,?,?,'school_admin',?,0,?)""",
