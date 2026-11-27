@@ -26,6 +26,10 @@
       <label class="form-label" for="institution_type">Institution relationship</label>
       <select class="form-select" id="institution_type"><option value="independent">Independent institution</option><option value="group_affiliated">Affiliated school group</option></select>
     </div>
+    <div class="col-12 col-md-6" id="group-wrap" hidden>
+      <label class="form-label" for="group_id">Active school group *</label>
+      <select class="form-select" id="group_id"><option value="">Select a school group</option></select>
+    </div>
     <div class="col-12 col-md-6">
       <label class="form-label" for="classification">Institution type / level *</label>
       <select class="form-select" id="classification">
@@ -89,6 +93,7 @@
     const data = {};
     fields.forEach(key => data[key] = $(key).value.trim());
     data.country_code = $("country_code").value === "OTHER" ? $("other-country-code").value.trim().toUpperCase() : $("country_code").value;
+    data.group_id = $("group_id").value ? Number($("group_id").value) : null;
     data.county = data.region;
     data.requested_services = Array.from(document.querySelectorAll("[name='requested_services']:checked")).map(x => x.value);
     data.website = $("website").value;
@@ -99,6 +104,8 @@
       const result = await request("/api/v1/onboarding/countries","GET");
       countryProfiles = result.countries;
       services = result.services;
+      const groupSelect = $("group_id");
+      (result.school_groups || []).forEach(group => groupSelect.add(new Option(group.name,String(group.id))));
       const countrySelect = $("country_code");
       countrySelect.replaceChildren(new Option("Select your country",""));
       countryProfiles.forEach(item => countrySelect.add(new Option(item.country_name,item.country_code)));
@@ -119,6 +126,11 @@
       });
     } catch (error) { show(error.message,"danger"); }
   };
+  $("institution_type").addEventListener("change", () => {
+    const affiliated = $("institution_type").value === "group_affiliated";
+    $("group-wrap").hidden = !affiliated;
+    $("group_id").required = affiliated;
+  });
   $("country_code").addEventListener("change", () => {
     const profile = countryProfiles.find(x => x.country_code === $("country_code").value);
     const isOther = $("country_code").value === "OTHER";
@@ -163,6 +175,8 @@
       $("country_code").value = knownCountry ? saved.country_code : "OTHER";
       if (!knownCountry) $("other-country-code").value = saved.country_code;
       $("country_code").dispatchEvent(new Event("change"));
+      if (data.group_id) $("group_id").value = String(data.group_id);
+      $("institution_type").dispatchEvent(new Event("change"));
       document.querySelectorAll("[name='requested_services']").forEach(box => {
         box.checked = Array.isArray(data.requested_services) && data.requested_services.includes(box.value);
       });
