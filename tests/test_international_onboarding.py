@@ -277,6 +277,8 @@ class InternationalOnboardingTests(unittest.TestCase):
             connection.commit()
         finally:
             connection.close()
+        invite_page = self.client.get("/school-network/invitations/accept")
+        self.assertEqual(invite_page.status_code,200)
         invite = self.client.post(
             f"/api/v1/onboarding/schools/{school_id}/invite-administrator",
             json={"email":"new-admin@example.test","full_name":"New School Admin"},
@@ -287,7 +289,7 @@ class InternationalOnboardingTests(unittest.TestCase):
             body = connection.execute(
                 "SELECT body FROM onboarding_notification_outbox WHERE recipient='new-admin@example.test' ORDER BY id DESC LIMIT 1"
             ).fetchone()["body"]
-            token = body.split("Invitation token: ",1)[1].splitlines()[0]
+            token = body.split("#token=",1)[1].splitlines()[0]
         finally:
             connection.close()
         accepted = self.client.post("/api/v1/onboarding/invitations/accept", json={
