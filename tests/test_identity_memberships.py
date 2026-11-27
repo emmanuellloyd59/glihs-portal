@@ -42,6 +42,16 @@ class MultiSchoolIdentityTests(unittest.TestCase):
                    VALUES('other_identity','Other Identity','other@example.test',?,'teacher','active',0,?)""",
                 (generate_password_hash("another-test-password"), self.school_b),
             ).lastrowid
+            connection.execute(
+                """INSERT INTO school_memberships(user_id,school_id,role,status,is_primary)
+                   VALUES(?,1,'school_admin','active',1)""",
+                (self.user_a,),
+            )
+            connection.execute(
+                """INSERT INTO school_memberships(user_id,school_id,role,status,is_primary)
+                   VALUES(?,?,'teacher','active',1)""",
+                (self.user_b, self.school_b),
+            )
             connection.commit()
             self.membership_a = connection.execute(
                 "SELECT id FROM school_memberships WHERE user_id=? AND school_id=1 AND status='active'",
