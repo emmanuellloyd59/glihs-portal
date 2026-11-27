@@ -160,7 +160,7 @@ class StudentInformationTests(PortalTestSupport, unittest.TestCase):
         second_school=self.create_second_school_registrar()
         self.create_student(second_school,"OTHER-001","OTHER-ID","Other Fiction")
         self.login_as("registrar_demo","test-registrar-password")
-        data={"file":(io.BytesIO(b"admission_number,full_name,class_level\\nIMP-001,Imported Fiction,Grade 6\\n"),"students.csv")}
+        data={"file":(io.BytesIO(b"admission_number,full_name,class_level\nIMP-001,Imported Fiction,Grade 6\n"),"students.csv")}
         imported=self.client.post("/api/v1/students/import.csv",data=data,content_type="multipart/form-data")
         self.assertEqual(imported.status_code,201)
         self.assertEqual(imported.get_json()["inserted"],1)
