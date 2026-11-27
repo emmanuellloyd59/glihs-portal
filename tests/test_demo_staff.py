@@ -35,6 +35,7 @@ class DemoStaffProvisioningTests(unittest.TestCase):
             "student_transfers", "student_academic_history", "student_guardians",
             "student_admissions", "identity_recovery_tokens", "membership_invitations",
             "identity_security_events", "school_memberships",
+            "staff_documents", "staff_responsibilities", "staff_qualifications", "staff_employment", "staff_profiles", "staff_memberships", "staff_departments",
             "homework_submissions", "homework_assignments", "parent_student_links",
             "finance_payments", "school_announcements", "learning_materials",
             "class_timetable", "grades", "attendance", "report_cards",
