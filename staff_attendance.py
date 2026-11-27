@@ -27,6 +27,7 @@ def register_staff_attendance_routes(ns):
         "academic_admin", "attendance_officer", "teacher", "finance_admin",
         "librarian", "counselor",
     }
+    school_owner_assignable = school_admin_assignable | {"school_admin"}
     leadership_assignable = {"teacher", "attendance_officer", "librarian", "counselor"}
     leadership_manageable = leadership_assignable | {"registrar"}
     all_school_assignable = school_admin_assignable | {"school_admin"}
@@ -49,11 +50,13 @@ def register_staff_attendance_routes(ns):
         require_permission("school.manage_staff", get_db_connection, school_id=school_id)
         assignable = (
             all_school_assignable if current_user.role == "super_admin"
+            else school_owner_assignable if current_user.role == "school_owner"
             else school_admin_assignable if current_user.role == "school_admin"
             else leadership_assignable
         )
         manageable = (
             all_school_assignable if current_user.role == "super_admin"
+            else school_owner_assignable if current_user.role == "school_owner"
             else school_admin_assignable if current_user.role == "school_admin"
             else leadership_manageable
         )
@@ -97,6 +100,7 @@ def register_staff_attendance_routes(ns):
                     return redirect(url_for("staff_management"))
 
                 if action == "revoke_teacher_assignment":
+                    require_permission("academic.manage_classes", get_db_connection, school_id=school_id)
                     assignment_text = request.form.get("assignment_id", "").strip()
                     if not assignment_text.isdigit():
                         abort(400)
@@ -122,6 +126,7 @@ def register_staff_attendance_routes(ns):
                     return redirect(url_for("staff_management"))
 
                 if action == "create":
+                    require_permission("school.manage_memberships", get_db_connection, school_id=school_id)
                     username = request.form.get("username", "").strip()
                     full_name = request.form.get("full_name", "").strip()
                     role = request.form.get("role", "").strip()
@@ -182,6 +187,7 @@ def register_staff_attendance_routes(ns):
                     abort(403)
 
                 if action in {"suspend", "reactivate"}:
+                    require_permission("school.manage_memberships", get_db_connection, school_id=school_id)
                     if action == "suspend" and target["status"] != "active":
                         flash("Only active accounts can be suspended.", "info")
                     elif action == "reactivate" and target["status"] != "suspended":
@@ -209,6 +215,7 @@ def register_staff_attendance_routes(ns):
                         connection.commit()
                         flash("Staff account status updated.", "success")
                 elif action == "change_role":
+                    require_permission("school.manage_roles", get_db_connection, school_id=school_id)
                     role = request.form.get("role", "").strip()
                     if role not in assignable or role not in staff_roles:
                         abort(403)
@@ -285,7 +292,7 @@ def register_staff_attendance_routes(ns):
         return render_template(
             "staff_management.html", users=users, counts=counts, school=school,
             assignable_roles={key: staff_roles[key] for key in sorted(assignable) if key in staff_roles},
-            manageable_roles=manageable, can_manage_roles=current_user.role in {"super_admin", "school_admin"},
+            manageable_roles=manageable, can_manage_roles=current_user.role in {"super_admin", "school_owner", "school_admin"},
             teachers=teachers, teacher_assignments=teacher_assignments, class_levels=class_levels,
         )
 
