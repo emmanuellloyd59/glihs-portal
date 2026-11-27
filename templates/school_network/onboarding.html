@@ -159,7 +159,9 @@
       const saved = await request("/api/v1/onboarding/applications/" + reference,"GET",null,resumeToken);
       const data = saved.application || {};
       fields.forEach(key => { if (data[key] !== undefined && $(key)) $(key).value = data[key] || ""; });
-      $("country_code").value = saved.country_code;
+      const knownCountry = countryProfiles.some(item => item.country_code === saved.country_code);
+      $("country_code").value = knownCountry ? saved.country_code : "OTHER";
+      if (!knownCountry) $("other-country-code").value = saved.country_code;
       $("country_code").dispatchEvent(new Event("change"));
       document.querySelectorAll("[name='requested_services']").forEach(box => {
         box.checked = Array.isArray(data.requested_services) && data.requested_services.includes(box.value);
