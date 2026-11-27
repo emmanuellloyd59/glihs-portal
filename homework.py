@@ -172,7 +172,7 @@ def register_homework_routes(ns):
                     assignment_rows = connection.execute("""SELECT a.*,u.full_name AS teacher_name,
                         u.username AS teacher_username,s.id AS submission_id,s.response_text,s.submitted_at,
                         s.score,s.feedback,s.graded_at FROM homework_assignments a
-                        JOIN users u ON u.id=a.created_by AND u.school_id=a.school_id
+                        JOIN users u ON u.id=a.created_by
                         LEFT JOIN homework_submissions s ON s.assignment_id=a.id AND s.student_id=? AND s.school_id=a.school_id
                         WHERE a.school_id=? AND a.class_level=? AND a.status='published'
                         ORDER BY a.due_date,a.created_at DESC""",
