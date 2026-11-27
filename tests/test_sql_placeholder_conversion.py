@@ -19,10 +19,10 @@ class QmarkToFormatTests(unittest.TestCase):
         )
 
     def test_preserves_line_and_nested_block_comments(self):
-        statement = "SELECT ? -- ignore ?\n/* outer ? /* nested ? */ still ? */ WHERE id = ?"
+        statement = "SELECT ? -- ignore ?\\n/* outer ? /* nested ? */ still ? */ WHERE id = ?"
         self.assertEqual(
             qmark_to_format(statement, 2),
-            "SELECT %s -- ignore ?\n/* outer ? /* nested ? */ still ? */ WHERE id = %s",
+            "SELECT %s -- ignore ?\\n/* outer ? /* nested ? */ still ? */ WHERE id = %s",
         )
 
     def test_preserves_dollar_quoted_function_body(self):
@@ -36,7 +36,7 @@ class QmarkToFormatTests(unittest.TestCase):
         statement = r"SELECT E'escaped \\\' ? text' AS value WHERE id = ?"
         self.assertEqual(
             qmark_to_format(statement, 1),
-            r"SELECT E'escaped \\' ? text' AS value WHERE id = %s",
+            r"SELECT E'escaped \\\' ? text' AS value WHERE id = %s",
         )
 
     def test_unterminated_lexical_constructs_fail_closed(self):
