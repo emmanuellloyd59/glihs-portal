@@ -62,8 +62,6 @@ def register_homework_routes(ns):
             if request.method == "POST":
                 action = request.form.get("action", "create").strip()
                 if action == "create":
-                    if role not in staff_roles:
-                        abort(403)
                     level = request.form.get("class_level", "").strip()
                     subject = request.form.get("subject", "").strip()
                     title = request.form.get("title", "").strip()
@@ -124,8 +122,6 @@ def register_homework_routes(ns):
                     return redirect(url_for("assignments"))
 
                 if action == "grade":
-                    if role not in staff_roles:
-                        abort(403)
                     sid = request.form.get("submission_id","").strip()
                     feedback = request.form.get("feedback","").strip()
                     if not sid.isdigit() or len(feedback) > 2000:
