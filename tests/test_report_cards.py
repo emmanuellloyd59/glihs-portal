@@ -200,7 +200,7 @@ class ReportCardTests(unittest.TestCase):
         finally:
             connection.close()
 
-    def test_invalid_academic_year_cannot_publish_report_card(self):
+    def test_custom_academic_year_label_is_supported_but_report_needs_grades(self):
         connection = get_db_connection()
         try:
             student_id = connection.execute(
@@ -212,7 +212,7 @@ class ReportCardTests(unittest.TestCase):
             "student_id": str(student_id), "academic_year": "2026-2028",
             "term": "Term 1", "action": "publish",
         }, follow_redirects=True)
-        self.assertIn(b"Select a valid student, academic year, and term", response.data)
+        self.assertIn(b"only be published after grades have been recorded", response.data)
 
     def test_published_report_card_blocks_new_grade_entries(self):
         connection = get_db_connection()
@@ -222,8 +222,8 @@ class ReportCardTests(unittest.TestCase):
             ).fetchone()["id"]
             connection.execute(
                 """INSERT INTO report_cards
-                   (student_id, academic_year, term, published, published_at)
-                   VALUES (?, '2026-2027', 'Term 1', 1, CURRENT_TIMESTAMP)
+                   (student_id, academic_year, term, published, published_at, school_id)
+                   VALUES (?, '2026-2027', 'Term 1', 1, CURRENT_TIMESTAMP, 1)
                    ON CONFLICT(student_id, academic_year, term)
                    DO UPDATE SET published=1, published_at=CURRENT_TIMESTAMP""",
                 (student_id,),
