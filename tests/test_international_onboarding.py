@@ -321,6 +321,14 @@ class InternationalOnboardingTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_public_draft_creation_is_rate_limited_per_email(self):
+        responses = [
+            self.client.post("/api/v1/onboarding/applications",json=self.payload())
+            for _ in range(9)
+        ]
+        self.assertTrue(all(response.status_code == 201 for response in responses[:8]))
+        self.assertEqual(responses[8].status_code,429)
+
     def test_resume_token_is_required_and_honeypot_is_rejected_without_persisting(self):
         created = self.client.post("/api/v1/onboarding/applications", json=self.payload())
         reference = created.get_json()["data"]["reference"]
