@@ -435,8 +435,8 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             verify_url = request.host_url.rstrip("/") + "/api/v1/onboarding/applications/" + reference + "/verify-email"
             _queue_email(connection,email,"Verify your school registration email",
                          "Verify your email using this one-time token: "+verification_token+
-                         "\\nVerification endpoint: "+verify_url+
-                         "\\nYour resume token is returned once to your browser. Draft expires in 14 days.")
+                         "\nVerification endpoint: "+verify_url+
+                         "\nYour resume token is returned once to your browser. Draft expires in 14 days.")
             connection.commit()
             return jsonify({"data":{"reference":reference,"resume_token":token,"status":"draft",
                                     "expires_at":expires,"email_notification_queued":True}}),201
