@@ -486,7 +486,7 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
 
     @bp.get("/api/v1/onboarding/applications/<reference>")
     def get_draft(reference):
-        token = request.headers.get("X-Onboarding-Token") or request.args.get("token","")
+        token = request.headers.get("X-Onboarding-Token") or ""
         connection = connection_factory()
         try:
             row = _load_application(connection,reference,token)
