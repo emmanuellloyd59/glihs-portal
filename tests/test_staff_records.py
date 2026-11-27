@@ -536,7 +536,7 @@ class StaffRecordLifecycleTests(unittest.TestCase):
             ).lastrowid
             db.commit()
             staff=db.execute(
-                """SELECT school_membership_id FROM staff_memberships
+                """SELECT id,school_membership_id FROM staff_memberships
                    WHERE school_id=? AND user_id=?""",
                 (school_id,self.teacher_id),
             ).fetchone()
