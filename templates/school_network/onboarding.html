@@ -12,6 +12,7 @@
       <label class="form-label" for="country_code">Country *</label>
       <select class="form-select" id="country_code" required><option value="">Loading country requirements…</option></select>
       <div class="form-text" id="country-guidance"></div>
+      <div id="other-country-wrap" class="mt-2" hidden><label class="form-label" for="other-country-code">Other country ISO alpha-2 code *</label><input class="form-control" id="other-country-code" maxlength="2" minlength="2" pattern="[A-Za-z]{2}" placeholder="e.g. MX"></div>
     </div>
     <div class="col-12 col-md-6">
       <label class="form-label" for="name">Institution name *</label>
@@ -87,7 +88,7 @@
   const payload = () => {
     const data = {};
     fields.forEach(key => data[key] = $(key).value.trim());
-    data.country_code = $("country_code").value;
+    data.country_code = $("country_code").value === "OTHER" ? $("other-country-code").value.trim().toUpperCase() : $("country_code").value;
     data.county = data.region;
     data.requested_services = Array.from(document.querySelectorAll("[name='requested_services']:checked")).map(x => x.value);
     data.website = $("website").value;
@@ -101,6 +102,7 @@
       const countrySelect = $("country_code");
       countrySelect.replaceChildren(new Option("Select your country",""));
       countryProfiles.forEach(item => countrySelect.add(new Option(item.country_name,item.country_code)));
+      countrySelect.add(new Option("Other country / not listed","OTHER"));
       const serviceContainer = $("service-options");
       serviceContainer.replaceChildren();
       services.forEach(item => {
@@ -119,9 +121,19 @@
   };
   $("country_code").addEventListener("change", () => {
     const profile = countryProfiles.find(x => x.country_code === $("country_code").value);
+    const isOther = $("country_code").value === "OTHER";
+    $("other-country-wrap").hidden = !isOther;
+    $("other-country-code").required = isOther;
     $("region-label").textContent = profile ? profile.region_label + (profile.region_required ? " *" : "") : "Administrative region";
-    $("region").required = !!(profile && profile.region_required);
-    $("country-guidance").textContent = profile ? "Country-specific requirements are version " + profile.version + ". " + (profile.registration_number_required ? "Institutional registration number is required." : "") : "";
+    const requirements = profile && profile.requirements_json ? JSON.parse(profile.requirements_json) : {};
+    const required = Array.isArray(requirements.required_fields) ? requirements.required_fields : [];
+    $("region").required = !!(profile && profile.region_required) || required.includes("region");
+    $("registration_number").required = !!(profile && profile.registration_number_required) || required.includes("registration_number");
+    $("city").required = required.includes("city");
+    $("owner_name").required = required.includes("owner_name");
+    $("contact_phone").required = required.includes("contact_phone");
+    $("website_url").required = required.includes("website_url");
+    $("country-guidance").textContent = profile ? "Country profile version " + profile.version + ". " + (profile.registration_number_required || required.includes("registration_number") ? "Institutional registration number is required." : "") : "Enter the ISO alpha-2 code for your country. General registration rules will apply until a country profile is configured.";
   });
   $("save-draft").addEventListener("click", async () => {
     try {
