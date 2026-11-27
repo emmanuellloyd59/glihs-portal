@@ -135,12 +135,19 @@ def effective_access(connection, school_id, now=None):
         access = "none"
     elif state in {"suspended","cancelled"}:
         access = ACCESS[state]
+    elif row["status"] == "suspended":
+        access = "essential_only"
+    elif row["status"] in {"restricted", "cancelled"}:
+        access = "read_only"
     elif row["status"] == "past_due":
         grace = row["grace_ends_at"]
         if grace and datetime.fromisoformat(grace) < now:
             access = "read_only"
         else:
             access = "plan"
+    elif row["status"] == "trial" and row["trial_ends_at"]:
+        trial_end = datetime.fromisoformat(row["trial_ends_at"].replace("Z", "+00:00"))
+        access = "read_only" if trial_end < now else "plan"
     else:
         access = ACCESS.get(state, "plan")
     return {"state":state,"subscription_status":row["status"],"access":access,
