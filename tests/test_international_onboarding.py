@@ -139,6 +139,47 @@ class InternationalOnboardingTests(unittest.TestCase):
         )
         self.assertEqual(updated.status_code, 200)
 
+    def test_changing_applicant_email_revokes_verification_and_requires_new_token(self):
+        draft = self.create_and_verify_draft()
+        updated = self.client.put(
+            "/api/v1/onboarding/applications/" + draft["reference"],
+            json={"resume_token":draft["resume_token"],"contact_email":"changed@example.test"},
+        )
+        self.assertEqual(updated.status_code,200)
+        denied = self.client.post(
+            "/api/v1/onboarding/applications/" + draft["reference"] + "/submit",
+            json={"resume_token":draft["resume_token"]},
+        )
+        self.assertEqual(denied.status_code,403)
+        connection = portal.get_db_connection()
+        try:
+            row = connection.execute(
+                "SELECT body FROM onboarding_notification_outbox WHERE recipient='changed@example.test' ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            token = row["body"].split("one-time token: ",1)[1].splitlines()[0]
+        finally:
+            connection.close()
+        verified = self.client.post(
+            "/api/v1/onboarding/applications/" + draft["reference"] + "/verify-email",
+            json={"verification_token":token},
+        )
+        self.assertEqual(verified.status_code,200)
+        submitted = self.client.post(
+            "/api/v1/onboarding/applications/" + draft["reference"] + "/submit",
+            json={"resume_token":draft["resume_token"]},
+        )
+        self.assertEqual(submitted.status_code,202)
+
+    def test_registration_wizard_is_public_and_country_options_are_available(self):
+        page = self.client.get("/school-network/onboarding")
+        self.assertEqual(page.status_code,200)
+        countries = self.client.get("/api/v1/onboarding/countries")
+        self.assertEqual(countries.status_code,200)
+        result = countries.get_json()["data"]
+        self.assertIn("LR",{row["country_code"] for row in result["countries"]})
+        self.assertIn("GH",{row["country_code"] for row in result["countries"]})
+        self.assertIn("school_management",{row["service_key"] for row in result["services"]})
+
     def test_submission_creates_pending_school_and_requested_services(self):
         draft = self.create_and_verify_draft()
         response = self.client.post(
