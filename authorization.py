@@ -97,7 +97,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "communication.view", "communication.manage", "audit.view",
     },
     "vice_principal": {
-        "school.view_dashboard", "school.view_staff", "academic.view_records",
+        "school.view_dashboard", "school.view_staff", "school.manage_staff", "academic.view_records",
         "academic.manage_records", "academic.manage_attendance", "academic.manage_classes",
         "learning.view", "learning.manage_assignments", "communication.view", "communication.manage",
     },
