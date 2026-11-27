@@ -31,6 +31,7 @@ The authenticated account role and school assignment are loaded from the databas
 - **Grades:** a teacher must have an active assignment for the student's class *and* the exact subject before grade entry or access to that subject's grade details.
 - **Attendance:** teacher attendance entry requires an active assignment for the student's class. Attendance Officers may record attendance but cannot submit grade actions.
 - **Report cards:** student accounts see only their own published report. Viewing report summaries and publishing/unpublishing are separate permissions.
+- **Homework:** teachers create and grade only their own work within active class/subject assignments; school leadership and academic administrators may oversee school assignments. Registrar, finance, librarian, counselor, parent and student roles do not receive staff homework-management permissions.
 - **Finance:** financial pages and payment mutations are role-gated and school-scoped. Teacher responses must not contain financial records.
 - **Learning materials:** teacher uploads and downloads are restricted to assigned classes (except explicitly school-wide resources); archived resources are restricted to managers.
 - **Announcements:** publishing, editing and archiving are restricted to the content-publishing/management roles. Teachers can read authorized staff-facing announcements but cannot publish school-wide notices.
