@@ -350,7 +350,8 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         connection = portal.get_db_connection()
         try:
             role = connection.execute(
-                "SELECT role FROM users WHERE id=?", (teacher_id,)
+                "SELECT role FROM school_memberships WHERE user_id=? AND school_id=1",
+                (teacher_id,),
             ).fetchone()["role"]
             self.assertEqual(role, "attendance_officer")
             active_count = connection.execute(
