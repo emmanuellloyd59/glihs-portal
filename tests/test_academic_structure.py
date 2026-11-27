@@ -44,6 +44,7 @@ class AcademicStructureTests(unittest.TestCase):
         try:
             self.assertEqual(db.execute("SELECT name FROM grade_levels WHERE school_id=1").fetchone()[0],"Grade 6")
             self.assertEqual(db.execute("SELECT name FROM subjects WHERE school_id=1 ORDER BY name").fetchall()[0][0],"Mathematics")
+            self.assertIsNotNone(db.execute("SELECT subject_id FROM grades WHERE id=100").fetchone()[0])
             self.assertEqual(tuple(db.execute("SELECT name,period_type FROM academic_periods WHERE school_id=1").fetchone()),("Term 2","custom"))
             self.assertEqual(db.execute("SELECT COUNT(*) FROM academic_years WHERE school_id=2").fetchone()[0],0)
         finally: db.close()
@@ -91,6 +92,7 @@ class AcademicStructureTests(unittest.TestCase):
         try:
             row=db.execute("SELECT academic_year,term,subject,academic_year_id,academic_period_id FROM grades WHERE id=100").fetchone()
             self.assertEqual(tuple(row[:3]),("2024-2025","Term 2","Mathematics"))
+            self.assertIsNotNone(row["subject_id"])
             self.assertIsNotNone(row["academic_year_id"])
             self.assertIsNotNone(row["academic_period_id"])
         finally: db.close()
