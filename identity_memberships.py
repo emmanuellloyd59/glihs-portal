@@ -241,6 +241,18 @@ def create_membership_blueprint(connection_factory):
         if not school:
             abort(404)
 
+    @bp.get("/api/v1/identity/context")
+    @login_required
+    def active_identity_context():
+        return jsonify({
+            "user_id": int(current_user.id),
+            "school_id": current_user.school_id,
+            "campus_id": getattr(current_user, "campus_id", None),
+            "role": current_user.role,
+            "membership_id": getattr(current_user, "membership_id", None),
+            "is_platform_owner": bool(getattr(current_user, "is_super_admin", False)),
+        })
+
     @bp.get("/api/v1/identity/memberships")
     @login_required
     def my_memberships():
