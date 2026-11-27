@@ -191,7 +191,7 @@ def _slugify(value):
     return slug[:63].strip("-")
 
 
-def _validate_school(payload):
+def _validate_school(payload, require_registration=True):
     data = {}
     data["name"] = _clean(payload.get("name"), 160)
     data["legal_name"] = _clean(payload.get("legal_name") or data["name"], 200)
@@ -214,22 +214,24 @@ def _validate_school(payload):
     data["contact_email"] = _clean(payload.get("contact_email"), 254).lower()
     data["contact_phone"] = _clean(payload.get("contact_phone"), 40)
     errors = []
-    if len(data["name"]) < 2:
+    if (require_registration or "name" in payload) and len(data["name"]) < 2:
         errors.append("Institution name must contain at least 2 characters.")
     if not SLUG_RE.fullmatch(data["slug"]) or data["slug"] in RESERVED_SLUGS:
         errors.append("Choose a valid, non-reserved school identity (lowercase letters, numbers and hyphens).")
-    if data["institution_type"] not in INSTITUTION_TYPES:
+    if (require_registration or data["institution_type"]) and data["institution_type"] not in INSTITUTION_TYPES:
         errors.append("Choose a valid institution type.")
-    if data["classification"] not in CLASSIFICATIONS:
+    if (require_registration or data["classification"]) and data["classification"] not in CLASSIFICATIONS:
         errors.append("Choose a valid institutional classification.")
-    if data["ownership_type"] not in OWNERSHIP_TYPES:
+    if (require_registration or data["ownership_type"]) and data["ownership_type"] not in OWNERSHIP_TYPES:
         errors.append("Choose a valid ownership classification.")
-    if not data["owner_name"]:
+    if require_registration and not data["owner_name"]:
         errors.append("Ownership information must include the responsible owner or authority.")
-    if not data["city"] or not data["country_code"] or len(data["country_code"]) != 2:
+    if require_registration and (not data["city"] or not data["country_code"] or len(data["country_code"]) != 2):
         errors.append("City and a two-letter country code are required.")
-    if not data["contact_email"] and not data["contact_phone"]:
+    if require_registration and not data["contact_email"] and not data["contact_phone"]:
         errors.append("Provide at least one institutional contact method (email or phone).")
+    if data["country_code"] and len(data["country_code"]) != 2:
+        errors.append("Country code must contain exactly two letters.")
     if data["contact_email"] and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", data["contact_email"]):
         errors.append("Enter a valid institutional email address.")
     if data["website_url"] and not re.fullmatch(r"https?://[^\s]+", data["website_url"], re.I):
@@ -257,10 +259,20 @@ def _audit(connection, action, school_id=None, group_id=None, details=None):
 def create_school_network_blueprint(connection_factory):
     bp = Blueprint("school_network", __name__)
 
+    def _registration_context(form_data=None):
+        connection = connection_factory()
+        try:
+            groups = connection.execute(
+                "SELECT id, name FROM school_groups WHERE status='active' ORDER BY name COLLATE NOCASE"
+            ).fetchall()
+        finally:
+            connection.close()
+        return {"classifications": sorted(CLASSIFICATIONS), "ownership_types": sorted(OWNERSHIP_TYPES),
+                "groups": groups, "form_data": form_data}
+
     @bp.get("/school-network/register")
     def register_form():
-        return render_template("school_network/register.html", classifications=sorted(CLASSIFICATIONS),
-                               ownership_types=sorted(OWNERSHIP_TYPES))
+        return render_template("school_network/register.html", **_registration_context())
 
     @bp.post("/school-network/register")
     def register_school_form():
@@ -269,8 +281,7 @@ def create_school_network_blueprint(connection_factory):
         if errors:
             for error in errors:
                 flash(error, "danger")
-            return render_template("school_network/register.html", classifications=sorted(CLASSIFICATIONS),
-                                   ownership_types=sorted(OWNERSHIP_TYPES), form_data=request.form), 422
+            return render_template("school_network/register.html", **_registration_context(request.form)), 422
         connection = connection_factory()
         try:
             connection.execute("BEGIN IMMEDIATE")
@@ -385,6 +396,18 @@ def create_school_network_blueprint(connection_factory):
         finally:
             connection.close()
 
+    @bp.get("/api/v1/school-groups")
+    @login_required
+    def api_list_groups():
+        if not _is_platform_owner():
+            abort(403)
+        connection = connection_factory()
+        try:
+            rows = connection.execute("SELECT * FROM school_groups ORDER BY name COLLATE NOCASE").fetchall()
+            return jsonify({"data": [_school_dict(row) for row in rows]})
+        finally:
+            connection.close()
+
     @bp.get("/api/v1/schools")
     @login_required
     def api_list_schools():
@@ -441,7 +464,7 @@ def create_school_network_blueprint(connection_factory):
                 return jsonify({"error": {"code": "no_changes", "message": "No editable fields were supplied."}}), 400
             merged = {key: row[key] for key in row.keys()}
             merged.update(changes)
-            checked, errors = _validate_school(merged)
+            checked, errors = _validate_school(merged, require_registration=False)
             if errors:
                 return jsonify({"error": {"code": "validation_error", "messages": errors}}), 422
             assignments = ", ".join(key + "=?" for key in changes)
@@ -632,7 +655,7 @@ def create_school_network_blueprint(connection_factory):
         finally:
             connection.close()
 
-    @bp.get("/school-network/profile")
+    @bp.route("/school-network/profile", methods=["GET", "POST"])
     @login_required
     def school_profile():
         if _is_platform_owner():
@@ -651,10 +674,61 @@ def create_school_network_blueprint(connection_factory):
             school = connection.execute("SELECT * FROM schools WHERE id=?", (school_id,)).fetchone()
             if school is None:
                 abort(404)
+            if request.method == "POST":
+                action = _clean(request.form.get("action"), 32)
+                if action == "create_campus":
+                    if access != "platform" and school["lifecycle_status"] != "active":
+                        abort(403)
+                    code = _clean(request.form.get("campus_code"), 32).upper()
+                    campus_name = _clean(request.form.get("campus_name"), 160)
+                    if not re.fullmatch(r"[A-Z0-9][A-Z0-9_-]{1,31}", code) or len(campus_name) < 2:
+                        flash("Enter a valid campus name and code.", "danger")
+                    else:
+                        try:
+                            cursor = connection.execute(
+                                """INSERT INTO campuses (school_id, code, name, campus_type, city, county, country_code, is_main)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                                (school_id, code, campus_name, _clean(request.form.get("campus_type") or "standard", 40),
+                                 _clean(request.form.get("campus_city"), 100) or None,
+                                 _clean(request.form.get("campus_county"), 100) or None,
+                                 _clean(request.form.get("campus_country_code"), 2).upper() or None,
+                                 1 if request.form.get("is_main") == "yes" else 0),
+                            )
+                            _audit(connection, "campus.created", school_id, details={"campus_id": cursor.lastrowid, "code": code})
+                            connection.commit()
+                            flash("Campus added to this institution.", "success")
+                        except sqlite3.IntegrityError:
+                            connection.rollback()
+                            flash("That campus code already exists for this school.", "danger")
+                elif action == "update_profile":
+                    editable = ("legal_name", "classification", "ownership_type", "owner_name",
+                                "registration_number", "website_url", "description", "address_line1",
+                                "address_line2", "city", "county", "region", "postal_code",
+                                "country_code", "timezone", "contact_email", "contact_phone")
+                    changes = {key: request.form.get(key, "") for key in editable if key in request.form}
+                    merged = {key: school[key] for key in school.keys()}
+                    merged.update(changes)
+                    checked, errors = _validate_school(merged, require_registration=False)
+                    if errors:
+                        for error in errors:
+                            flash(error, "danger")
+                    else:
+                        connection.execute(
+                            "UPDATE schools SET " + ", ".join(key + "=?" for key in changes) +
+                            ", updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                            (*[checked[key] for key in changes], school_id),
+                        )
+                        _audit(connection, "school.profile_updated", school_id, details={"fields": sorted(changes)})
+                        connection.commit()
+                        flash("Institution profile updated.", "success")
+                else:
+                    abort(400)
+                return redirect(url_for("school_network.school_profile", school_id=school_id))
             campuses = connection.execute("SELECT * FROM campuses WHERE school_id=? ORDER BY is_main DESC, name", (school_id,)).fetchall()
             contacts = connection.execute("SELECT * FROM school_contacts WHERE school_id=? ORDER BY is_primary DESC, id", (school_id,)).fetchall()
             return render_template("school_network/profile.html", school=school, campuses=campuses,
-                                   contacts=contacts, platform_access=(access == "platform"))
+                                   contacts=contacts, platform_access=(access == "platform"),
+                                   classifications=sorted(CLASSIFICATIONS), ownership_types=sorted(OWNERSHIP_TYPES))
         finally:
             connection.close()
 
