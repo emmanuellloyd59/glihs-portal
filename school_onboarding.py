@@ -633,16 +633,23 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             application = connection.execute(
                 "SELECT reference,status FROM onboarding_applications WHERE school_id=? ORDER BY id DESC LIMIT 1",(school_id,)
             ).fetchone()
-            stage = "verification" if school["lifecycle_status"] in {"pending","under_review"} else (
-                "approval" if school["lifecycle_status"] == "approved" else (
-                    "activation" if school["lifecycle_status"] == "active" else school["lifecycle_status"]
-                )
-            )
+            completed = bool(application and application["status"]=="completed")
+            lifecycle = school["lifecycle_status"]
+            if lifecycle == "pending":
+                stage = "verification"
+            elif lifecycle == "under_review":
+                stage = "approval"
+            elif lifecycle == "approved":
+                stage = "activation"
+            elif lifecycle == "active":
+                stage = "completed" if completed else "configuration"
+            else:
+                stage = lifecycle
             return jsonify({"data":{"school":dict(school),"stage":stage,
                                     "active_school_administrators":admins,
                                     "requested_services":[dict(row) for row in services],
                                     "application":dict(application) if application else None,
-                                    "configuration_complete":bool(application and application["status"]=="completed")}})
+                                    "configuration_complete":completed}})
         finally:
             connection.close()
 
