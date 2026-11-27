@@ -291,13 +291,21 @@ def has_permission(connection, permission, school_id=None, campus_id=None,
         membership_id = getattr(current_user, "membership_id", None)
         member = connection.execute("""
             SELECT m.status,m.role,m.school_id,m.campus_id,u.status AS user_status,
-                   s.status AS school_status,s.lifecycle_status
+                   s.status AS school_status,s.lifecycle_status,c.status AS campus_status
             FROM school_memberships m JOIN users u ON u.id=m.user_id
             JOIN schools s ON s.id=m.school_id
+            LEFT JOIN campuses c ON c.id=m.campus_id AND c.school_id=m.school_id
             WHERE m.id=? AND m.user_id=?
         """, (membership_id, actor_id)).fetchone()
         if (not member or member["status"] != "active" or member["user_status"] != "active"
                 or member["school_status"] != "active" or member["lifecycle_status"] != "active"):
+            return False
+        if (int(member["school_id"]) != int(actor_school)
+                or int(member["school_id"]) != int(school_id)
+                or member["role"] != role
+                or member["campus_id"] != actor_campus):
+            return False
+        if member["campus_id"] is not None and member["campus_status"] != "active":
             return False
         if member["campus_id"] is not None and campus_id is not None and int(member["campus_id"]) != int(campus_id):
             return False
