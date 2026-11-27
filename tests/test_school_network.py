@@ -43,6 +43,7 @@ class SchoolNetworkTests(unittest.TestCase):
         ]
         for table_name in table_names:
             connection.execute('DELETE FROM "' + table_name.replace('"', '""') + '"')
+        connection.commit()
         connection.execute("PRAGMA foreign_keys = ON")
             connection.execute(
                 """INSERT INTO users
