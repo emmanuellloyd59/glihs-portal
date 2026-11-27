@@ -127,6 +127,19 @@ def initialize_academic_structure(dbopen):
                 year = db.execute("SELECT id FROM academic_years WHERE school_id=? AND label=?", (sid,year_label)).fetchone()
                 if year:
                     db.execute("INSERT OR IGNORE INTO academic_periods(school_id,academic_year_id,name,period_type,status) VALUES(?,?,?,'custom','closed')", (sid,year["id"],term_label))
+            # Link legacy grade/report rows to the imported year and period IDs
+            # without changing their original labels or scores.
+            for table in ("grades", "report_cards"):
+                cols = {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
+                if {"school_id","academic_year","term","academic_year_id","academic_period_id"}.issubset(cols):
+                    db.execute(f"""UPDATE {table}
+                        SET academic_year_id=(SELECT y.id FROM academic_years y
+                            WHERE y.school_id={table}.school_id AND y.label={table}.academic_year),
+                            academic_period_id=(SELECT p.id FROM academic_periods p
+                                JOIN academic_years y ON y.id=p.academic_year_id AND y.school_id=p.school_id
+                                WHERE p.school_id={table}.school_id AND y.label={table}.academic_year
+                                  AND p.name={table}.term)
+                        WHERE school_id=? AND academic_year<>'Unassigned' AND term<>'Unassigned'""", (sid,))
             # Legacy classes and subjects are imported as labels, not assigned to a
             # national progression or assumed curriculum.
             legacy_classes = set()
@@ -193,7 +206,8 @@ def register_academic_structure_routes(ns):
                         kind=request.form.get("period_type","")
                         seq=request.form.get("sequence_no","1")
                         if not year_id.isdigit() or kind not in PERIOD_TYPES or not seq.isdigit() or int(seq)<1 or not name: raise ValueError("Choose a valid year, period type, name and positive sequence.")
-                        db.execute("INSERT INTO academic_periods(school_id,academic_year_id,name,period_type,sequence_no,starts_on,ends_on) VALUES(?,?,?,?,?,?,?)",(school_id,int(year_id),name,kind,int(seq),request.form.get("starts_on") or None,request.form.get("ends_on") or None))
+                        db.execute("INSERT INTO academic_periods(school_id,academic_year_id,name,period_type,sequence_no,starts_on,ends_on) SELECT ?,id,?,?,?,?,? FROM academic_years WHERE id=? AND school_id=?",(school_id,name,kind,int(seq),request.form.get("starts_on") or None,request.form.get("ends_on") or None,int(year_id),school_id))
+                        if db.execute("SELECT changes()").fetchone()[0]!=1: raise ValueError("The selected academic year does not belong to this school.")
                     elif action=="grade_level":
                         seq=request.form.get("sequence_no","1")
                         if not name or len(name)>80 or not seq.isdigit() or int(seq)<1: raise ValueError("Enter a valid grade/stage name and sequence.")
@@ -204,17 +218,20 @@ def register_academic_structure_routes(ns):
                     elif action=="class":
                         year_id=request.form.get("academic_year_id",""); level_id=request.form.get("grade_level_id","")
                         if not year_id.isdigit() or not level_id.isdigit() or not name: raise ValueError("Choose a valid year and grade/stage, and enter a class name.")
-                        db.execute("INSERT INTO academic_classes(school_id,academic_year_id,grade_level_id,name,code) VALUES(?,?,?,?,?)",(school_id,int(year_id),int(level_id),name,request.form.get("code") or None))
+                        db.execute("INSERT INTO academic_classes(school_id,academic_year_id,grade_level_id,name,code) SELECT ?,y.id,g.id,?,? FROM academic_years y JOIN grade_levels g ON g.id=? AND g.school_id=y.school_id WHERE y.id=? AND y.school_id=?",(school_id,name,request.form.get("code") or None,int(level_id),int(year_id),school_id))
+                        if db.execute("SELECT changes()").fetchone()[0]!=1: raise ValueError("The selected year and progression level must belong to this school.")
                     elif action=="section":
                         class_id=request.form.get("class_id","")
                         if not class_id.isdigit() or not name: raise ValueError("Choose a valid class and enter a section name.")
-                        db.execute("INSERT INTO class_sections(school_id,class_id,name,code) VALUES(?,?,?,?)",(school_id,int(class_id),name,request.form.get("code") or None))
+                        db.execute("INSERT INTO class_sections(school_id,class_id,name,code) SELECT ?,id,?,? FROM academic_classes WHERE id=? AND school_id=?",(school_id,name,request.form.get("code") or None,int(class_id),school_id))
+                        if db.execute("SELECT changes()").fetchone()[0]!=1: raise ValueError("The selected class does not belong to this school.")
                     elif action=="curriculum_subject":
                         level_id=request.form.get("grade_level_id",""); subject_id=request.form.get("subject_id","")
                         curriculum=request.form.get("curriculum_name","").strip()
                         requirement=request.form.get("requirement","required")
                         if not level_id.isdigit() or not subject_id.isdigit() or not curriculum or requirement not in {"required","elective","optional"}: raise ValueError("Choose a valid grade/stage and subject and curriculum requirement.")
-                        db.execute("INSERT INTO curriculum_subjects(school_id,curriculum_name,curriculum_version,grade_level_id,subject_id,requirement,credits,effective_from,effective_to) VALUES(?,?,?,?,?,?,?,?,?)",(school_id,curriculum,request.form.get("curriculum_version") or None,int(level_id),int(subject_id),requirement,float(request.form["credits"]) if request.form.get("credits") else None,request.form.get("effective_from") or None,request.form.get("effective_to") or None))
+                        db.execute("INSERT INTO curriculum_subjects(school_id,curriculum_name,curriculum_version,grade_level_id,subject_id,requirement,credits,effective_from,effective_to) SELECT ?,?,?,g.id,s.id,?,?,?,?,? FROM grade_levels g JOIN subjects s ON s.id=? AND s.school_id=g.school_id WHERE g.id=? AND g.school_id=?",(school_id,curriculum,request.form.get("curriculum_version") or None,requirement,float(request.form["credits"]) if request.form.get("credits") else None,request.form.get("effective_from") or None,request.form.get("effective_to") or None,int(subject_id),int(level_id),school_id))
+                        if db.execute("SELECT changes()").fetchone()[0]!=1: raise ValueError("The selected progression level and subject must belong to this school.")
                     elif action=="enroll":
                         values=[request.form.get(k,"") for k in ("student_id","class_section_id","subject_id","academic_year_id")]
                         if not all(v.isdigit() for v in values): raise ValueError("Choose a valid student, section, subject and academic year.")
@@ -224,7 +241,8 @@ def register_academic_structure_routes(ns):
                         if db.execute("SELECT changes()").fetchone()[0]!=1: raise ValueError("The selected enrollment records must all belong to this school.")
                     else:
                         raise ValueError("Unknown academic-structure action.")
-                    _snapshot(db,school_id,int(current_user.id),action)
+                    if action != "enroll":
+                        _snapshot(db,school_id,int(current_user.id),action)
                     db.commit(); flash("Academic structure saved.", "success")
                 except (ValueError,sqlite3.IntegrityError) as exc:
                     db.rollback(); flash(str(exc) or "The record conflicts with an existing academic structure.", "danger")
