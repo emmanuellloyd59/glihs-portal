@@ -11,6 +11,7 @@ def register_homework_routes(ns):
     require_school_context, write_audit = ns["require_school_context"], ns["write_audit"]
     teacher_has_class_subject = ns["teacher_has_class_subject"]
     get_school_class_levels = ns["get_school_class_levels"]
+    get_school_subjects = ns["get_school_subjects"]
     staff_roles = {"super_admin", "school_admin", "principal", "vice_principal", "academic_admin", "registrar", "teacher"}
     admin_roles = {"super_admin", "school_admin", "principal", "vice_principal", "academic_admin"}
 
@@ -55,10 +56,7 @@ def register_homework_routes(ns):
         student, submissions = None, []
         try:
             class_levels = get_school_class_levels(connection, school_id)
-            subjects = connection.execute(
-                "SELECT id,name FROM subjects WHERE school_id=? AND active=1 ORDER BY name",
-                (school_id,),
-            ).fetchall()
+            subjects = get_school_subjects(connection, school_id)
             subject_names = {row["name"] for row in subjects}
             if request.method == "POST":
                 action = request.form.get("action", "create").strip()
