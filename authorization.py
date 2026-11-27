@@ -6,6 +6,7 @@ matching explicit deny overrides inherited allows. Tenant, campus, identity and
 resource attributes are independently checked (ABAC).
 """
 import json
+from datetime import datetime, timezone
 from functools import wraps
 
 from flask import Blueprint, abort, current_app, jsonify, request
@@ -505,6 +506,11 @@ def create_authorization_blueprint(connection_factory):
         subject_id = str(payload.get("subject_id", "")).strip()
         if permission not in PERMISSIONS or scope_type not in SCOPE_TYPES or effect not in EFFECTS:
             return jsonify({"error": "Unknown permission, scope or effect."}), 400
+        required_scope = PERMISSIONS[permission]
+        if ((required_scope == "platform" and scope_type != "platform")
+                or (required_scope == "organization" and scope_type != "organization")
+                or (required_scope == "campus" and scope_type != "campus")):
+            return jsonify({"error": "This permission cannot be granted at the requested scope."}), 403
         if subject_type not in {"user", "role"} or not subject_id:
             return jsonify({"error": "A user or role subject is required."}), 400
         if subject_type == "role" and subject_id not in DEFAULT_ROLE_PERMISSIONS:
@@ -589,7 +595,7 @@ def create_authorization_blueprint(connection_factory):
                 parsed_expiry = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
                 if parsed_expiry.tzinfo is None:
                     return jsonify({"error": "Grant expiry must include a timezone."}), 400
-                expires_at = parsed_expiry.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                expires_at = parsed_expiry.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             except (TypeError, ValueError):
                 return jsonify({"error": "Grant expiry must be a valid timezone-aware ISO timestamp."}), 400
         connection = connection_factory()
