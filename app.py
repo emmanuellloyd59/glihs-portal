@@ -22,6 +22,7 @@ from flask_login import (
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import check_password_hash, generate_password_hash
 from database import connect_sqlite, load_database_settings
+from db.users import get_active_user_by_id, get_active_user_by_username, user_row_to_mapping
 
 
 # --------------------------------------------------
@@ -1077,23 +1078,7 @@ class User(UserMixin):
 def get_user_by_id(user_id):
     connection = get_db_connection()
     try:
-        row = connection.execute(
-            """
-            SELECT u.id, u.username, u.password_hash, u.role, u.is_super_admin, u.school_id
-            FROM users u
-            WHERE u.id = ? AND u.status = 'active'
-              AND (
-                  (u.role = 'super_admin' AND u.is_super_admin = 1 AND u.school_id IS NULL)
-                  OR (
-                  u.role != 'super_admin' AND u.is_super_admin = 0 AND EXISTS (
-                      SELECT 1 FROM schools s
-                      WHERE s.id = u.school_id AND s.status = 'active'
-                  )
-              )
-              )
-            """,
-            (user_id,),
-        ).fetchone()
+        row = user_row_to_mapping(get_active_user_by_id(connection, user_id))
         if row is None:
             return None
         return User(row["id"], row["username"], row["password_hash"],
@@ -1105,30 +1090,13 @@ def get_user_by_id(user_id):
 def get_user_by_username(username):
     connection = get_db_connection()
     try:
-        row = connection.execute(
-            """
-            SELECT u.id, u.username, u.password_hash, u.role, u.is_super_admin, u.school_id
-            FROM users u
-            WHERE u.username = ? AND u.status = 'active'
-              AND (
-                  (u.role = 'super_admin' AND u.is_super_admin = 1 AND u.school_id IS NULL)
-                  OR (
-                  u.role != 'super_admin' AND u.is_super_admin = 0 AND EXISTS (
-                      SELECT 1 FROM schools s
-                      WHERE s.id = u.school_id AND s.status = 'active'
-                  )
-              )
-              )
-            """,
-            (username,),
-        ).fetchone()
+        row = user_row_to_mapping(get_active_user_by_username(connection, username))
         if row is None:
             return None
         return User(row["id"], row["username"], row["password_hash"],
                     row["role"], row["is_super_admin"], row["school_id"])
     finally:
         connection.close()
-
 
 @login_manager.user_loader
 def load_user(user_id):
