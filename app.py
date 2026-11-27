@@ -1623,7 +1623,28 @@ TIMETABLE_MANAGE_ROLES = {
     "academic_admin",
 }
 TIMETABLE_DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
-TIMETABLE_CLASS_LEVELS = ("K2", "K3", "K4", *(f"Grade {i}" for i in range(1, 13)))
+
+
+def get_school_class_levels(connection, school_id):
+    """Return configured progression labels plus legacy class labels for this school."""
+    labels = set()
+    sources = (
+        ("grade_levels", "name"),
+        ("students", "class_level"),
+        ("teacher_class_assignments", "class_level"),
+        ("class_timetable", "class_level"),
+        ("homework_assignments", "class_level"),
+    )
+    for table, column in sources:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(" + table + ")")}
+        if column in columns and "school_id" in columns:
+            rows = connection.execute(
+                "SELECT DISTINCT " + column + " FROM " + table +
+                " WHERE school_id=? AND " + column + " IS NOT NULL AND trim(" + column + ")<>''",
+                (school_id,),
+            ).fetchall()
+            labels.update(row[0] for row in rows)
+    return sorted(labels, key=lambda value: value.casefold())
 
 
 @app.route("/timetable", methods=["GET", "POST"])
