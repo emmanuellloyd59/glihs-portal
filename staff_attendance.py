@@ -133,13 +133,19 @@ def register_staff_attendance_routes(ns):
                         flash("Enter a valid name, username, permitted role, and temporary password of 12–256 characters.", "danger")
                         return redirect(url_for("staff_management"))
                     try:
-                        connection.execute(
+                        created = connection.execute(
                             """INSERT INTO users
                                (username, full_name, password_hash, role, status, is_super_admin,
                                 school_id, approved_by, approved_at)
                                VALUES (?, ?, ?, ?, 'active', 0, ?, ?, CURRENT_TIMESTAMP)""",
                             (username, full_name, generate_password_hash(password), role,
                              school_id, int(current_user.id)),
+                        )
+                        connection.execute(
+                            """INSERT INTO school_memberships
+                               (user_id,school_id,role,status,is_primary,accepted_at)
+                               VALUES(?,?,?,'active',1,CURRENT_TIMESTAMP)""",
+                            (created.lastrowid, school_id, role),
                         )
                         audit_for_school(connection, "staff_account_created", username,
                                          "Role: " + role, school_id)
