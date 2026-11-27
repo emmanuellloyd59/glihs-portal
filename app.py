@@ -2808,6 +2808,15 @@ from identity_memberships import (
 initialize_membership_schema(get_db_connection)
 app.register_blueprint(create_membership_blueprint(get_db_connection))
 
+# Central scoped RBAC/ABAC policy engine. Initialize only additive authorization
+# tables and seed least-privilege role defaults; legacy identity rows are untouched.
+from authorization import (
+    create_authorization_blueprint,
+    initialize_authorization_schema,
+)
+initialize_authorization_schema(get_db_connection)
+app.register_blueprint(create_authorization_blueprint(get_db_connection))
+
 
 if __name__ == "__main__":
     app.run(port=5000, debug=False)
