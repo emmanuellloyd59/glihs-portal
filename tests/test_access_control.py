@@ -40,6 +40,10 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             ).fetchall()
         }
         for table in (
+            "identity_recovery_tokens",
+            "membership_invitations",
+            "identity_security_events",
+            "school_memberships",
             "parent_student_links",
             "homework_submissions",
             "homework_assignments",
