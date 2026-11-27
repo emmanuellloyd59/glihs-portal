@@ -85,7 +85,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "school.manage_campuses", "school.manage_memberships", "school.manage_roles",
         "school.view_staff", "school.view_analytics", "school.manage_staff", "school.manage_academic_calendar",
         "school.manage_grading", "academic.view_records", "academic.manage_records",
-        "academic.manage_attendance", "academic.manage_classes",
+        "academic.manage_attendance", "academic.publish_results", "academic.manage_classes",
         "finance.view", "finance.manage_fees", "finance.record_payments",
         "finance.refund_payments", "finance.export", "learning.view",
         "learning.manage_courses", "learning.manage_assignments", "learning.manage_materials", "communication.view", "communication.manage", "audit.view",
@@ -116,7 +116,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     },
     "registrar": {
         "school.view_dashboard", "school.view_analytics", "academic.view_records", "academic.manage_records",
-        "academic.manage_attendance", "academic.publish_results", "academic.manage_classes",
+        "academic.manage_attendance", "academic.manage_classes",
         "finance.view", "communication.view",
     },
     "teacher": {
