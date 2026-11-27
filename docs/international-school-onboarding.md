@@ -75,3 +75,6 @@ Set SMTP values in the hosting provider's secret/environment settings; never com
 - CAPTCHA/managed bot challenge, domain ownership verification, document upload/scanning, external registry verification, and formal ownership verification are not implemented here.
 - Browser review, accessibility, SMTP integration testing with a real provider, security review and a production migration/restore rehearsal remain required.
 - Do not merge, deploy, or migrate production data without the required review and explicit approval.
+
+
+Implementation tracking: draft PR #54 is open for review. Automated verification is being run against the feature branch; no merge or deployment is implied by the PR.
