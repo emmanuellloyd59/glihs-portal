@@ -104,12 +104,12 @@ def _deep_merge(base, patch):
 
 def _validate_config(config, campus=False):
     errors = []
+    if not isinstance(config, dict):
+        return ["Configuration must be a JSON object."]
     allowed = CAMPUS_OVERRIDE_KEYS if campus else TOP_LEVEL_KEYS
     unknown = set(config) - allowed
     if unknown:
         errors.append("Unsupported configuration sections: " + ", ".join(sorted(unknown)))
-    if not isinstance(config, dict):
-        return ["Configuration must be a JSON object."]
     allowed_fields = {
         "branding": {"display_name", "logo_url", "primary_color", "secondary_color"},
         "contact": {"email", "phone", "website_url", "address_line1", "address_line2",
