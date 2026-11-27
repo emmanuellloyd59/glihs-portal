@@ -349,7 +349,7 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             if status:
                 rows = connection.execute(
                     """SELECT a.reference,a.applicant_email,a.country_code,a.status,a.school_id,
-                              a.created_at,a.updated_at,s.name AS school_name,s.lifecycle_status,
+                              a.created_at,a.updated_at,a.payload_json,s.name AS school_name,s.lifecycle_status,
                               CASE WHEN a.status='draft' THEN 'draft'
                                    WHEN s.lifecycle_status='pending' THEN 'verification'
                                    WHEN s.lifecycle_status='under_review' THEN 'approval'
@@ -363,7 +363,7 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             else:
                 rows = connection.execute(
                     """SELECT a.reference,a.applicant_email,a.country_code,a.status,a.school_id,
-                              a.created_at,a.updated_at,s.name AS school_name,s.lifecycle_status,
+                              a.created_at,a.updated_at,a.payload_json,s.name AS school_name,s.lifecycle_status,
                               CASE WHEN a.status='draft' THEN 'draft'
                                    WHEN s.lifecycle_status='pending' THEN 'verification'
                                    WHEN s.lifecycle_status='under_review' THEN 'approval'
@@ -374,7 +374,20 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
                        FROM onboarding_applications a LEFT JOIN schools s ON s.id=a.school_id
                        ORDER BY a.updated_at DESC LIMIT 100"""
                 ).fetchall()
-            return jsonify({"data":[dict(row) for row in rows]})
+            summaries = []
+            review_fields = (
+                "legal_name","institution_type","classification","ownership_type","owner_name",
+                "registration_number","website_url","description","address_line1","address_line2",
+                "city","county","region","postal_code","timezone","contact_email","contact_phone",
+                "administrator_name","administrator_email",
+            )
+            for row in rows:
+                item = dict(row)
+                payload = json.loads(item.pop("payload_json") or "{}")
+                item["institution_details"] = {key:payload.get(key) for key in review_fields}
+                item["requested_services"] = payload.get("requested_services", [])
+                summaries.append(item)
+            return jsonify({"data":summaries})
         finally:
             connection.close()
 
