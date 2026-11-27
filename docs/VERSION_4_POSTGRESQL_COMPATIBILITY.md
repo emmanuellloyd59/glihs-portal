@@ -59,3 +59,31 @@ PostgreSQL compatibility is not complete until both backend test suites pass
 and authenticated staging workflows, persistence, backup/restore, and
 rollback are demonstrated. The existing Version 4 PR remains unmerged while
 these gates are open.
+
+## Verification update — 2026-11-27
+
+The first CI run for this workstream completed successfully:
+
+- Workflow run: [Automated tests #719](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45926778774)
+- Python 3.11: **188 tests passed**
+- Python 3.14: **188 tests passed**
+- The new fail-closed DATABASE_URL regression test is included in both runs.
+
+This verifies the current SQLite application regression suite and the guard against silently ignoring a PostgreSQL URL. It does **not** verify PostgreSQL connectivity, schema creation, migrations, authenticated workflows, or persistent staging data.
+
+### Confirmed implementation inventory
+
+A fresh inspection of the current app.py on this branch found 3,329 lines and these database-specific touchpoints:
+
+- 220 direct SQL .execute() call sites.
+- 389 SQLite-style positional placeholders.
+- 15 SQLite references, including direct connection creation and SQLite error types.
+- 15 PRAGMA references and 2 sqlite_master catalog queries.
+- 3 lastrowid assumptions.
+- Explicit SQLite transaction/savepoint behavior and SQLite-specific migration logic.
+
+This is why a superficial connection-string or driver swap would be unsafe. The compatibility implementation must cover the entire query and migration surface, not merely establish a TCP connection.
+
+### Current release decision
+
+The fail-closed guard is verified. PostgreSQL compatibility remains **not implemented**. The Neon staging database remains empty and untouched; no Render environment variable has been set, no student records have been migrated, and no production service or database has been changed. Keep this PR in draft until the PostgreSQL implementation and integration/recovery gates are genuinely complete.
