@@ -31,7 +31,7 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         self.client = portal.app.test_client()
         db = portal.get_db_connection()
         try:
-            db.execute("DELETE FROM staff_lifecycle_events")
+            # Lifecycle events are append-only; each test uses a fresh database.
             db.execute("DELETE FROM staff_documents")
             db.execute("DELETE FROM staff_responsibilities")
             db.execute("DELETE FROM staff_qualifications")
