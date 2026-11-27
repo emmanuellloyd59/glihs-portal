@@ -15,8 +15,9 @@ Academic structures are tenant-owned. The system stores names, codes, sequence, 
 - `class_sections`: sections or homerooms within a class.
 - `subjects`: school-owned subject catalogue.
 - `curriculum_subjects`: versioned curriculum name/version mapped to a progression level and subject, with required/elective/optional designation and optional credits/effective dates.
-- `course_enrollments`: tenant-validated student, class section, subject, academic year, and optional period relationship.
-- `academic_structure_versions`: immutable JSON snapshots of the configured structure after each administrative configuration change.
+- `course_enrollments`: tenant-validated student, class section, subject, academic year, optional period, and the structure version active at enrollment.
+- `academic_structure_versions`: immutable JSON snapshots of the configured structure after each administrative configuration change. Database triggers reject updates and deletes.
+- Grades and report cards retain nullable academic-year, period, subject (grades), and structure-version references alongside their original text labels. Legacy rows are backfilled only when an exact same-school match exists.
 
 Tenant integrity is checked in route-level inserts and reinforced by database triggers for periods, classes, sections, curriculum mappings, and course enrollments. This protects against forged identifiers and accidental cross-school relationships.
 
@@ -44,7 +45,8 @@ The `/academic-structure` page is available to authorized school administrators,
 - It does not infer academic-year dates from labels.
 - It does not overwrite old text labels or silently move historical student results when a school changes its current structure.
 - Editing/retiring existing definitions, advanced progression rules, prerequisite graphs, credit transfer, cross-campus academic calendars, and bulk class mapping are later extensions.
-- Existing grade-entry and timetable screens still contain legacy K–12/three-term assumptions; those workflows must be migrated to consume the new structure before the full platform can claim end-to-end configurable academics.
+- Grade entry, report-card selection, timetable, homework, and teacher-assignment interfaces now use tenant-configured subjects, progression labels, and academic periods. Legacy form submissions remain supported through tenant-scoped custom-label compatibility handling.
+- The existing assessment score-entry workflow still uses a 0–100 score ceiling; configurable grading scales and non-percentage marking schemes are a separate extension.
 
 ## Verification
 
