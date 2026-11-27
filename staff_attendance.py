@@ -15,7 +15,7 @@ def register_staff_attendance_routes(ns):
     require_school_context = ns["require_school_context"]
     generate_password_hash = ns["generate_password_hash"]
     staff_roles = ns["STAFF_ROLES"]
-    class_levels = ns["TIMETABLE_CLASS_LEVELS"]
+    get_school_class_levels = ns["get_school_class_levels"]
 
     staff_manage_roles = {"super_admin", "school_admin", "principal", "vice_principal"}
     attendance_report_roles = {
@@ -62,6 +62,7 @@ def register_staff_attendance_routes(ns):
             action = request.form.get("action", "").strip()
             connection = get_db_connection()
             try:
+                class_levels = get_school_class_levels(connection, school_id)
                 if action == "assign_teacher":
                     teacher_text = request.form.get("teacher_id", "").strip()
                     class_level = request.form.get("class_level", "").strip()
@@ -232,6 +233,7 @@ def register_staff_attendance_routes(ns):
 
         connection = get_db_connection()
         try:
+            class_levels = get_school_class_levels(connection, school_id)
             users = connection.execute(
                 """SELECT id, username, full_name, role, status, created_at, approved_at
                    FROM users
