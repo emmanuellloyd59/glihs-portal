@@ -94,6 +94,16 @@ class AcademicStructureTests(unittest.TestCase):
             db.commit()
         finally: db.close()
 
+    def test_structure_history_cannot_be_updated_or_deleted(self):
+        db=self.open()
+        try:
+            version_id=db.execute("SELECT id FROM academic_structure_versions WHERE school_id=1").fetchone()[0]
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("UPDATE academic_structure_versions SET change_note='tampered' WHERE id=?",(version_id,))
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("DELETE FROM academic_structure_versions WHERE id=?",(version_id,))
+        finally: db.close()
+
     def test_reinitialization_is_idempotent_and_preserves_legacy_grade(self):
         initialize_academic_structure(self.open)
         db=self.open()
@@ -103,6 +113,7 @@ class AcademicStructureTests(unittest.TestCase):
             self.assertIsNotNone(row["subject_id"])
             self.assertIsNotNone(row["academic_year_id"])
             self.assertIsNotNone(row["academic_period_id"])
+            self.assertIsNotNone(row["academic_structure_version_id"])
         finally: db.close()
 
 
