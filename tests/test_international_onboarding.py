@@ -383,6 +383,10 @@ class InternationalOnboardingTests(unittest.TestCase):
         created = self.client.post("/api/v1/onboarding/applications", json=self.payload())
         reference = created.get_json()["data"]["reference"]
         self.assertEqual(self.client.get("/api/v1/onboarding/applications/" + reference).status_code, 404)
+        self.assertEqual(
+            self.client.get("/api/v1/onboarding/applications/" + reference + "?token=" +
+                            created.get_json()["data"]["resume_token"]).status_code,404
+        )
         spam = self.client.post("/api/v1/onboarding/applications", json=self.payload(website="spam.example"))
         self.assertEqual(spam.status_code, 202)
         connection = portal.get_db_connection()
