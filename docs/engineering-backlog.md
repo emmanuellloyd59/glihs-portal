@@ -96,3 +96,18 @@ Do not mark an item verified based only on code presence, test names, or a previ
 - Known limitations: separate least-privilege platform-operator grants are not implemented; invitation/recovery landing pages are API-oriented; recovery throttling, email outbox/retry, MFA/device UI, student multi-enrollment redesign, PostgreSQL/RLS and complete legacy route campus-scope audit remain follow-up work.
 - No production data migration, merge, deployment, or hosting/secret changes.
 - CI status must be checked against the final PR head before acceptance.
+
+
+| AUTH-001 | Authorization and Access Control | Deliver scoped RBAC/ABAC, configurable permission sets, inheritance, explicit denials, least-privilege defaults and audit | ADR-0007 | authorization.py, docs/authorization-and-permissions.md | Role matrix, cross-tenant and campus isolation, vertical/horizontal escalation, explicit deny, delegation attenuation, inactive memberships, policy API and audit tests | Every backend operation is authorized against identity, role, scope and resource attributes; no tenant access from identifiers alone | Implemented on feature branch; CI/security review pending |
+
+## AUTH-001 implementation record
+
+- Branch: `feature/scoped-authorization-rbac-abac`, stacked on `feature/multi-school-identity-memberships`.
+- Added additive/idempotent `authorization_role_permissions`, `authorization_grants` and `authorization_audit` tables.
+- Central RBAC/ABAC engine in `authorization.py`: platform → organization → school → campus inheritance; active identity/membership/school/campus checks; resource-owner/assigned-user attributes; conditional and expiring grants; explicit deny precedence; default deny.
+- Role baselines cover platform administrators, school owners/admins, principals, vice principals, registrars, teachers, finance officers, students, parents and external service providers, plus existing specialist school roles.
+- Platform-governed role permission configuration, scoped grant/revoke APIs, effective-permission API and authorization audit API added.
+- Backend enforcement integrated into school network/campus, school configuration, membership management, staff, attendance, finance, parent-linked data, learning materials, homework, announcements, school performance and onboarding administration.
+- Added `tests/test_authorization.py` for least privilege, cross-tenant and cross-campus access, vertical/horizontal escalation, explicit-deny precedence, inactive memberships, unauthorized policy changes, grant delegation boundaries, organization inheritance and audit.
+- Existing account IDs, password hashes, account statuses and legacy user role constraint remain unchanged; additional membership roles map to a compatible legacy account role while membership role remains authoritative.
+- Remaining gates: full legacy route/service authorization audit, CI on final PR head, browser role walkthroughs, production migration rehearsal, PostgreSQL RLS, MFA/session/device hardening. No production migration, merge or deployment.
