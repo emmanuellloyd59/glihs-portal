@@ -9,9 +9,9 @@
 
 The repository registers **30 HTTP routes across five Python modules**: `app.py`, `homework.py`, `staff_attendance.py`, `school_performance.py`, and `demo_staff.py`. This count corrects the earlier preliminary inventory, which counted only the 25 decorators located directly in `app.py` and omitted five routes registered by helper modules.
 
-The application has server-side role checks on the protected operational routes, with more granular action checks inside several shared GET/POST endpoints. Tenant-scoped routes use the active school context and school-qualified queries; several data relationships also have database-level ownership guards. The current test suite contains substantial direct-route, role, cross-school and data-minimization tests. Eight additional authorization regressions were added in this pass. The expanded suite now contains 184 test methods; the latest candidate CI run must pass on Python 3.11 and 3.14 before this audit can be marked complete.
+The application has server-side role checks on the protected operational routes, with more granular action checks inside several shared GET/POST endpoints. Tenant-scoped routes use the active school context and school-qualified queries; several data relationships also have database-level ownership guards. The current test suite contains substantial direct-route, role, cross-school and data-minimization tests. Eight additional authorization regressions were added in this pass. The expanded suite contains 184 test methods. The candidate workflow [#45914506059](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45914506059) passed on both Python 3.11 and 3.14 on 2026-11-27; Prompt 02 is complete for the audited source and tested routes.
 
-This is an engineering source review, not a penetration test, legal compliance assessment, or production certification.
+This is an engineering source review, not a penetration test, legal compliance assessment, or production certification. The audit is complete for this prompt, but it does not remove the separate V4 staging, recovery and release blockers.
 
 ## Authoritative role catalogue
 
