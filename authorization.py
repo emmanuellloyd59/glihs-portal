@@ -85,7 +85,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "school.manage_campuses", "school.manage_memberships", "school.manage_roles",
         "school.view_staff", "school.view_analytics", "school.manage_staff", "school.manage_academic_calendar",
         "school.manage_grading", "academic.view_records", "academic.manage_records",
-        "academic.manage_attendance", "academic.publish_results", "academic.manage_classes",
+        "academic.manage_attendance", "academic.manage_classes",
         "finance.view", "finance.manage_fees", "finance.record_payments",
         "finance.refund_payments", "finance.export", "learning.view",
         "learning.manage_courses", "learning.manage_assignments", "learning.manage_materials", "communication.view", "communication.manage", "audit.view",
@@ -164,6 +164,16 @@ for _role, _permissions in {
     "counselor": {"student.view_records","student.view_sensitive","student.view_discipline","student.manage_discipline"},
 }.items():
     DEFAULT_ROLE_PERMISSIONS[_role].update(_permissions)
+
+# Teachers may record grades only through the class/subject-scoped academic route.
+# Finance administrators may open the analytics shell; the page still filters
+# every non-financial metric by role.
+for _role, _permissions in {
+    "teacher": {"academic.manage_records"},
+    "finance_admin": {"school.view_analytics"},
+}.items():
+    DEFAULT_ROLE_PERMISSIONS[_role].update(_permissions)
+
 
 ROLE_PARENTS = {
     "school_owner": ("school_admin",),
