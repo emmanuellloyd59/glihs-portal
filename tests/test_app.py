@@ -30,6 +30,8 @@ class PortalTestSupport:
         cls.client = portal.app.test_client()
 
     def setUp(self):
+        # Recreate the core schema when a subclass switches to an isolated DB.
+        portal.initialize_database()
         connection = portal.get_db_connection()
         # Test fixtures reset a disposable database containing staff foreign keys.
         # Disable FK enforcement only for the cleanup phase, then restore it.
