@@ -670,17 +670,26 @@ def register_attendance_scheduling_routes(ns):
             teacher = db.execute("SELECT 1 FROM school_memberships WHERE school_id=? AND user_id=? AND role='teacher' AND status='active'",(school_id,teacher_id)).fetchone()
             if not teacher:
                 abort(404)
+            room = str(data.get("room",""))[:80]
+            campus_id = data.get("campus_id")
             conflicts = db.execute("""SELECT id FROM schedule_slots WHERE school_id=? AND weekday=? AND active=1
-                AND starts_at<? AND ends_at>? AND (class_level=? OR teacher_id=? OR (?<>'' AND room=?)) LIMIT 1""",
-                (school_id,weekday,end,start,class_level,teacher_id,str(data.get("room","")),str(data.get("room","")))).fetchone()
+                AND starts_at<? AND ends_at>?
+                AND (teacher_id=? OR (COALESCE(campus_id,0)=COALESCE(?,0)
+                  AND (class_level=? OR (?<>'' AND room=?)))) LIMIT 1""",
+                (school_id,weekday,end,start,teacher_id,campus_id,class_level,room,room)).fetchone()
             if conflicts:
-                abort(409,description="The class, teacher or room already has an overlapping timetable slot.")
-            available = db.execute("""SELECT 1 FROM teacher_availability WHERE school_id=? AND teacher_id=? AND weekday=?
-                AND available=1 AND starts_at<=? AND ends_at>=? LIMIT 1""",(school_id,teacher_id,weekday,start,end)).fetchone()
-            blocked = db.execute("""SELECT 1 FROM teacher_availability WHERE school_id=? AND teacher_id=? AND weekday=?
-                AND available=0 AND starts_at<? AND ends_at>? LIMIT 1""",(school_id,teacher_id,weekday,end,start)).fetchone()
-            if blocked or (db.execute("SELECT 1 FROM teacher_availability WHERE school_id=? AND teacher_id=? AND weekday=? LIMIT 1",(school_id,teacher_id,weekday)).fetchone() and not available):
-                abort(409,description="The teacher is unavailable during this time.")
+                abort(409,description="The class or room at this campus, or the teacher across this school, already has an overlapping slot.")
+            availability_rows = db.execute("""SELECT campus_id,starts_at,ends_at,available
+                FROM teacher_availability WHERE school_id=? AND teacher_id=? AND weekday=?
+                  AND (campus_id IS NULL OR campus_id=?) ORDER BY campus_id DESC""",
+                (school_id,teacher_id,weekday,campus_id)).fetchall()
+            if availability_rows:
+                specific = [r for r in availability_rows if r["campus_id"] == campus_id] if campus_id is not None else []
+                effective = specific or [r for r in availability_rows if r["campus_id"] is None]
+                covered = any(r["available"] and r["starts_at"]<=start and r["ends_at"]>=end for r in effective)
+                blocked = any(not r["available"] and r["starts_at"]<end and r["ends_at"]>start for r in effective)
+                if blocked or not covered:
+                    abort(409,description="The teacher is unavailable at this campus during this time.")
             cur = db.execute("""INSERT INTO schedule_slots
               (school_id,campus_id,academic_year_id,academic_period_id,class_level,subject,teacher_id,weekday,starts_at,ends_at,room,effective_from,effective_to,created_by)
               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
