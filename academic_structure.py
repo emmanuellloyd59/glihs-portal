@@ -306,7 +306,7 @@ def register_academic_structure_routes(ns):
                             JOIN academic_classes ac ON ac.id=cs.class_id AND ac.school_id=cs.school_id
                             JOIN subjects su ON su.id=? AND su.school_id=?
                             JOIN academic_years ay ON ay.id=? AND ay.school_id=?
-                            WHERE s.id=? AND s.school_id=? AND ac.academic_year_id=ay.id"""
+                            WHERE s.id=? AND s.school_id=? AND s.status='active' AND cs.active=1 AND su.active=1 AND ay.status IN ('draft','active') AND ac.academic_year_id=ay.id"""
                         params=[school_id,int(period) if period else None,int(values[1]),school_id,int(values[2]),school_id,int(values[3]),school_id,int(values[0]),school_id]
                         if period:
                             base_sql += " AND EXISTS (SELECT 1 FROM academic_periods p WHERE p.id=? AND p.school_id=? AND p.academic_year_id=ay.id)"
@@ -332,6 +332,17 @@ def register_academic_structure_routes(ns):
             curricula=db.execute("SELECT cs.*,g.name AS grade_name,s.name AS subject_name FROM curriculum_subjects cs JOIN grade_levels g ON g.id=cs.grade_level_id AND g.school_id=cs.school_id JOIN subjects s ON s.id=cs.subject_id AND s.school_id=cs.school_id WHERE cs.school_id=? ORDER BY cs.curriculum_name,g.sequence_no,s.name",(school_id,)).fetchall()
             versions=rows("academic_structure_versions","version_no DESC")
             students=db.execute("SELECT id,full_name,admission_number FROM students WHERE school_id=? AND status='active' ORDER BY full_name",(school_id,)).fetchall()
+            enrollments=db.execute("""SELECT e.id,st.full_name,st.admission_number,cs.name AS section_name,
+                    c.name AS class_name,su.name AS subject_name,y.label AS year_label,
+                    p.name AS period_name,e.status,e.enrolled_at
+                FROM course_enrollments e
+                JOIN students st ON st.id=e.student_id AND st.school_id=e.school_id
+                JOIN class_sections sec ON sec.id=e.class_section_id AND sec.school_id=e.school_id
+                JOIN academic_classes c ON c.id=sec.class_id AND c.school_id=e.school_id
+                JOIN subjects su ON su.id=e.subject_id AND su.school_id=e.school_id
+                JOIN academic_years y ON y.id=e.academic_year_id AND y.school_id=e.school_id
+                LEFT JOIN academic_periods p ON p.id=e.academic_period_id AND p.school_id=e.school_id
+                WHERE e.school_id=? ORDER BY e.id DESC LIMIT 100""",(school_id,)).fetchall()
         finally:
             db.close()
-        return render_template("academic_structure.html",can_manage=can_manage,years=years,periods=periods,levels=levels,subjects=subjects,classes=classes,sections=sections,curricula=curricula,versions=versions,students=students,period_types=sorted(PERIOD_TYPES))
+        return render_template("academic_structure.html",can_manage=can_manage,years=years,periods=periods,levels=levels,subjects=subjects,classes=classes,sections=sections,curricula=curricula,versions=versions,students=students,enrollments=enrollments,period_types=sorted(PERIOD_TYPES))
