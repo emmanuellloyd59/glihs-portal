@@ -95,6 +95,23 @@ class StudentInformationTests(PortalTestSupport, unittest.TestCase):
         self.assertNotIn("guardian_name",record)
         self.assertNotIn("guardian_phone",record)
 
+    def test_explicit_sensitive_field_deny_overrides_registrar_role(self):
+        student_id=self.create_student()
+        self.login_as("registrar_demo","test-registrar-password")
+        db=portal.get_db_connection()
+        try:
+            user_id=db.execute("SELECT id FROM users WHERE username='registrar_demo'").fetchone()["id"]
+            db.execute("""INSERT INTO authorization_grants
+              (subject_type,subject_id,permission,scope_type,scope_id,effect,conditions_json,created_by)
+              VALUES('user',?,'student.view_sensitive','school',1,'deny','{}',?)""",
+              (str(user_id),user_id))
+            db.commit()
+        finally: db.close()
+        response=self.client.get(f"/api/v1/students/{student_id}")
+        self.assertEqual(response.status_code,200)
+        self.assertNotIn("date_of_birth",response.get_json()["student"])
+        self.assertNotIn("guardian_name",response.get_json()["student"])
+
     def test_teacher_student_search_and_profiles_are_class_scoped(self):
         in_scope=self.create_student(1,"TEACHER-G7","TEACHER-G7-ID","Class Seven Student")
         out_scope=self.create_student(1,"TEACHER-G8","TEACHER-G8-ID","Class Eight Student")
