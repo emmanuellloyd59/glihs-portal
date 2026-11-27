@@ -70,7 +70,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "learning.manage_courses", "communication.view", "communication.manage", "audit.view",
     },
     "school_admin": {
-        "school.view_dashboard", "school.manage_profile", "school.manage_configuration",
+        "school.view_dashboard", "school.manage_profile", "school.view_configuration", "school.manage_configuration",
         "school.manage_campuses", "school.manage_memberships", "school.manage_roles",
         "school.view_staff", "school.manage_staff", "school.manage_academic_calendar",
         "school.manage_grading", "academic.view_records", "academic.manage_records",
@@ -269,6 +269,8 @@ def has_permission(connection, permission, school_id=None, campus_id=None,
             return False
         if actor_campus is not None and campus_id is not None and int(actor_campus) != int(campus_id):
             return False
+        if actor_campus is not None and campus_id is None and PERMISSIONS[permission] == "campus":
+            return False
         membership_id = getattr(current_user, "membership_id", None)
         member = connection.execute("""
             SELECT m.status,m.role,m.school_id,m.campus_id,u.status AS user_status,
@@ -282,6 +284,8 @@ def has_permission(connection, permission, school_id=None, campus_id=None,
             return False
         if member["campus_id"] is not None and campus_id is not None and int(member["campus_id"]) != int(campus_id):
             return False
+    if resource_owner_id is not None and permission in {"student.view_own", "student.manage_own_profile", "parent.view_linked_children"} and int(resource_owner_id) != actor_id:
+        return False
     if attrs.get("owner_user_id") is not None and int(attrs["owner_user_id"]) != actor_id:
         if permission in {"student.view_own", "student.manage_own_profile", "parent.view_linked_children"}:
             return False
@@ -426,13 +430,17 @@ def create_authorization_blueprint(connection_factory):
             return jsonify({"error": "Unknown permission, scope or effect."}), 400
         if subject_type not in {"user", "role"} or not subject_id:
             return jsonify({"error": "A user or role subject is required."}), 400
-        if scope_type == "platform":
+        if subject_type == "role" and subject_id not in DEFAULT_ROLE_PERMISSIONS:
+            return jsonify({"error": "Unknown authorization role."}), 400
+        if scope_type in {"platform", "organization"}:
             if not (getattr(current_user, "is_super_admin", False)
                     and getattr(current_user, "role", None) == "super_admin"
                     and getattr(current_user, "school_id", None) is None):
                 abort(403)
-            if PERMISSIONS[permission] != "platform":
+            if scope_type == "platform" and PERMISSIONS[permission] != "platform":
                 return jsonify({"error": "Platform grants are reserved for platform-scope permissions."}), 403
+            if scope_type == "organization" and PERMISSIONS[permission] == "platform":
+                return jsonify({"error": "Platform permissions cannot be assigned to organizations."}), 403
         else:
             school_id = payload.get("school_id")
             if not isinstance(school_id, int) or isinstance(school_id, bool):
@@ -472,6 +480,16 @@ def create_authorization_blueprint(connection_factory):
         conditions = payload.get("conditions", {})
         if not isinstance(conditions, dict) or len(json.dumps(conditions)) > 4000:
             return jsonify({"error": "Invalid grant conditions."}), 400
+        expires_at = payload.get("expires_at")
+        if expires_at is not None:
+            from datetime import datetime
+            try:
+                parsed_expiry = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+                if parsed_expiry.tzinfo is None:
+                    return jsonify({"error": "Grant expiry must include a timezone."}), 400
+                expires_at = parsed_expiry.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+            except (TypeError, ValueError):
+                return jsonify({"error": "Grant expiry must be a valid timezone-aware ISO timestamp."}), 400
         connection = connection_factory()
         try:
             cursor = connection.execute("""
@@ -479,7 +497,7 @@ def create_authorization_blueprint(connection_factory):
                 (subject_type,subject_id,permission,scope_type,scope_id,effect,conditions_json,expires_at,created_by)
                 VALUES(?,?,?,?,?,?,?,?,?)
             """, (subject_type, subject_id, permission, scope_type, scope_id, effect,
-                  json.dumps(conditions, sort_keys=True), payload.get("expires_at"), int(current_user.id)))
+                  json.dumps(conditions, sort_keys=True), expires_at, int(current_user.id)))
             connection.execute("""
                 INSERT INTO authorization_audit(actor_user_id,school_id,campus_id,action,permission,
                   subject_type,subject_id,effect,details_json)
