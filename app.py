@@ -241,7 +241,9 @@ def migrate_report_card_term_flexibility(connection):
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='report_cards'"
     ).fetchone()
     sql = (schema["sql"] or "") if schema else ""
-    if "term IN ('Term 1', 'Term 2', 'Term 3')" not in sql:
+    normalized_sql = " ".join(sql.lower().split())
+    if ("term in ('term 1', 'term 2', 'term 3')" not in normalized_sql
+            and "unique(school_id,student_id,academic_year,term)" in normalized_sql):
         return
     connection.execute("DROP TABLE IF EXISTS report_cards_migrating")
     connection.execute("""
@@ -454,12 +456,13 @@ def initialize_database():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 student_id INTEGER NOT NULL REFERENCES students(id),
                 academic_year TEXT NOT NULL,
-                term TEXT NOT NULL CHECK (term IN ('Term 1', 'Term 2', 'Term 3')),
+                term TEXT NOT NULL,
                 published INTEGER NOT NULL DEFAULT 0 CHECK (published IN (0, 1)),
                 published_by INTEGER REFERENCES users(id),
                 published_at TEXT,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(student_id, academic_year, term)
+                school_id INTEGER REFERENCES schools(id),
+                UNIQUE(school_id, student_id, academic_year, term)
             )
             """
         )
