@@ -284,6 +284,12 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
                          (student_id, school_id)).fetchone()
         if not row:
             abort(404)
+        if getattr(current_user, "role", None) == "teacher":
+            assigned = db.execute("""SELECT 1 FROM teacher_class_assignments
+              WHERE school_id=? AND teacher_id=? AND class_level=? AND active=1 LIMIT 1""",
+              (school_id,int(current_user.id),row["class_level"])).fetchone()
+            if not assigned:
+                abort(404)
         return row
 
     def audit(db, school_id, action, student_id, details=""):
@@ -313,6 +319,10 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
             clauses.append("class_level=?"); params.append(class_level)
         if status:
             clauses.append("status=?"); params.append(status)
+        if getattr(current_user, "role", None) == "teacher":
+            clauses.append("""class_level IN (SELECT class_level FROM teacher_class_assignments
+              WHERE school_id=? AND teacher_id=? AND active=1)""")
+            params.extend([school_id,int(current_user.id)])
         where = " AND ".join(clauses)
         db = connection_factory()
         try:
@@ -347,7 +357,7 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
     @bp.get("/api/v1/students/identifier-config")
     @login_required
     def get_identifier_config():
-        school_id = school_context("student.view_records")
+        school_id = school_context("student.manage_records")
         db = connection_factory()
         try:
             row = db.execute("SELECT pattern,next_sequence FROM student_identifier_config WHERE school_id=?",
@@ -385,7 +395,7 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
     @bp.get("/api/v1/students/duplicate-check")
     @login_required
     def duplicate_check():
-        school_id=school_context("student.view_records")
+        school_id=school_context("student.manage_admissions")
         name=_clean(request.args.get("full_name"),150,True)
         dob=_valid_date(request.args.get("date_of_birth"))
         if not dob:
@@ -461,7 +471,7 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
     @bp.get("/api/v1/admissions")
     @login_required
     def list_admissions():
-        school_id = school_context("student.view_records")
+        school_id = school_context("student.manage_admissions")
         status = _clean(request.args.get("status"), 30)
         db = connection_factory()
         try:
@@ -950,7 +960,7 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
     @bp.get("/api/v1/students/report/summary")
     @login_required
     def student_summary():
-        school_id=school_context("student.view_records")
+        school_id=school_context("school.view_analytics")
         db=connection_factory()
         try:
             rows=db.execute("""SELECT status,COUNT(*) AS total FROM students
