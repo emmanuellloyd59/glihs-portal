@@ -2422,7 +2422,7 @@ def can_view_material(role, class_level, archived=False):
 def learning_materials():
     school_id = require_school_context()
     from authorization import require_permission
-    require_permission("learning.manage_courses" if request.method == "POST" else "learning.view",
+    require_permission("learning.manage_materials" if request.method == "POST" else "learning.view",
                        get_db_connection, school_id=school_id)
     role = current_user.role
     connection = get_db_connection()
@@ -2519,7 +2519,7 @@ def download_learning_material(material_id):
 def archive_learning_material(material_id):
     school_id = require_school_context()
     from authorization import require_permission
-    require_permission("learning.manage_courses", get_db_connection, school_id=school_id)
+    require_permission("learning.manage_materials", get_db_connection, school_id=school_id)
     connection = get_db_connection()
     try:
         ensure_content_tables(connection)
@@ -2710,6 +2710,7 @@ def parent_children():
     school_id = require_school_context()
     from authorization import require_permission
     require_permission("parent.view_linked_children", get_db_connection, school_id=school_id)
+    require_permission("parent.view_child_finances", get_db_connection, school_id=school_id)
     connection = get_db_connection()
     try:
         children = connection.execute(
