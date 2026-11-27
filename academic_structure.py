@@ -103,6 +103,8 @@ def initialize_academic_structure(dbopen):
                 db.execute(f"ALTER TABLE {table} ADD COLUMN academic_year_id INTEGER REFERENCES academic_years(id)")
             if "academic_period_id" not in cols:
                 db.execute(f"ALTER TABLE {table} ADD COLUMN academic_period_id INTEGER REFERENCES academic_periods(id)")
+            if table == "grades" and "subject_id" not in cols:
+                db.execute("ALTER TABLE grades ADD COLUMN subject_id INTEGER REFERENCES subjects(id)")
         # Backfill only recognizable legacy labels; never guess dates or curriculum.
         schools = db.execute("SELECT id FROM schools").fetchall()
         for school in schools:
@@ -141,7 +143,9 @@ def initialize_academic_structure(dbopen):
                                   AND p.name={table}.term)
                         WHERE school_id=? AND academic_year<>'Unassigned' AND term<>'Unassigned'""", (sid,))
             # Legacy classes and subjects are imported as labels, not assigned to a
-            # national progression or assumed curriculum.
+            # national progression or assumed curriculum. Legacy class_level is
+            # intentionally not treated as a class/section because old records do
+            # not distinguish a grade level from a homeroom or section.
             legacy_classes = set()
             for table, column in (("students","class_level"),("teacher_class_assignments","class_level"),("class_timetable","class_level")):
                 cols = {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
@@ -156,6 +160,15 @@ def initialize_academic_structure(dbopen):
                     legacy_subjects.update(r[0] for r in db.execute(f"SELECT DISTINCT {column} FROM {table} WHERE school_id=? AND {column} IS NOT NULL AND trim({column})<>''",(sid,)))
             for label in sorted(legacy_subjects):
                 db.execute("INSERT OR IGNORE INTO subjects(school_id,name) VALUES(?,?)",(sid,label))
+            # Link historical grade rows to the tenant's canonical subject while
+            # preserving the original free-text subject column for old interfaces.
+            grade_cols = {r["name"] for r in db.execute("PRAGMA table_info(grades)")}
+            if {"school_id","subject","subject_id"}.issubset(grade_cols):
+                db.execute("""UPDATE grades SET subject_id=(SELECT s.id FROM subjects s
+                    WHERE s.school_id=grades.school_id AND lower(s.name)=lower(grades.subject))
+                    WHERE school_id=? AND subject_id IS NULL""",(sid,))
+            if db.execute("SELECT COUNT(*) FROM academic_structure_versions WHERE school_id=?",(sid,)).fetchone()[0] == 0:
+                _snapshot(db,sid,None,"Initial import of existing academic labels")
         db.commit()
     except Exception:
         db.rollback()
