@@ -218,7 +218,13 @@ def _validate_payload(payload, profile, services):
     if len(name) < 2:
         errors.append("Institution name must contain at least two characters.")
     if not EMAIL_RE.fullmatch(email):
-        errors.append("A valid institutional or administrator email is required.")
+        errors.append("A valid institutional or application email is required.")
+    administrator_name = _clean(payload.get("administrator_name"),160)
+    administrator_email = _clean(payload.get("administrator_email"),254).lower()
+    if len(administrator_name) < 2:
+        errors.append("A proposed school administrator name is required.")
+    if not EMAIL_RE.fullmatch(administrator_email):
+        errors.append("A valid proposed school administrator email is required.")
     if not re.fullmatch(r"[A-Z]{2}", country):
         errors.append("Select a valid two-letter country code.")
     if profile and profile["region_required"] and not region:
@@ -261,7 +267,8 @@ def _validate_payload(payload, profile, services):
     return {
         "name": name, "legal_name": _clean(payload.get("legal_name") or name,200),
         "contact_email": email, "country_code": country, "region": region,
-        "city": _clean(payload.get("city"),100), "owner_name": _clean(payload.get("owner_name") or payload.get("administrator_name"),160),
+        "city": _clean(payload.get("city"),100), "owner_name": _clean(payload.get("owner_name") or administrator_name,160),
+        "administrator_name": administrator_name, "administrator_email": administrator_email,
         "requested_services": sorted(set(requested)),
     }, errors
 
