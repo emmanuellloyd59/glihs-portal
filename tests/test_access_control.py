@@ -31,6 +31,10 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
 
     def setUp(self):
         connection = portal.get_db_connection()
+        # Staff lifecycle events are immutable in production; test cleanup may
+        # clear them only after removing the guards on this isolated test DB.
+        connection.execute("DROP TRIGGER IF EXISTS trg_staff_lifecycle_no_update")
+        connection.execute("DROP TRIGGER IF EXISTS trg_staff_lifecycle_no_delete")
         connection.execute(
             "UPDATE schools SET status='active', lifecycle_status='active' WHERE id=1"
         )
@@ -43,6 +47,14 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             ).fetchall()
         }
         for table in (
+            "staff_documents",
+            "staff_lifecycle_events",
+            "staff_responsibilities",
+            "staff_qualifications",
+            "staff_employment",
+            "staff_profiles",
+            "staff_memberships",
+            "staff_departments",
             "student_documents",
             "student_disciplinary_records",
             "student_withdrawals",
