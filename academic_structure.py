@@ -262,6 +262,18 @@ def register_academic_structure_routes(ns):
                         start=request.form.get("starts_on") or None; end=request.form.get("ends_on") or None
                         if not name or len(name)>80 or (start and end and start>end): raise ValueError("Enter a valid academic-year label and date range.")
                         db.execute("INSERT INTO academic_years(school_id,label,starts_on,ends_on) VALUES(?,?,?,?)",(school_id,name,start,end))
+                    elif action=="year_status":
+                        year_id=request.form.get("academic_year_id","")
+                        status=request.form.get("status","")
+                        if not year_id.isdigit() or status not in {"draft","active","closed","archived"}: raise ValueError("Choose a valid academic year and status.")
+                        db.execute("UPDATE academic_years SET status=? WHERE id=? AND school_id=?",(status,int(year_id),school_id))
+                        if db.execute("SELECT changes()").fetchone()[0]!=1: raise ValueError("The academic year was not found in this school.")
+                    elif action=="period_status":
+                        period_id=request.form.get("academic_period_id","")
+                        status=request.form.get("status","")
+                        if not period_id.isdigit() or status not in {"active","closed","archived"}: raise ValueError("Choose a valid academic period and status.")
+                        db.execute("UPDATE academic_periods SET status=? WHERE id=? AND school_id=?",(status,int(period_id),school_id))
+                        if db.execute("SELECT changes()").fetchone()[0]!=1: raise ValueError("The academic period was not found in this school.")
                     elif action=="period":
                         year_id=request.form.get("academic_year_id","")
                         kind=request.form.get("period_type","")
