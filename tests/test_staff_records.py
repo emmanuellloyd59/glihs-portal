@@ -180,6 +180,30 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_staff_directory_suspend_and_reactivate_sync_membership_and_history(self):
+        self.login()
+        suspended=self.client.post("/staff",data={
+            "action":"suspend","user_id":str(self.teacher_id)
+        },follow_redirects=True)
+        self.assertEqual(suspended.status_code,200)
+        self.assertEqual(self.membership(self.teacher_id)["membership_status"],"suspended")
+        reactivated=self.client.post("/staff",data={
+            "action":"reactivate","user_id":str(self.teacher_id)
+        },follow_redirects=True)
+        self.assertEqual(reactivated.status_code,200)
+        self.assertEqual(self.membership(self.teacher_id)["membership_status"],"active")
+        db=portal.get_db_connection()
+        try:
+            events=db.execute(
+                """SELECT event_type FROM staff_lifecycle_events
+                   WHERE membership_id=(SELECT id FROM staff_memberships WHERE user_id=?)
+                   ORDER BY id""",(self.teacher_id,)
+            ).fetchall()
+            self.assertEqual([row["event_type"] for row in events],
+                             ["account_suspended","account_reactivated"])
+        finally:
+            db.close()
+
     def test_onboarding_and_offboarding_revoke_and_restore_access(self):
         self.login()
         db=portal.get_db_connection()
