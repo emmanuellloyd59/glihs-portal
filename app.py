@@ -943,6 +943,8 @@ def require_super_admin():
         or current_user.school_id is not None
     ):
         abort(403)
+    from authorization import require_permission
+    require_permission("platform.manage_operators", get_db_connection)
     return None
 
 
@@ -1049,6 +1051,8 @@ def select_school_context():
         or current_user.school_id is not None
     ):
         abort(403)
+    from authorization import require_permission
+    require_permission("platform.manage_schools", get_db_connection)
 
     connection = get_db_connection()
     try:
