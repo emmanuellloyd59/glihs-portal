@@ -110,6 +110,23 @@ def _validate_config(config, campus=False):
         errors.append("Unsupported configuration sections: " + ", ".join(sorted(unknown)))
     if not isinstance(config, dict):
         return ["Configuration must be a JSON object."]
+    allowed_fields = {
+        "branding": {"display_name", "logo_url", "primary_color", "secondary_color"},
+        "contact": {"email", "phone", "website_url", "address_line1", "address_line2",
+                    "city", "region", "postal_code", "country_code"},
+        "academic_calendar": {"academic_year_label", "year_start", "year_end",
+                              "week_starts_on", "terms"},
+        "grading_system": {"name", "passing_score", "grades"},
+        "regional": {"currency", "timezone", "default_language", "supported_languages"},
+        "modules": {"enabled"},
+    }
+    for section, allowed_keys in allowed_fields.items():
+        value = config.get(section, {})
+        if isinstance(value, dict):
+            extra = set(value) - allowed_keys
+            if extra:
+                errors.append("Unsupported " + section.replace("_", " ") +
+                              " fields: " + ", ".join(sorted(extra)))
     branding = config.get("branding", {})
     if not isinstance(branding, dict):
         errors.append("Branding must be an object.")
