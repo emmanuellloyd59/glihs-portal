@@ -66,6 +66,8 @@ def initialize_membership_schema(connection_factory):
         user_columns = {r["name"] for r in connection.execute("PRAGMA table_info(users)")}
         if "email" not in user_columns:
             connection.execute("ALTER TABLE users ADD COLUMN email TEXT")
+        if "auth_version" not in user_columns:
+            connection.execute("ALTER TABLE users ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 1")
         connection.execute("""
             CREATE TABLE IF NOT EXISTS school_memberships (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -298,10 +300,12 @@ def create_membership_blueprint(connection_factory):
             _record(connection, int(current_user.id), row["school_id"], "membership_switched")
             connection.commit()
             user_id = current_user.id
+            auth_version = getattr(current_user, "auth_version", 1)
             # Drop all prior workspace/session state, then establish a fresh
             # authenticated session bound to the server-verified membership.
             session.clear()
             session["active_membership_id"] = int(row["id"])
+            session["auth_version"] = int(auth_version)
             session.permanent = True
             from flask_login import current_user as _current_user
             # Reload through Flask-Login's user loader on the next request.
@@ -526,7 +530,7 @@ def create_membership_blueprint(connection_factory):
             if row is None:
                 return jsonify({"error": "Recovery token is invalid or expired."}), 400
             connection.execute(
-                "UPDATE users SET password_hash=? WHERE id=?",
+                "UPDATE users SET password_hash=?,auth_version=auth_version+1 WHERE id=?",
                 (generate_password_hash(password), row["user_id"]),
             )
             connection.execute(
