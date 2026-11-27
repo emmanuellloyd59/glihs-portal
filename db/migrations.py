@@ -289,11 +289,9 @@ def apply_postgresql_migrations(connection, migrations=POSTGRESQL_MIGRATIONS):
                    VALUES (%s, %s, %s)""",
                 (migration.version, migration.name, migration.checksum),
             )
-            connection.commit()
             applied_set.add(migration.version)
             applied_now.append(migration.version)
-        if not migrations or not applied_now:
-            connection.commit()
+        connection.commit()
         return tuple(applied_now)
     except Exception:
         connection.rollback()
