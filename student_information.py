@@ -460,6 +460,7 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
         except (ValueError, TypeError) as exc:
             return jsonify({"error": str(exc)}), 400
         db = connection_factory()
+        override = ""
         try:
             if dob:
                 matches = db.execute("""SELECT id,full_name,admission_number FROM students
@@ -485,7 +486,8 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
                   _clean(payload.get("guardian_phone"),40), _clean(payload.get("previous_school"),150),
                   state, json.dumps(extra, sort_keys=True), datetime.now(timezone.utc).isoformat()
                   if state == "submitted" else None, int(current_user.id)))
-            audit(db, school_id, "student_admission_created", cur.lastrowid, state)
+            audit(db, school_id, "student_admission_created", cur.lastrowid,
+                  state + ("; duplicate override: " + override if override else ""))
             db.commit()
             return jsonify({"admission_id": cur.lastrowid, "application_number": application_number, "status": state}), 201
         except Exception as exc:
@@ -800,6 +802,7 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
             category=_clean(payload.get("category"),80,True)
             severity=payload.get("severity")
             description=_clean(payload.get("description"),3000,True)
+            follow_up=_valid_date(payload.get("follow_up_date"))
             if severity not in DISCIPLINE_LEVELS: raise ValueError("Invalid severity.")
         except ValueError as exc: return jsonify({"error":str(exc)}),400
         db=connection_factory()
@@ -809,7 +812,7 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
               (school_id,student_id,incident_date,category,severity,description,action_taken,
                follow_up_date,confidential,recorded_by) VALUES(?,?,?,?,?,?,?,?,?,?)""",
               (school_id,student_id,incident,category,severity,description,
-               _clean(payload.get("action_taken"),2000),_valid_date(payload.get("follow_up_date")),
+               _clean(payload.get("action_taken"),2000),follow_up,
                int(bool(payload.get("confidential",True))),int(current_user.id)))
             audit(db,school_id,"student_discipline_recorded",student_id,"restricted record added")
             db.commit(); return jsonify({"disciplinary_record_id":cur.lastrowid}),201
