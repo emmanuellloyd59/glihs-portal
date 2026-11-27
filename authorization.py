@@ -604,8 +604,14 @@ def create_authorization_blueprint(connection_factory):
             finally:
                 connection.close()
         conditions = payload.get("conditions", {})
-        if not isinstance(conditions, dict) or len(json.dumps(conditions)) > 4000:
-            return jsonify({"error": "Invalid grant conditions."}), 400
+        allowed_condition_keys = {
+            "owner_user_id", "assigned_user_id", "resource_school_id",
+            "resource_campus_id", "role", "status", "country_code",
+        }
+        if (not isinstance(conditions, dict) or len(json.dumps(conditions)) > 4000
+                or any(key not in allowed_condition_keys for key in conditions)
+                or any(not isinstance(value, (str, int, bool)) for value in conditions.values())):
+            return jsonify({"error": "Invalid or unsupported grant conditions."}), 400
         expires_at = payload.get("expires_at")
         if expires_at is not None:
             from datetime import datetime
