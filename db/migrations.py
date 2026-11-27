@@ -229,7 +229,7 @@ def apply_postgresql_migrations(connection, migrations=POSTGRESQL_MIGRATIONS):
     """Apply pending migrations atomically and reject drift or unknown history.
 
     The caller must provide a Psycopg-compatible connection with autocommit off.
-    No migration is marked applied until all its DDL succeeds and commits.
+    The entire pending batch and its ledger entries commit atomically. Keeping\n    one transaction open also keeps the transaction-scoped advisory lock held\n    until every migration has completed.
     """
     _validate_migration_set(migrations)
     try:
