@@ -36,7 +36,9 @@ class InternationalOnboardingTests(unittest.TestCase):
         try:
             for table in ("onboarding_notification_outbox", "school_admin_invitations",
                           "school_service_requests", "onboarding_events", "onboarding_applications",
-                          "onboarding_rate_limits", "country_requirement_profiles"):
+                          "onboarding_rate_limits", "country_requirement_profiles",
+                          "school_contacts", "campuses", "school_group_memberships",
+                          "school_network_audit", "school_groups"):
                 connection.execute("DELETE FROM " + table)
             connection.execute("DELETE FROM users")
             connection.execute("DELETE FROM schools WHERE id<>1")
