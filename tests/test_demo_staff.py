@@ -29,7 +29,9 @@ class DemoStaffProvisioningTests(unittest.TestCase):
             "UPDATE schools SET status='active', lifecycle_status='active' WHERE id=1"
         )
         for table in (
-            "identity_recovery_tokens", "membership_invitations",
+            "student_documents", "student_disciplinary_records", "student_withdrawals",
+            "student_transfers", "student_academic_history", "student_guardians",
+            "student_admissions", "identity_recovery_tokens", "membership_invitations",
             "identity_security_events", "school_memberships",
             "homework_submissions", "homework_assignments", "parent_student_links",
             "finance_payments", "school_announcements", "learning_materials",
@@ -41,6 +43,8 @@ class DemoStaffProvisioningTests(unittest.TestCase):
             ).fetchone()
             if exists:
                 db.execute("DELETE FROM " + table)
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='student_identifier_config'").fetchone():
+            db.execute("DELETE FROM student_identifier_config WHERE school_id <> 1")
         db.execute("DELETE FROM schools WHERE id <> 1")
         db.execute(
             """INSERT INTO users (username,password_hash,role,status,is_super_admin,school_id)
