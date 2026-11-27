@@ -17,7 +17,7 @@ class StudentInformationTests(PortalTestSupport, unittest.TestCase):
               INSERT INTO students(admission_number,student_id_number,full_name,class_level,
                 date_of_birth,guardian_name,guardian_phone,school_id)
               VALUES(?,?,?,?,?,?,?,?)
-            """, (admission, identifier, name, "Grade 7", dob,
+            """, (admission, identifier, name, class_level, dob,
                   "Pat Fiction", "000-111-2222", school_id))
             db.commit()
             return cur.lastrowid
@@ -122,7 +122,7 @@ class StudentInformationTests(PortalTestSupport, unittest.TestCase):
 
     def test_teacher_student_search_and_profiles_are_class_scoped(self):
         in_scope=self.create_student(1,"TEACHER-G7","TEACHER-G7-ID","Class Seven Student")
-        out_scope=self.create_student(1,"TEACHER-G8","TEACHER-G8-ID","Class Eight Student")
+        out_scope=self.create_student(1,"TEACHER-G8","TEACHER-G8-ID","Class Eight Student",class_level="Grade 8")
         db=portal.get_db_connection()
         try:
             teacher=db.execute("SELECT id FROM users WHERE username='teacher_demo'").fetchone()["id"]
