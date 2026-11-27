@@ -218,7 +218,7 @@ def initialize_student_information_schema(connection_factory):
               BEGIN SELECT RAISE(ABORT,'guardian membership tenant mismatch'); END
             """)
         for operation in ("INSERT","UPDATE"):
-            trigger = f"trg_student_admissions_school_{operation.lower()}
+            trigger = f"trg_student_admissions_school_{operation.lower()}"
             db.execute(f"""
               CREATE TRIGGER IF NOT EXISTS {trigger}
               BEFORE {operation} ON student_admissions
