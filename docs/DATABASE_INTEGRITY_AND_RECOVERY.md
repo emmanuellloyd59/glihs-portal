@@ -55,7 +55,7 @@ The disposable-database tests cover:
 - Refusal to overwrite existing backup or restore files.
 - Rejection and cleanup of backups containing foreign-key violations.
 
-The tests must pass in the repository's Python 3.11 and 3.14 CI jobs before Prompt 03 can be marked verified.
+The 187-test suite passed in both repository Python 3.11 and 3.14 CI jobs in workflow [#45916727267](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45916727267). Prompt 03 automated verification is complete; operational backup, durable storage and staging restore drills remain release blockers.
 
 ## Known limitations
 
