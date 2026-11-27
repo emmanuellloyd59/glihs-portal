@@ -316,6 +316,24 @@ def initialize_database():
                 applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Refuse to run older application code against a database that records
+        # an unknown or conflicting migration. This is a fail-closed guard:
+        # schema upgrades must be explicitly implemented before startup proceeds.
+        supported_migrations = {
+            1: "legacy-to-multi-school-schema-baseline",
+            2: "school-ownership-integrity-guards",
+            3: "content-and-finance-school-ownership-guards",
+            4: "homework-school-ownership-guards",
+        }
+        for migration in connection.execute(
+            "SELECT version, name FROM schema_migrations ORDER BY version"
+        ).fetchall():
+            expected_name = supported_migrations.get(migration["version"])
+            if expected_name != migration["name"]:
+                raise sqlite3.DatabaseError(
+                    "Unsupported or inconsistent schema migration ledger entry: "
+                    f"version {migration['version']}"
+                )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
