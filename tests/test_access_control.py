@@ -1750,6 +1750,10 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
 
     def test_registrar_cannot_access_or_manage_homework_assignments(self):
         self.login_as("registrar_route_test")
+        dashboard = self.client.get("/dashboard")
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertNotIn(b"Homework & Assignments", dashboard.data)
+        self.assertIn(b"Class Timetable", dashboard.data)
         self.assertEqual(self.client.get("/assignments").status_code, 403)
         self.assertEqual(self.client.post("/assignments", data={
             "action": "create",
