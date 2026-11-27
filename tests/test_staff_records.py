@@ -73,6 +73,9 @@ class StaffRecordLifecycleTests(unittest.TestCase):
             db.commit()
         finally:
             db.close()
+        # Recreate canonical school memberships for the newly seeded test identities;
+        # staff records are extensions of these rows, never standalone tenant links.
+        initialize_membership_schema(portal.get_db_connection)
         initialize_staff_records(portal.get_db_connection)
         self.admin_id = self.user_id("staff_admin")
         self.teacher_id = self.user_id("existing_teacher")
@@ -114,7 +117,12 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         try:
             before = db.execute("SELECT id,password_hash,role FROM users WHERE id=?", (self.teacher_id,)).fetchone()
             membership = db.execute(
-                "SELECT id,membership_status FROM staff_memberships WHERE school_id=1 AND user_id=?",
+                "SELECT id,membership_status,school_membership_id FROM staff_memberships WHERE school_id=1 AND user_id=?",
+                (self.teacher_id,),
+            ).fetchone()
+            canonical = db.execute(
+                """SELECT id FROM school_memberships
+                   WHERE school_id=1 AND user_id=? AND status='active'""",
                 (self.teacher_id,),
             ).fetchone()
             after = db.execute("SELECT id,password_hash,role FROM users WHERE id=?", (self.teacher_id,)).fetchone()
@@ -123,6 +131,8 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         self.assertEqual((before["id"],before["password_hash"],before["role"]),
                          (after["id"],after["password_hash"],after["role"]))
         self.assertIsNotNone(membership)
+        self.assertIsNotNone(canonical)
+        self.assertEqual(membership["school_membership_id"],canonical["id"])
         self.assertEqual(membership["membership_status"],"active")
         self.assertEqual(self.membership(self.inactive_id)["employment_status"],"suspended")
 
