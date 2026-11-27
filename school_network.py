@@ -271,7 +271,8 @@ def create_school_network_blueprint(connection_factory):
 
     @bp.before_request
     def require_api_authentication():
-        if request.path.startswith("/api/v1/") and not current_user.is_authenticated:
+        if (request.path.startswith("/api/v1/") and not current_user.is_authenticated
+                and not (request.path == "/api/v1/schools" and request.method == "POST")):
             abort(401)
 
     @bp.app_context_processor
