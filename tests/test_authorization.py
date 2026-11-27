@@ -96,6 +96,38 @@ class ScopedAuthorizationTests(unittest.TestCase):
         self.assertNotIn("finance.refund_payments", permissions)
         self.assertNotIn("platform.manage_schools", permissions)
 
+    def test_finance_officer_can_record_payments_but_cannot_refund_or_manage_staff(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "UPDATE school_memberships SET role='finance_officer' WHERE id=?",
+                (self.teacher_membership,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        permissions = self.permissions(self.teacher)
+        self.assertIn("finance.record_payments", permissions)
+        self.assertIn("finance.view", permissions)
+        self.assertNotIn("finance.refund_payments", permissions)
+        self.assertNotIn("school.manage_staff", permissions)
+
+    def test_student_self_service_does_not_grant_schoolwide_academic_access(self):
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "UPDATE school_memberships SET role='student' WHERE id=?",
+                (self.teacher_membership,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        permissions = self.permissions(self.teacher)
+        self.assertIn("student.view_own", permissions)
+        self.assertIn("learning.submit_work", permissions)
+        self.assertNotIn("academic.view_records", permissions)
+        self.assertNotIn("school.manage_staff", permissions)
+
     def test_horizontal_privilege_escalation_across_tenants_is_denied(self):
         response = self.teacher.get(
             f"/api/v1/schools/{self.school_b}/configuration"
