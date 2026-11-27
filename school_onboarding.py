@@ -769,10 +769,10 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
                    VALUES (?,?,?,?,?,?)""",
                 (school_id,email,full_name,_token_hash(token),expires,int(current_user.id)),
             )
-            accept_url = request.host_url.rstrip("/") + "/api/v1/onboarding/invitations/accept"
+            accept_url = request.host_url.rstrip("/") + "/school-network/invitations/accept#token=" + token
             _queue_email(connection,email,"Invitation to administer "+school["name"],
-                         "You have been invited to administer "+school["name"]+".\nInvitation token: "+token+
-                         "\nAccept endpoint: "+accept_url+"\nThis invitation expires in 72 hours.")
+                         "You have been invited to administer "+school["name"]+". Open this secure invitation link to set your password: "+
+                         accept_url+"\nThis single-use invitation expires in 72 hours.")
             _record_event(connection,None,school_id,int(current_user.id),"administrator.invitation_issued",
                           {"email":email,"expires_at":expires})
             connection.commit()
@@ -783,6 +783,10 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             return _json_error("invitation_exists","A pending invitation already exists for this administrator.",409)
         finally:
             connection.close()
+
+    @bp.get("/school-network/invitations/accept")
+    def accept_invitation_page():
+        return render_template("school_network/accept_invitation.html")
 
     @bp.post("/api/v1/onboarding/invitations/accept")
     def accept_invitation():
