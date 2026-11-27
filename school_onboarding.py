@@ -387,8 +387,9 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             return _json_error("validation_error","A valid email and country code are required to save a draft.",422)
         connection = connection_factory()
         try:
-            key = _rate_key((request.remote_addr or "unknown") + "|" + email)
-            if not _rate_limit(connection,key):
+            ip_key = _rate_key("ip|" + (request.remote_addr or "unknown"))
+            email_key = _rate_key("email|" + email)
+            if not _rate_limit(connection,ip_key,limit=20) or not _rate_limit(connection,email_key,limit=8):
                 connection.commit()
                 return _json_error("rate_limited","Too many attempts. Please try again later.",429)
             profile = _country_profile(connection,country)
