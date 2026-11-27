@@ -154,6 +154,22 @@ def initialize_onboarding_schema(connection_factory):
                (country_code,country_name,region_label,region_required,registration_number_required,requirements_json)
                VALUES ('*','Other / not yet configured','Administrative region',0,0,'{}')"""
         )
+        # Country choices are reference data only. Legal requirements remain
+        # configurable by platform owners and are not inferred from country.
+        country_choices = [
+            ("LR","Liberia"),("GH","Ghana"),("NG","Nigeria"),("SL","Sierra Leone"),
+            ("CI","Cote d'Ivoire"),("GM","The Gambia"),("SN","Senegal"),("KE","Kenya"),
+            ("UG","Uganda"),("TZ","Tanzania"),("ZA","South Africa"),("RW","Rwanda"),
+            ("ET","Ethiopia"),("US","United States"),("GB","United Kingdom"),
+            ("CA","Canada"),("AU","Australia"),("IN","India"),("AE","United Arab Emirates"),
+            ("FR","France"),("DE","Germany"),("BR","Brazil"),("JP","Japan")
+        ]
+        for code, name in country_choices:
+            connection.execute(
+                """INSERT OR IGNORE INTO country_requirement_profiles
+                   (country_code,country_name,region_label,region_required,registration_number_required,requirements_json)
+                   VALUES (?,?, 'Administrative region',0,0,'{}')""",(code,name)
+            )
         connection.commit()
     finally:
         connection.close()
@@ -344,7 +360,7 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             )
             app_id = connection.execute("SELECT last_insert_rowid()").fetchone()[0]
             _record_event(connection,app_id,None,None,"application.draft_created",{"country_code":country})
-            resume_url = request.host_url.rstrip("/") + "/school-network/onboarding/resume/" + reference
+            resume_url = request.host_url.rstrip("/") + "/school-network/onboarding"
             _queue_email(connection,email,"Continue your school registration",
                          "Your application reference is "+reference+". Save this secure resume token: "+token+
                          "\nResume page: "+resume_url+"\nThis link expires in 14 days.")
