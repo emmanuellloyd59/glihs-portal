@@ -657,6 +657,12 @@ def initialize_database():
         connection.execute("PRAGMA foreign_keys = ON")
     finally:
         connection.close()
+    # Tests and controlled re-initialization may point DATABASE at a disposable
+    # tenant database after module import. Apply the additive academic migration
+    # there too, but only once the academic module has been loaded.
+    academic_initializer = globals().get("initialize_academic_structure")
+    if academic_initializer is not None:
+        academic_initializer(get_db_connection)
 
 
 initialize_database()
