@@ -641,17 +641,28 @@ def create_authorization_blueprint(connection_factory):
                                        (grant_id,)).fetchone()
             if not grant:
                 abort(404)
-            if grant["scope_type"] == "platform":
+            audit_school_id = None
+            if grant["scope_type"] in {"platform", "organization"}:
                 require_permission("platform.manage_global_policies", connection_factory)
+            elif grant["scope_type"] == "school":
+                audit_school_id = int(grant["scope_id"])
+                require_permission("school.manage_roles", connection_factory, school_id=audit_school_id)
+            elif grant["scope_type"] == "campus":
+                campus = connection.execute(
+                    "SELECT school_id FROM campuses WHERE id=?", (grant["scope_id"],)
+                ).fetchone()
+                if not campus:
+                    abort(404)
+                audit_school_id = int(campus["school_id"])
+                require_permission("school.manage_roles", connection_factory, school_id=audit_school_id)
             else:
-                require_permission("school.manage_roles", connection_factory,
-                                   school_id=grant["scope_id"] if grant["scope_type"] == "school" else request.args.get("school_id", type=int))
+                abort(403)
             connection.execute("UPDATE authorization_grants SET revoked_at=CURRENT_TIMESTAMP,revoked_by=? WHERE id=?",
                                (int(current_user.id), grant_id))
             connection.execute("""
                 INSERT INTO authorization_audit(actor_user_id,school_id,action,permission,subject_type,subject_id,effect)
                 VALUES(?,?,?,?,?,?,?)
-            """, (int(current_user.id), grant["scope_id"] if grant["scope_type"] == "school" else None,
+            """, (int(current_user.id), audit_school_id,
                   "grant.revoked", grant["permission"], grant["subject_type"], grant["subject_id"], grant["effect"]))
             connection.commit()
             return jsonify({"grant_id": grant_id, "status": "revoked"})
