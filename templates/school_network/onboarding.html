@@ -98,11 +98,23 @@
       const result = await request("/api/v1/onboarding/countries","GET");
       countryProfiles = result.countries;
       services = result.services;
-      $("country_code").innerHTML = '<option value="">Select your country</option>' +
-        countryProfiles.map(x => '<option value="' + x.country_code + '">' + x.country_name + '</option>').join("");
-      $("service-options").innerHTML = services.map(x =>
-        '<div class="col-12 col-md-6"><label class="border rounded p-3 d-flex gap-2 align-items-start"><input class="form-check-input mt-1" type="checkbox" name="requested_services" value="' + x.service_key + '"><span><strong>' + x.label + '</strong><br><small class="text-secondary">' + (x.description || "") + '</small></span></label></div>'
-      ).join("");
+      const countrySelect = $("country_code");
+      countrySelect.replaceChildren(new Option("Select your country",""));
+      countryProfiles.forEach(item => countrySelect.add(new Option(item.country_name,item.country_code)));
+      const serviceContainer = $("service-options");
+      serviceContainer.replaceChildren();
+      services.forEach(item => {
+        const column = document.createElement("div"); column.className = "col-12 col-md-6";
+        const label = document.createElement("label"); label.className = "border rounded p-3 d-flex gap-2 align-items-start";
+        const checkbox = document.createElement("input"); checkbox.className = "form-check-input mt-1";
+        checkbox.type = "checkbox"; checkbox.name = "requested_services"; checkbox.value = item.service_key;
+        const text = document.createElement("span");
+        const strong = document.createElement("strong"); strong.textContent = item.label;
+        const description = document.createElement("small"); description.className = "text-secondary";
+        description.textContent = item.description || "";
+        text.append(strong,document.createElement("br"),description);
+        label.append(checkbox,text); column.append(label); serviceContainer.append(column);
+      });
     } catch (error) { show(error.message,"danger"); }
   };
   $("country_code").addEventListener("change", () => {
