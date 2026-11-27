@@ -914,7 +914,8 @@ def get_user_by_username(username):
         if row is None:
             return None
         return User(row["id"], row["username"], row["password_hash"],
-                    row["role"], row["is_super_admin"], row["school_id"])
+                    row["role"], row["is_super_admin"], row["school_id"],
+                    auth_version=row["auth_version"])
     finally:
         connection.close()
 
