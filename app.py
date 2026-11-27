@@ -1670,9 +1670,7 @@ def academics():
                WHERE p.school_id=? AND p.status='active' AND y.status IN ('draft','active')
                ORDER BY y.id DESC,p.sequence_no""",(school_id,)
         ).fetchall()
-        subjects = connection.execute(
-            "SELECT id,name FROM subjects WHERE school_id=? AND active=1 ORDER BY name",(school_id,)
-        ).fetchall()
+        subjects = get_school_subjects(connection, school_id)
         grades = connection.execute(
             """SELECT g.id, s.full_name, s.admission_number, s.class_level, g.subject,
                       g.assessment, g.score, g.max_score, g.academic_year, g.term,
