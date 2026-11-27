@@ -154,13 +154,44 @@ class ScopedAuthorizationTests(unittest.TestCase):
             campus_b = connection.execute(
                 "INSERT INTO campuses(school_id,code,name,status) VALUES(1,'SOUTH','South Campus','active')"
             ).lastrowid
+            connection.execute(
+                "UPDATE school_memberships SET role='external_service_provider' WHERE id=?",
+                (self.teacher_membership,),
+            )
+            connection.commit()
             from authorization import has_permission
             with self.teacher:
-                # current_user is loaded for this authenticated client session.
                 self.teacher.get("/api/v1/authorization/me")
-                allowed = has_permission(connection, "provider.access_assigned_services",
-                                          school_id=1, campus_id=campus_b)
-            self.assertFalse(allowed)
+                allowed_own = has_permission(connection, "provider.access_assigned_services",
+                                              school_id=1, campus_id=self.campus_a)
+                allowed_other = has_permission(connection, "provider.access_assigned_services",
+                                                school_id=1, campus_id=campus_b)
+            self.assertTrue(allowed_own)
+            self.assertFalse(allowed_other)
+        finally:
+            connection.close()
+
+    def test_organization_scope_permission_inherits_to_member_school(self):
+        connection = portal.get_db_connection()
+        try:
+            group_id = connection.execute(
+                "INSERT INTO school_groups(name,slug,status) VALUES('Test Education Group','test-education-group','active')"
+            ).lastrowid
+            connection.execute(
+                "INSERT INTO school_group_memberships(group_id,school_id) VALUES(?,1)",
+                (group_id,),
+            )
+            connection.execute("""
+                INSERT INTO authorization_grants
+                (subject_type,subject_id,permission,scope_type,scope_id,effect)
+                VALUES('user',?,'school.manage_roles','organization',?,'allow')
+            """, (str(self.teacher_id), group_id))
+            connection.commit()
+            from authorization import has_permission
+            with self.teacher:
+                self.teacher.get("/api/v1/authorization/me")
+                allowed = has_permission(connection, "school.manage_roles", school_id=1)
+            self.assertTrue(allowed)
         finally:
             connection.close()
 
