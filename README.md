@@ -17,6 +17,7 @@ This repository evolves an existing Flask application into the Digital Education
 - Version 0.3 school-ownership schema foundation, same-school academic/report joins, and automated two-school negative-access regression tests (still under security review).
 - Staff access requests and Super Administrator approval workflow.
 - Grade entry and review with score validation, academic-year/term separation, and duplicate prevention.
+- Configurable tenant-aware academic structure foundation: institution-defined academic years and periods, progression levels, classes, sections, subjects, curriculum mappings, course enrollment, and versioned structure snapshots. See [Academic Structure Engine](docs/academic-structure-engine.md).
 - Staff report-card previews with subject totals and percentages, role-restricted publish/unpublish actions, and student access to their own published report cards when a verified student account link exists.
 - Student-record-to-account linking with explicit identity confirmation and audit events.
 - Student profiles with enrollment/emergency-contact fields and role-limited editing.

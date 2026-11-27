@@ -10,7 +10,8 @@ def register_homework_routes(ns):
     get_db_connection = ns["get_db_connection"]
     require_school_context, write_audit = ns["require_school_context"], ns["write_audit"]
     teacher_has_class_subject = ns["teacher_has_class_subject"]
-    class_levels = ns["TIMETABLE_CLASS_LEVELS"]
+    get_school_class_levels = ns["get_school_class_levels"]
+    get_school_subjects = ns["get_school_subjects"]
     staff_roles = {"super_admin", "school_admin", "principal", "vice_principal", "academic_admin", "registrar", "teacher"}
     admin_roles = {"super_admin", "school_admin", "principal", "vice_principal", "academic_admin"}
 
@@ -59,6 +60,9 @@ def register_homework_routes(ns):
         connection = get_db_connection()
         student, submissions = None, []
         try:
+            class_levels = get_school_class_levels(connection, school_id)
+            subjects = get_school_subjects(connection, school_id)
+            subject_names = {row["name"] for row in subjects}
             if request.method == "POST":
                 action = request.form.get("action", "create").strip()
                 if action == "create":
@@ -67,11 +71,23 @@ def register_homework_routes(ns):
                     title = request.form.get("title", "").strip()
                     instructions = request.form.get("instructions", "").strip()
                     due_date = request.form.get("due_date", "").strip()
+                    if level and level not in class_levels and role in admin_roles and len(level)<=80:
+                        connection.execute(
+                            "INSERT OR IGNORE INTO grade_levels(school_id,name,sequence_no) VALUES(?,?,COALESCE((SELECT MAX(sequence_no)+1 FROM grade_levels WHERE school_id=?),1))",
+                            (school_id,level,school_id),
+                        )
+                        class_levels.append(level)
                     try:
                         valid_date = datetime.strptime(due_date, "%Y-%m-%d").date().isoformat() == due_date
                     except (TypeError, ValueError):
                         valid_date = False
-                    if (level not in class_levels or not subject or len(subject) > 80 or
+                    if subject not in subject_names and role in admin_roles and subject and len(subject)<=80:
+                        connection.execute(
+                            "INSERT OR IGNORE INTO subjects(school_id,name) VALUES(?,?)",
+                            (school_id,subject),
+                        )
+                        subject_names.add(subject)
+                    if (level not in class_levels or subject not in subject_names or len(subject) > 80 or
                         not title or len(title) > 140 or not instructions or
                         len(instructions) > 10000 or not valid_date):
                         flash("Check the class, subject, title, instructions and due date.", "danger")
@@ -212,5 +228,5 @@ def register_homework_routes(ns):
             connection.close()
         return render_template("assignments.html",assignments=assignment_rows,
             submissions=submissions,student=student,role=role,can_create=can_manage_assignments,
-            can_grade=can_manage_assignments,class_levels=class_levels,
+            can_grade=can_manage_assignments,class_levels=class_levels,subjects=subjects,
             today=datetime.now().date().isoformat())

@@ -235,6 +235,39 @@ def migrate_grade_assessment_uniqueness(connection):
 
 
 
+def migrate_report_card_term_flexibility(connection):
+    """Remove the legacy three-term enum while preserving every report-card row."""
+    schema = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='report_cards'"
+    ).fetchone()
+    sql = (schema["sql"] or "") if schema else ""
+    normalized_sql = "".join(sql.lower().split())
+    if ("termin('term1','term2','term3')" not in normalized_sql
+            and "unique(school_id,student_id,academic_year,term)" in normalized_sql):
+        return
+    connection.execute("DROP TABLE IF EXISTS report_cards_migrating")
+    connection.execute("""
+        CREATE TABLE report_cards_migrating (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL REFERENCES students(id),
+            academic_year TEXT NOT NULL,
+            term TEXT NOT NULL,
+            published INTEGER NOT NULL DEFAULT 0 CHECK(published IN (0,1)),
+            published_by INTEGER REFERENCES users(id),
+            published_at TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            school_id INTEGER REFERENCES schools(id),
+            UNIQUE(school_id,student_id,academic_year,term)
+        )
+    """)
+    columns = ("id,student_id,academic_year,term,published,published_by,published_at,updated_at,school_id")
+    connection.execute(
+        f"INSERT INTO report_cards_migrating ({columns}) SELECT {columns} FROM report_cards"
+    )
+    connection.execute("DROP TABLE report_cards")
+    connection.execute("ALTER TABLE report_cards_migrating RENAME TO report_cards")
+
+
 def migrate_student_admission_number_uniqueness(connection):
     """Replace global admission-number uniqueness with per-school uniqueness.
 
@@ -419,12 +452,13 @@ def initialize_database():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 student_id INTEGER NOT NULL REFERENCES students(id),
                 academic_year TEXT NOT NULL,
-                term TEXT NOT NULL CHECK (term IN ('Term 1', 'Term 2', 'Term 3')),
+                term TEXT NOT NULL,
                 published INTEGER NOT NULL DEFAULT 0 CHECK (published IN (0, 1)),
                 published_by INTEGER REFERENCES users(id),
                 published_at TEXT,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(student_id, academic_year, term)
+                school_id INTEGER REFERENCES schools(id),
+                UNIQUE(school_id, student_id, academic_year, term)
             )
             """
         )
@@ -509,6 +543,7 @@ def initialize_database():
         # Remove the legacy global admission-number constraint only after all
         # records have a school owner, so the new constraint can be tenant-scoped.
         migrate_student_admission_number_uniqueness(connection)
+        migrate_report_card_term_flexibility(connection)
 
         # Student identifiers are school-scoped. Apply this after the legacy
         # students table has its school_id column and after its admission migration.
@@ -630,6 +665,10 @@ def initialize_database():
         connection.execute("PRAGMA foreign_keys = ON")
     finally:
         connection.close()
+    # Apply the academic schema to controlled re-initializations after module load.
+    academic_initializer = globals().get("initialize_academic_structure")
+    if academic_initializer is not None:
+        academic_initializer(get_db_connection)
 
 initialize_database()
 
@@ -1540,24 +1579,78 @@ def academics():
                 return redirect(url_for("academics"))
 
             if action == "grade":
-                subject = request.form.get("subject", "").strip()
+                subject_id_text = request.form.get("subject_id", "").strip()
+                subject_row = connection.execute(
+                    "SELECT id,name FROM subjects WHERE id=? AND school_id=? AND active=1",
+                    (int(subject_id_text), school_id),
+                ).fetchone() if subject_id_text.isdigit() else None
+                # Compatibility for older integrations that still submit subject labels.
+                if subject_row is None:
+                    legacy_subject = request.form.get("subject", "").strip()
+                    if legacy_subject and len(legacy_subject) <= 80 and not any(ord(ch)<32 for ch in legacy_subject):
+                        if current_user.role == "teacher" and not teacher_has_class_subject(
+                            connection, current_user.id, school_id, student["class_level"], legacy_subject
+                        ):
+                            abort(403)
+                        connection.execute(
+                            "INSERT OR IGNORE INTO subjects(school_id,name) VALUES(?,?)",
+                            (school_id, legacy_subject),
+                        )
+                        subject_row = connection.execute(
+                            "SELECT id,name FROM subjects WHERE school_id=? AND lower(name)=lower(?) AND active=1",
+                            (school_id, legacy_subject),
+                        ).fetchone()
+                period_id_text = request.form.get("academic_period_id", "").strip()
+                period_row = connection.execute(
+                    """SELECT p.id,p.name,p.academic_year_id,y.label AS academic_year
+                       FROM academic_periods p JOIN academic_years y
+                         ON y.id=p.academic_year_id AND y.school_id=p.school_id
+                       WHERE p.id=? AND p.school_id=? AND p.status='active'
+                         AND y.status IN ('draft','active')""",
+                    (int(period_id_text), school_id),
+                ).fetchone() if period_id_text.isdigit() else None
+                # Compatibility for pre-engine forms: preserve their labels as
+                # school-owned custom periods instead of forcing Term 1/2/3.
+                if period_row is None and not period_id_text:
+                    legacy_year = request.form.get("academic_year", "").strip()
+                    legacy_period = request.form.get("term", "").strip()
+                    if legacy_year and len(legacy_year)<=80 and legacy_period and len(legacy_period)<=80:
+                        connection.execute(
+                            "INSERT OR IGNORE INTO academic_years(school_id,label,status) VALUES(?,?,'active')",
+                            (school_id,legacy_year),
+                        )
+                        year_row=connection.execute(
+                            "SELECT id FROM academic_years WHERE school_id=? AND label=?",
+                            (school_id,legacy_year),
+                        ).fetchone()
+                        connection.execute(
+                            "INSERT OR IGNORE INTO academic_periods(school_id,academic_year_id,name,period_type,status) VALUES(?,?,?,'custom','active')",
+                            (school_id,year_row["id"],legacy_period),
+                        )
+                        period_row=connection.execute(
+                            """SELECT p.id,p.name,p.academic_year_id,y.label AS academic_year
+                               FROM academic_periods p JOIN academic_years y
+                                 ON y.id=p.academic_year_id AND y.school_id=p.school_id
+                               WHERE p.school_id=? AND y.label=? AND p.name=?""",
+                            (school_id,legacy_year,legacy_period),
+                        ).fetchone()
+                if subject_row is None or period_row is None:
+                    flash("Choose a configured subject and an active academic period from this school's calendar.", "danger")
+                    return redirect(url_for("academics"))
+                subject = subject_row["name"]
+                academic_year = period_row["academic_year"]
+                term = period_row["name"]
+                academic_year_id = period_row["academic_year_id"]
+                academic_period_id = period_row["id"]
                 if current_user.role == "teacher" and not teacher_has_class_subject(
                     connection, current_user.id, school_id, student["class_level"], subject
                 ):
                     abort(403)
                 assessment = request.form.get("assessment", "").strip()
-                academic_year = request.form.get("academic_year", "").strip()
-                term = request.form.get("term", "").strip()
                 score_text = request.form.get("score", "").strip()
                 max_text = request.form.get("max_score", "").strip()
                 if not subject or len(subject) > 80 or not assessment or len(assessment) > 100:
-                    flash("Enter a subject and assessment name within the stated limits.", "danger")
-                    return redirect(url_for("academics"))
-                if (len(academic_year) != 9 or academic_year[4] != "-"
-                        or not academic_year[:4].isdigit() or not academic_year[5:].isdigit()
-                        or int(academic_year[5:]) != int(academic_year[:4]) + 1
-                        or term not in {"Term 1", "Term 2", "Term 3"}):
-                    flash("Choose a valid academic year (for example 2026-2027) and term.", "danger")
+                    flash("Choose a subject and enter an assessment name within the stated limits.", "danger")
                     return redirect(url_for("academics"))
                 try:
                     score, max_score = float(score_text), float(max_text)
@@ -1575,11 +1668,19 @@ def academics():
                     flash("This term's report card is published. Unpublish it before recording additional grades.", "danger")
                     return redirect(url_for("academics"))
                 try:
+                    version_row = connection.execute(
+                        "SELECT id FROM academic_structure_versions WHERE school_id=? ORDER BY version_no DESC LIMIT 1",
+                        (school_id,),
+                    ).fetchone()
                     connection.execute(
                         """INSERT INTO grades
-                           (student_id, subject, assessment, score, max_score, recorded_by, academic_year, term, school_id)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (student_id, subject, assessment, score, max_score, current_user.id, academic_year, term, require_school_context()),
+                           (student_id, subject, assessment, score, max_score, recorded_by,
+                            academic_year, term, school_id, academic_year_id, academic_period_id,
+                            subject_id, academic_structure_version_id)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (student_id, subject, assessment, score, max_score, current_user.id,
+                         academic_year, term, school_id, academic_year_id, academic_period_id,
+                         subject_row["id"], version_row["id"] if version_row else None),
                     )
                     connection.commit()
                     write_audit(current_user.id, "grade_recorded", str(student_id),
@@ -1618,6 +1719,30 @@ def academics():
                 flash("Unknown academic action.", "danger")
             return redirect(url_for("academics"))
 
+        academic_periods = connection.execute(
+            """SELECT p.id,p.name,p.period_type,y.label AS academic_year
+               FROM academic_periods p JOIN academic_years y
+                 ON y.id=p.academic_year_id AND y.school_id=p.school_id
+               WHERE p.school_id=? AND p.status='active' AND y.status IN ('draft','active')
+               ORDER BY y.id DESC,p.sequence_no""",(school_id,)
+        ).fetchall()
+        subjects = get_school_subjects(connection, school_id)
+        if current_user.role == "teacher":
+            # A school-wide catalogue is appropriate for administrators, but a
+            # teacher's form must expose only subjects assigned to that teacher.
+            # This also prevents untrusted legacy grade labels from appearing
+            # as selectable subjects for staff who do not teach them.
+            subjects = connection.execute(
+                """SELECT DISTINCT s.id, s.name
+                   FROM subjects s
+                   JOIN teacher_class_assignments t
+                     ON t.school_id = s.school_id
+                    AND lower(trim(t.subject)) = lower(trim(s.name))
+                   WHERE s.school_id = ? AND s.active = 1
+                     AND t.teacher_id = ? AND t.active = 1
+                   ORDER BY s.name COLLATE NOCASE""",
+                (school_id, int(current_user.id)),
+            ).fetchall()
         grades = connection.execute(
             """SELECT g.id, s.full_name, s.admission_number, s.class_level, g.subject,
                       g.assessment, g.score, g.max_score, g.academic_year, g.term,
@@ -1661,7 +1786,7 @@ def academics():
         connection.close()
     return render_template(
         "academics.html", students=students, grades=grades,
-        attendance_rows=attendance_rows,
+        attendance_rows=attendance_rows, academic_periods=academic_periods, subjects=subjects,
         can_enter=can_enter,
         today=datetime.now().strftime("%Y-%m-%d"),
     )
@@ -1680,7 +1805,47 @@ TIMETABLE_MANAGE_ROLES = {
     "academic_admin",
 }
 TIMETABLE_DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
-TIMETABLE_CLASS_LEVELS = ("K2", "K3", "K4", *(f"Grade {i}" for i in range(1, 13)))
+
+
+def get_school_class_levels(connection, school_id):
+    """Return configured progression labels plus legacy class labels for this school."""
+    labels = set()
+    sources = (
+        ("grade_levels", "name"),
+        ("students", "class_level"),
+        ("teacher_class_assignments", "class_level"),
+        ("class_timetable", "class_level"),
+        ("homework_assignments", "class_level"),
+    )
+    for table, column in sources:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(" + table + ")")}
+        if column in columns and "school_id" in columns:
+            rows = connection.execute(
+                "SELECT DISTINCT " + column + " FROM " + table +
+                " WHERE school_id=? AND " + column + " IS NOT NULL AND trim(" + column + ")<>''",
+                (school_id,),
+            ).fetchall()
+            labels.update(row[0] for row in rows)
+    return sorted(labels, key=lambda value: value.casefold())
+
+
+def get_school_subjects(connection, school_id):
+    """Return the school's subject catalogue, importing legacy subject labels safely."""
+    sources = (("grades","subject"),("teacher_class_assignments","subject"),
+               ("class_timetable","subject"),("homework_assignments","subject"))
+    for table, column in sources:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(" + table + ")")}
+        if column in columns and "school_id" in columns:
+            connection.execute(
+                "INSERT OR IGNORE INTO subjects(school_id,name) SELECT DISTINCT school_id," + column +
+                " FROM " + table + " WHERE school_id=? AND " + column +
+                " IS NOT NULL AND trim(" + column + ")<>''",
+                (school_id,),
+            )
+    return connection.execute(
+        "SELECT id,name FROM subjects WHERE school_id=? AND active=1 ORDER BY name",
+        (school_id,),
+    ).fetchall()
 
 
 @app.route("/timetable", methods=["GET", "POST"])
@@ -1699,6 +1864,9 @@ def timetable():
         permission_connection.close()
     connection = get_db_connection()
     try:
+        class_levels = get_school_class_levels(connection, school_id)
+        subjects = get_school_subjects(connection, school_id)
+        subject_names = {row["name"] for row in subjects}
         if request.method == "POST":
             if not can_manage:
                 abort(403)
@@ -1722,6 +1890,15 @@ def timetable():
 
             class_level = request.form.get("class_level", "").strip()
             subject = request.form.get("subject", "").strip()
+            if class_level and class_level not in class_levels and len(class_level)<=80:
+                connection.execute(
+                    "INSERT OR IGNORE INTO grade_levels(school_id,name,sequence_no) VALUES(?,?,COALESCE((SELECT MAX(sequence_no)+1 FROM grade_levels WHERE school_id=?),1))",
+                    (school_id,class_level,school_id),
+                )
+                class_levels.append(class_level)
+            if subject and subject not in subject_names and len(subject)<=80:
+                connection.execute("INSERT OR IGNORE INTO subjects(school_id,name) VALUES(?,?)",(school_id,subject))
+                subject_names.add(subject)
             teacher_text = request.form.get("teacher_id", "").strip()
             weekday = request.form.get("weekday", "").strip()
             start_time = request.form.get("start_time", "").strip()
@@ -1736,8 +1913,8 @@ def timetable():
                 )
 
             if (
-                class_level not in TIMETABLE_CLASS_LEVELS
-                or not subject or len(subject) > 80
+                class_level not in class_levels
+                or subject not in subject_names or len(subject) > 80
                 or not teacher_text.isdigit()
                 or weekday not in TIMETABLE_DAYS
                 or not valid_time(start_time) or not valid_time(end_time)
@@ -1814,7 +1991,7 @@ def timetable():
         connection.close()
     return render_template(
         "timetable.html", entries=entries, teachers=teachers, can_manage=can_manage,
-        days=TIMETABLE_DAYS, class_levels=TIMETABLE_CLASS_LEVELS,
+        days=TIMETABLE_DAYS, class_levels=class_levels, subjects=subjects,
     )
 
 
@@ -1888,13 +2065,56 @@ def report_cards():
             (report_school_id, current_user.role, report_school_id, int(current_user.id)),
         ).fetchall()
         student_id = request.values.get("student_id", "").strip()
-        academic_year = request.values.get("academic_year", "").strip()
-        term = request.values.get("term", "").strip()
+        academic_period_id_text = request.values.get("academic_period_id", "").strip()
+        period_row = None
+        if academic_period_id_text.isdigit():
+            period_row = connection.execute(
+                """SELECT p.id,p.name,p.academic_year_id,y.label AS academic_year
+                   FROM academic_periods p JOIN academic_years y
+                     ON y.id=p.academic_year_id AND y.school_id=p.school_id
+                   WHERE p.id=? AND p.school_id=?""",
+                (int(academic_period_id_text), report_school_id),
+            ).fetchone()
+        # Backward compatibility for existing bookmarked report URLs.
+        if period_row is None:
+            legacy_year = request.values.get("academic_year", "").strip()
+            legacy_period = request.values.get("term", "").strip()
+            if legacy_year and len(legacy_year)<=80 and legacy_period and len(legacy_period)<=80:
+                connection.execute(
+                    "INSERT OR IGNORE INTO academic_years(school_id,label,status) VALUES(?,?,'active')",
+                    (report_school_id,legacy_year),
+                )
+                legacy_year_row=connection.execute(
+                    "SELECT id FROM academic_years WHERE school_id=? AND label=?",
+                    (report_school_id,legacy_year),
+                ).fetchone()
+                connection.execute(
+                    "INSERT OR IGNORE INTO academic_periods(school_id,academic_year_id,name,period_type,status) VALUES(?,?,?,'custom','active')",
+                    (report_school_id,legacy_year_row["id"],legacy_period),
+                )
+                period_row = connection.execute(
+                    """SELECT p.id,p.name,p.academic_year_id,y.label AS academic_year
+                       FROM academic_periods p JOIN academic_years y
+                         ON y.id=p.academic_year_id AND y.school_id=p.school_id
+                       WHERE p.school_id=? AND y.label=? AND p.name=?""",
+                    (report_school_id, legacy_year, legacy_period),
+                ).fetchone()
+        academic_year = period_row["academic_year"] if period_row else ""
+        term = period_row["name"] if period_row else ""
+        academic_period_id = period_row["id"] if period_row else None
+        academic_year_id = period_row["academic_year_id"] if period_row else None
+        academic_periods = connection.execute(
+            """SELECT p.id,p.name,p.period_type,y.label AS academic_year
+               FROM academic_periods p JOIN academic_years y
+                 ON y.id=p.academic_year_id AND y.school_id=p.school_id
+               WHERE p.school_id=? ORDER BY y.id DESC,p.sequence_no""",
+            (report_school_id,),
+        ).fetchall()
         selected_student = None
         subject_rows = []
         publication = None
 
-        if student_id and academic_year and term in {"Term 1", "Term 2", "Term 3"}:
+        if student_id and period_row is not None:
             selected_student = connection.execute(
                 """SELECT id, admission_number, full_name, class_level FROM students
                    WHERE id = ? AND school_id = ? AND status = 'active'
@@ -1909,11 +2129,8 @@ def report_cards():
             if current_user.role not in REPORT_CARD_PUBLISH_ROLES:
                 abort(403)
             action = request.form.get("action", "").strip()
-            year_valid = (len(academic_year) == 9 and academic_year[4] == "-"
-                          and academic_year[:4].isdigit() and academic_year[5:].isdigit()
-                          and int(academic_year[5:]) == int(academic_year[:4]) + 1)
-            if not selected_student or not year_valid or term not in {"Term 1", "Term 2", "Term 3"}:
-                flash("Select a valid student, academic year, and term.", "danger")
+            if not selected_student or period_row is None:
+                flash("Select a valid student and a configured academic period.", "danger")
                 return redirect(url_for("report_cards"))
             has_grades = connection.execute(
                 "SELECT 1 FROM grades WHERE student_id = ? AND school_id = ? AND academic_year = ? AND term = ? LIMIT 1",
@@ -1921,19 +2138,28 @@ def report_cards():
             ).fetchone()
             if not has_grades:
                 flash("A report card can only be published after grades have been recorded for that term.", "danger")
-                return redirect(url_for("report_cards", student_id=student_id, academic_year=academic_year, term=term))
+                return redirect(url_for("report_cards", student_id=student_id, academic_period_id=academic_period_id))
             if action not in {"publish", "unpublish"}:
                 flash("Unknown report-card action.", "danger")
                 return redirect(url_for("report_cards"))
             published = 1 if action == "publish" else 0
+            version_row = connection.execute(
+                "SELECT id FROM academic_structure_versions WHERE school_id=? ORDER BY version_no DESC LIMIT 1",
+                (report_school_id,),
+            ).fetchone()
             connection.execute(
-                """INSERT INTO report_cards (student_id, academic_year, term, published, published_by, published_at, school_id)
-                   VALUES (?, ?, ?, ?, ?, CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END, ?)
-                   ON CONFLICT(student_id, academic_year, term) DO UPDATE SET
-                     published = excluded.published, published_by = excluded.published_by,
-                     published_at = CASE WHEN excluded.published = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
-                     updated_at = CURRENT_TIMESTAMP""",
-                (student_id, academic_year, term, published, current_user.id, published, require_school_context()),
+                """INSERT INTO report_cards
+                   (student_id,academic_year,term,published,published_by,published_at,school_id,
+                    academic_year_id,academic_period_id,academic_structure_version_id)
+                   VALUES (?,?,?,?,?,CASE WHEN ?=1 THEN CURRENT_TIMESTAMP ELSE NULL END,?,?,?,?)
+                   ON CONFLICT(school_id,student_id,academic_year,term) DO UPDATE SET
+                     published=excluded.published,published_by=excluded.published_by,
+                     published_at=CASE WHEN excluded.published=1 THEN CURRENT_TIMESTAMP ELSE NULL END,
+                     academic_year_id=excluded.academic_year_id,academic_period_id=excluded.academic_period_id,
+                     academic_structure_version_id=excluded.academic_structure_version_id,
+                     updated_at=CURRENT_TIMESTAMP""",
+                (student_id,academic_year,term,published,current_user.id,published,report_school_id,
+                 academic_year_id,academic_period_id,version_row["id"] if version_row else None),
             )
             connection.commit()
             write_audit(current_user.id, "report_card_" + action, selected_student["admission_number"],
@@ -1972,7 +2198,8 @@ def report_cards():
 
     return render_template(
         "report_cards.html", students=students, selected_student=selected_student,
-        academic_year=academic_year, term=term, subject_rows=subject_rows,
+        academic_year=academic_year, term=term, academic_periods=academic_periods,
+        academic_period_id=academic_period_id, subject_rows=subject_rows,
         publication=publication, can_publish=can_publish,
     )
 
@@ -2881,6 +3108,10 @@ from student_information import (
 )
 initialize_student_information_schema(get_db_connection)
 app.register_blueprint(create_student_information_blueprint(get_db_connection, INSTANCE_DIR, require_school_context))
+
+# Configurable tenant-owned academic structure, initialized additively.
+from academic_structure import initialize_academic_structure, register_academic_structure_routes
+register_academic_structure_routes(globals())
 
 if __name__ == "__main__":
     app.run(port=5000, debug=False)

@@ -15,7 +15,8 @@ def register_staff_attendance_routes(ns):
     require_school_context = ns["require_school_context"]
     generate_password_hash = ns["generate_password_hash"]
     staff_roles = ns["STAFF_ROLES"]
-    class_levels = ns["TIMETABLE_CLASS_LEVELS"]
+    get_school_class_levels = ns["get_school_class_levels"]
+    get_school_subjects = ns["get_school_subjects"]
 
     staff_manage_roles = {"super_admin", "school_admin", "principal", "vice_principal"}
     attendance_report_roles = {
@@ -65,6 +66,8 @@ def register_staff_attendance_routes(ns):
             action = request.form.get("action", "").strip()
             connection = get_db_connection()
             try:
+                class_levels = get_school_class_levels(connection, school_id)
+                subject_names = {row["name"] for row in get_school_subjects(connection, school_id)}
                 if action == "assign_teacher":
                     require_permission("academic.manage_classes", get_db_connection, school_id=school_id)
                     teacher_text = request.form.get("teacher_id", "").strip()
@@ -249,6 +252,8 @@ def register_staff_attendance_routes(ns):
 
         connection = get_db_connection()
         try:
+            class_levels = get_school_class_levels(connection, school_id)
+            subjects = get_school_subjects(connection, school_id)
             users = connection.execute(
                 """SELECT u.id, u.username, u.full_name, m.role, m.status,
                           u.created_at, u.approved_at
@@ -293,7 +298,7 @@ def register_staff_attendance_routes(ns):
             "staff_management.html", users=users, counts=counts, school=school,
             assignable_roles={key: staff_roles[key] for key in sorted(assignable) if key in staff_roles},
             manageable_roles=manageable, can_manage_roles=current_user.role in {"super_admin", "school_owner", "school_admin"},
-            teachers=teachers, teacher_assignments=teacher_assignments, class_levels=class_levels,
+            teachers=teachers, teacher_assignments=teacher_assignments, class_levels=class_levels, subjects=subjects,
         )
 
     @app.route("/attendance-report", methods=["GET"])
