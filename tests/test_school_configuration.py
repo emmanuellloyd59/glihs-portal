@@ -47,7 +47,7 @@ class SchoolConfigurationTests(unittest.TestCase):
             )
             connection.execute(
                 """INSERT INTO users(username,full_name,password_hash,role,status,is_super_admin,school_id)
-                   VALUES ('config_viewer','Config Viewer',?,'viewer','active',0,1)""",
+                   VALUES ('config_teacher','Config Teacher',?,'teacher','active',0,1)""",
                 (generate_password_hash("config-viewer-password"),),
             )
             connection.commit()
