@@ -136,6 +136,98 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         self.assertEqual(membership["membership_status"],"active")
         self.assertEqual(self.membership(self.inactive_id)["employment_status"],"suspended")
 
+    def test_legacy_staff_schema_migrates_without_changing_account_identity(self):
+        original_database=portal.DATABASE
+        legacy_database=Path(_TMP.name)/"legacy_staff_schema_migration.db"
+        portal.DATABASE=legacy_database
+        try:
+            portal.initialize_database()
+            db=portal.get_db_connection()
+            try:
+                password_hash=generate_password_hash("legacy-preserved-password")
+                user_id=db.execute(
+                    """INSERT INTO users(username,full_name,password_hash,role,status,is_super_admin,school_id)
+                       VALUES('legacy_staff_migration','Legacy Staff',?,'teacher','active',0,1)""",
+                    (password_hash,),
+                ).lastrowid
+                school_membership_id=db.execute(
+                    """INSERT INTO school_memberships(user_id,school_id,role,status,is_primary,accepted_at)
+                       VALUES(?,1,'teacher','active',1,CURRENT_TIMESTAMP)""",
+                    (user_id,),
+                ).lastrowid
+                db.commit()
+                db.execute("PRAGMA foreign_keys=OFF")
+                for trigger in (
+                    "trg_staff_membership_user_tenant_insert",
+                    "trg_staff_membership_user_tenant_update",
+                    "trg_staff_user_school_change_guard",
+                    "trg_staff_lifecycle_no_update",
+                    "trg_staff_lifecycle_no_delete",
+                    "trg_staff_responsibility_subject_tenant",
+                    "trg_staff_membership_status_sync",
+                    "trg_school_membership_staff_extension",
+                    "trg_staff_membership_create_profile",
+                    "trg_staff_school_membership_identity_guard",
+                ):
+                    db.execute(f"DROP TRIGGER IF EXISTS {trigger}")
+                for table in (
+                    "staff_documents","staff_lifecycle_events","staff_responsibilities",
+                    "staff_qualifications","staff_employment","staff_profiles",
+                    "staff_departments","staff_memberships",
+                ):
+                    db.execute(f"DROP TABLE IF EXISTS {table}")
+                # Recreate the first-release table shape: no school_membership_id column.
+                db.execute("""
+                    CREATE TABLE staff_memberships (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        school_id INTEGER NOT NULL REFERENCES schools(id),
+                        user_id INTEGER NOT NULL REFERENCES users(id),
+                        membership_status TEXT NOT NULL DEFAULT 'active'
+                            CHECK(membership_status IN ('invited','active','suspended','inactive')),
+                        joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        ended_at TEXT,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(school_id,user_id),
+                        UNIQUE(school_id,id)
+                    )
+                """)
+                db.execute(
+                    """INSERT INTO staff_memberships(id,school_id,user_id,membership_status)
+                       VALUES(77,1,?,'active')""",
+                    (user_id,),
+                )
+                db.commit()
+            finally:
+                db.close()
+
+            # Startup migrations add and backfill the canonical link in place.
+            portal.initialize_database()
+            db=portal.get_db_connection()
+            try:
+                migrated=db.execute(
+                    """SELECT m.id,m.school_membership_id,m.membership_status,
+                              sm.id AS canonical_id,u.password_hash
+                       FROM staff_memberships m
+                       JOIN school_memberships sm ON sm.id=m.school_membership_id
+                       JOIN users u ON u.id=m.user_id
+                       WHERE m.id=77"""
+                ).fetchone()
+                self.assertEqual(migrated["id"],77)
+                self.assertEqual(migrated["school_membership_id"],school_membership_id)
+                self.assertEqual(migrated["membership_status"],"active")
+                self.assertEqual(migrated["password_hash"],password_hash)
+                self.assertEqual(db.execute(
+                    "SELECT COUNT(*) FROM staff_profiles WHERE membership_id=77"
+                ).fetchone()[0],1)
+                self.assertEqual(db.execute(
+                    "SELECT COUNT(*) FROM staff_employment WHERE membership_id=77"
+                ).fetchone()[0],1)
+            finally:
+                db.close()
+        finally:
+            portal.DATABASE=original_database
+
     def test_school_admin_can_create_staff_account_and_membership_atomically(self):
         self.login()
         response = self.client.post("/staff", data={
