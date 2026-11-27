@@ -11,8 +11,8 @@ def register_homework_routes(ns):
     require_school_context = ns["require_school_context"]
     teacher_has_class_subject = ns["teacher_has_class_subject"]
     class_levels = ns["TIMETABLE_CLASS_LEVELS"]
-    staff_roles = {"super_admin", "school_admin", "principal", "vice_principal", "academic_admin", "teacher"}
     admin_roles = {"super_admin", "school_admin", "principal", "vice_principal", "academic_admin"}
+    staff_roles = admin_roles | {"teacher"}
 
     def audit_in_transaction(connection, action, target, details, school_id):
         connection.execute(
