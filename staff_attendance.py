@@ -71,10 +71,11 @@ def register_staff_attendance_routes(ns):
                             or any(ord(ch) < 32 or ord(ch) == 127 for ch in subject)):
                         abort(400)
                     teacher = connection.execute(
-                        """SELECT id, username FROM users
-                           WHERE id = ? AND school_id = ? AND role = 'teacher'
-                             AND status = 'active' AND is_super_admin = 0""",
-                        (int(teacher_text), school_id),
+                        """SELECT u.id, u.username FROM users u
+                           JOIN school_memberships m ON m.user_id=u.id
+                             AND m.school_id=? AND m.role='teacher' AND m.status='active'
+                           WHERE u.id=? AND u.status='active' AND u.is_super_admin=0""",
+                        (school_id, int(teacher_text)),
                     ).fetchone()
                     if teacher is None:
                         abort(404)
@@ -100,7 +101,7 @@ def register_staff_attendance_routes(ns):
                         abort(400)
                     assignment = connection.execute(
                         """SELECT a.id, u.username FROM teacher_class_assignments a
-                           JOIN users u ON u.id = a.teacher_id AND u.school_id = a.school_id
+                           JOIN users u ON u.id = a.teacher_id
                            WHERE a.id = ? AND a.school_id = ? AND a.active = 1""",
                         (int(assignment_text), school_id),
                     ).fetchone()
@@ -157,9 +158,11 @@ def register_staff_attendance_routes(ns):
                 if not target_text.isdigit():
                     abort(400)
                 target = connection.execute(
-                    """SELECT id, username, role, status, is_super_admin
-                       FROM users WHERE id = ? AND school_id = ?""",
-                    (int(target_text), school_id),
+                    """SELECT u.id, u.username, m.role, m.status, u.is_super_admin
+                       FROM users u JOIN school_memberships m ON m.user_id=u.id
+                         AND m.school_id=? AND m.status IN ('active','suspended')
+                       WHERE u.id=? AND u.status='active'""",
+                    (school_id, int(target_text)),
                 ).fetchone()
                 if target is None:
                     abort(404)
@@ -179,7 +182,7 @@ def register_staff_attendance_routes(ns):
                     else:
                         status = "suspended" if action == "suspend" else "active"
                         connection.execute(
-                            "UPDATE users SET status = ? WHERE id = ? AND school_id = ? AND is_super_admin = 0",
+                            "UPDATE school_memberships SET status = ?, updated_at=CURRENT_TIMESTAMP WHERE user_id = ? AND school_id = ? AND status IN ('active','suspended')",
                             (status, target["id"], school_id),
                         )
                         if action == "suspend" and target["role"] == "teacher":
@@ -205,7 +208,7 @@ def register_staff_attendance_routes(ns):
                     if target["role"] in {"student", "parent"}:
                         abort(403)
                     connection.execute(
-                        "UPDATE users SET role = ? WHERE id = ? AND school_id = ? AND is_super_admin = 0",
+                        "UPDATE school_memberships SET role = ?, updated_at=CURRENT_TIMESTAMP WHERE user_id = ? AND school_id = ? AND status='active'",
                         (role, target["id"], school_id),
                     )
                     if target["role"] == "teacher" and role != "teacher":
@@ -233,11 +236,12 @@ def register_staff_attendance_routes(ns):
         connection = get_db_connection()
         try:
             users = connection.execute(
-                """SELECT id, username, full_name, role, status, created_at, approved_at
-                   FROM users
-                   WHERE school_id = ? AND role NOT IN ('student', 'parent')
-                   ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
-                            full_name COLLATE NOCASE, username COLLATE NOCASE""",
+                """SELECT u.id, u.username, u.full_name, m.role, m.status,
+                          u.created_at, u.approved_at
+                   FROM users u JOIN school_memberships m ON m.user_id=u.id
+                   WHERE m.school_id = ? AND m.role NOT IN ('student', 'parent')
+                   ORDER BY CASE m.status WHEN 'active' THEN 0 WHEN 'invited' THEN 1 ELSE 2 END,
+                            u.full_name COLLATE NOCASE, u.username COLLATE NOCASE""",
                 (school_id,),
             ).fetchall()
             counts = connection.execute(
@@ -245,7 +249,7 @@ def register_staff_attendance_routes(ns):
                           SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active,
                           SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
                           SUM(CASE WHEN status='suspended' THEN 1 ELSE 0 END) AS suspended
-                   FROM users WHERE school_id = ? AND role NOT IN ('student', 'parent')""",
+                   FROM school_memberships WHERE school_id = ? AND role NOT IN ('student', 'parent')""",
                 (school_id,),
             ).fetchone()
             school = connection.execute("SELECT name FROM schools WHERE id = ?", (school_id,)).fetchone()
@@ -253,16 +257,19 @@ def register_staff_attendance_routes(ns):
                 """SELECT a.id, a.class_level, a.subject, a.created_at, a.updated_at,
                           u.id AS teacher_id, u.username, u.full_name
                    FROM teacher_class_assignments a
-                   JOIN users u ON u.id = a.teacher_id AND u.school_id = a.school_id
-                   WHERE a.school_id = ? AND a.active = 1 AND u.role = 'teacher'
+                   JOIN users u ON u.id = a.teacher_id
+                   JOIN school_memberships m ON m.user_id=u.id AND m.school_id=a.school_id
+                     AND m.role='teacher' AND m.status='active'
+                   WHERE a.school_id = ? AND a.active = 1 AND u.status='active'
                    ORDER BY a.class_level COLLATE NOCASE, a.subject COLLATE NOCASE,
                             u.full_name COLLATE NOCASE""",
                 (school_id,),
             ).fetchall()
             teachers = connection.execute(
-                """SELECT id, username, full_name FROM users
-                   WHERE school_id = ? AND role = 'teacher' AND status = 'active'
-                     AND is_super_admin = 0
+                """SELECT u.id, u.username, u.full_name FROM users u
+                   JOIN school_memberships m ON m.user_id=u.id AND m.school_id=?
+                     AND m.role='teacher' AND m.status='active'
+                   WHERE u.status='active' AND u.is_super_admin=0
                    ORDER BY full_name COLLATE NOCASE, username COLLATE NOCASE""",
                 (school_id,),
             ).fetchall()
