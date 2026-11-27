@@ -1036,7 +1036,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
             "action": "publish", "student_id": str(student_b_id),
             "academic_year": "2026-2027", "term": "Term 1",
         }, follow_redirects=True)
-        self.assertIn(b"Select a valid student, academic year, and term", response.data)
+        self.assertIn(b"Select a valid student and a configured academic period", response.data)
 
         connection = portal.get_db_connection()
         try:
