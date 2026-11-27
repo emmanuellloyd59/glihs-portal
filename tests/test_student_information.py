@@ -34,8 +34,8 @@ class StudentInformationTests(PortalTestSupport, unittest.TestCase):
             school_id = cur.lastrowid
             user = db.execute("""
               INSERT INTO users(username,full_name,password_hash,role,status,school_id)
-              VALUES('registrar_two','Second Registrar','test-hash','registrar','active',?)
-            """, (school_id,))
+              VALUES('registrar_two','Second Registrar',?,'registrar','active',?)
+            """, (generate_password_hash("test-registrar-password"), school_id))
             user_id = user.lastrowid
             db.execute("""
               INSERT INTO school_memberships(user_id,school_id,role,status,is_primary)
