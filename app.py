@@ -1956,7 +1956,19 @@ def report_cards():
         if period_row is None:
             legacy_year = request.values.get("academic_year", "").strip()
             legacy_period = request.values.get("term", "").strip()
-            if legacy_year and legacy_period:
+            if legacy_year and len(legacy_year)<=80 and legacy_period and len(legacy_period)<=80:
+                connection.execute(
+                    "INSERT OR IGNORE INTO academic_years(school_id,label,status) VALUES(?,?,'active')",
+                    (report_school_id,legacy_year),
+                )
+                legacy_year_row=connection.execute(
+                    "SELECT id FROM academic_years WHERE school_id=? AND label=?",
+                    (report_school_id,legacy_year),
+                ).fetchone()
+                connection.execute(
+                    "INSERT OR IGNORE INTO academic_periods(school_id,academic_year_id,name,period_type,status) VALUES(?,?,?,'custom','active')",
+                    (report_school_id,legacy_year_row["id"],legacy_period),
+                )
                 period_row = connection.execute(
                     """SELECT p.id,p.name,p.academic_year_id,y.label AS academic_year
                        FROM academic_periods p JOIN academic_years y
