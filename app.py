@@ -1618,13 +1618,19 @@ def academics():
                     flash("This term's report card is published. Unpublish it before recording additional grades.", "danger")
                     return redirect(url_for("academics"))
                 try:
+                    version_row = connection.execute(
+                        "SELECT id FROM academic_structure_versions WHERE school_id=? ORDER BY version_no DESC LIMIT 1",
+                        (school_id,),
+                    ).fetchone()
                     connection.execute(
                         """INSERT INTO grades
                            (student_id, subject, assessment, score, max_score, recorded_by,
-                            academic_year, term, school_id, academic_year_id, academic_period_id, subject_id)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            academic_year, term, school_id, academic_year_id, academic_period_id,
+                            subject_id, academic_structure_version_id)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (student_id, subject, assessment, score, max_score, current_user.id,
-                         academic_year, term, school_id, academic_year_id, academic_period_id, subject_row["id"]),
+                         academic_year, term, school_id, academic_year_id, academic_period_id,
+                         subject_row["id"], version_row["id"] if version_row else None),
                     )
                     connection.commit()
                     write_audit(current_user.id, "grade_recorded", str(student_id),
@@ -2042,16 +2048,23 @@ def report_cards():
                 flash("Unknown report-card action.", "danger")
                 return redirect(url_for("report_cards"))
             published = 1 if action == "publish" else 0
+            version_row = connection.execute(
+                "SELECT id FROM academic_structure_versions WHERE school_id=? ORDER BY version_no DESC LIMIT 1",
+                (report_school_id,),
+            ).fetchone()
             connection.execute(
                 """INSERT INTO report_cards
-                   (student_id,academic_year,term,published,published_by,published_at,school_id,academic_year_id,academic_period_id)
-                   VALUES (?,?,?,?,?,CASE WHEN ?=1 THEN CURRENT_TIMESTAMP ELSE NULL END,?,?,?)
+                   (student_id,academic_year,term,published,published_by,published_at,school_id,
+                    academic_year_id,academic_period_id,academic_structure_version_id)
+                   VALUES (?,?,?,?,?,CASE WHEN ?=1 THEN CURRENT_TIMESTAMP ELSE NULL END,?,?,?,?)
                    ON CONFLICT(school_id,student_id,academic_year,term) DO UPDATE SET
                      published=excluded.published,published_by=excluded.published_by,
                      published_at=CASE WHEN excluded.published=1 THEN CURRENT_TIMESTAMP ELSE NULL END,
                      academic_year_id=excluded.academic_year_id,academic_period_id=excluded.academic_period_id,
+                     academic_structure_version_id=excluded.academic_structure_version_id,
                      updated_at=CURRENT_TIMESTAMP""",
-                (student_id,academic_year,term,published,current_user.id,published,report_school_id,academic_year_id,academic_period_id),
+                (student_id,academic_year,term,published,current_user.id,published,report_school_id,
+                 academic_year_id,academic_period_id,version_row["id"] if version_row else None),
             )
             connection.commit()
             write_audit(current_user.id, "report_card_" + action, selected_student["admission_number"],
