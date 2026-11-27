@@ -276,7 +276,7 @@ def _validate_config(config, campus=False):
     return errors
 
 
-def _school_id_from_request():
+def _school_id_from_request(connection_factory):
     if current_user.is_authenticated and getattr(current_user, "role", None) == "super_admin" and bool(
         getattr(current_user, "is_super_admin", False)
     ) and getattr(current_user, "school_id", None) is None:
@@ -502,7 +502,7 @@ def create_school_configuration_blueprint(connection_factory):
         return school, row, json.loads(row["config_json"])
 
     def get_context():
-        school_id, access = _school_id_from_request()
+        school_id, access = _school_id_from_request(connection_factory)
         connection = connection_factory()
         try:
             school, row, config = load_school(connection, school_id)
@@ -594,7 +594,7 @@ def create_school_configuration_blueprint(connection_factory):
     @bp.get("/api/v1/schools/<int:school_id>/configuration")
     @login_required
     def school_configuration_api(school_id):
-        resolved, access = _school_id_from_request()
+        resolved, access = _school_id_from_request(connection_factory)
         if resolved != school_id:
             abort(404)
         connection = connection_factory()
@@ -607,7 +607,7 @@ def create_school_configuration_blueprint(connection_factory):
     @bp.patch("/api/v1/schools/<int:school_id>/configuration")
     @login_required
     def update_school_configuration_api(school_id):
-        resolved, access = _school_id_from_request()
+        resolved, access = _school_id_from_request(connection_factory)
         from authorization import require_permission
         require_permission("school.manage_configuration", connection_factory, school_id=school_id)
         if resolved != school_id:
@@ -630,7 +630,7 @@ def create_school_configuration_blueprint(connection_factory):
     @bp.get("/api/v1/schools/<int:school_id>/configuration/history")
     @login_required
     def school_configuration_history(school_id):
-        resolved, _ = _school_id_from_request()
+        resolved, _ = _school_id_from_request(connection_factory)
         if resolved != school_id:
             abort(404)
         connection = connection_factory()
@@ -649,7 +649,7 @@ def create_school_configuration_blueprint(connection_factory):
     @bp.get("/api/v1/schools/<int:school_id>/campuses/<int:campus_id>/configuration")
     @login_required
     def campus_configuration_api(school_id, campus_id):
-        resolved, _ = _school_id_from_request()
+        resolved, _ = _school_id_from_request(connection_factory)
         if resolved != school_id:
             abort(404)
         connection = connection_factory()
@@ -681,7 +681,7 @@ def create_school_configuration_blueprint(connection_factory):
     @bp.patch("/api/v1/schools/<int:school_id>/campuses/<int:campus_id>/configuration")
     @login_required
     def update_campus_configuration_api(school_id, campus_id):
-        resolved, _ = _school_id_from_request()
+        resolved, _ = _school_id_from_request(connection_factory)
         from authorization import require_permission
         require_permission("school.manage_configuration", connection_factory,
                            school_id=school_id, campus_id=campus_id)
@@ -760,7 +760,7 @@ def create_school_configuration_blueprint(connection_factory):
     @bp.get("/api/v1/schools/<int:school_id>/campuses/<int:campus_id>/configuration/history")
     @login_required
     def campus_configuration_history(school_id, campus_id):
-        resolved, _ = _school_id_from_request()
+        resolved, _ = _school_id_from_request(connection_factory)
         if resolved != school_id:
             abort(404)
         connection = connection_factory()
