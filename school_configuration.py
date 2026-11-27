@@ -78,7 +78,7 @@ def _defaults(school):
             ],
         },
         "regional": {
-            "currency": "LRD" if (school["country_code"] or "").upper() == "LR" else "USD",
+            "currency": "USD",
             "timezone": school["timezone"] or "UTC",
             "default_language": "en",
             "supported_languages": ["en"],
