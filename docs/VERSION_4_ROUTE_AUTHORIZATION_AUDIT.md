@@ -134,7 +134,7 @@ Eight additional authorization tests now cover librarian/counselor least privile
 
 ## Remaining Prompt 02 verification work
 
-- [ ] Confirm the latest 184-test CI run passes on Python 3.11 and 3.14.
+- [ ] Confirm the latest 187-test CI run passes on Python 3.11 and 3.14.
 - [x] Verify the exact Flask URL map against this 30-route source inventory in a test, so newly registered routes cannot silently escape the audit.
 - [x] Add/confirm negative direct-route tests for specialist-role access, resource archive, timetable deletion, homework grading, staff actions, demo provisioning and report publication.
 - [x] Add/confirm cross-school object-ID tests for resource download/archive, announcement archive, timetable deletion, homework grading and parent-linked reports/finance.
