@@ -717,6 +717,24 @@ def create_school_configuration_blueprint(connection_factory):
                      updated_by=excluded.updated_by, updated_at=CURRENT_TIMESTAMP""",
                 (school_id, campus_id, version, encoded, current_user.id),
             )
+            # Keep the legacy campus directory aligned with its effective campus identity/contact values.
+            branding = merged.get("branding", {})
+            contact = merged.get("contact", {})
+            if "display_name" in branding:
+                connection.execute(
+                    "UPDATE campuses SET name=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND school_id=?",
+                    (branding["display_name"], campus_id, school_id),
+                )
+            if contact:
+                connection.execute(
+                    """UPDATE campuses SET address_line1=?, address_line2=?, city=?, county=?,
+                       region=?, postal_code=?, country_code=?, contact_email=?, contact_phone=?,
+                       updated_at=CURRENT_TIMESTAMP WHERE id=? AND school_id=?""",
+                    (contact.get("address_line1", ""), contact.get("address_line2", ""),
+                     contact.get("city", ""), contact.get("region", ""), contact.get("region", ""),
+                     contact.get("postal_code", ""), contact.get("country_code", ""),
+                     contact.get("email", ""), contact.get("phone", ""), campus_id, school_id),
+                )
             changed_sections = [key for key in merged if current.get(key) != merged.get(key)]
             _record_version(connection, school_id, campus_id, version, merged,
                             "Campus configuration updated", current_user.id, changed_sections)
