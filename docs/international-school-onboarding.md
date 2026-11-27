@@ -71,6 +71,7 @@ Set SMTP values in the hosting provider's secret/environment settings; never com
 
 ## Limitations and production gates
 
+- The existing public `POST /api/v1/schools` registration endpoint remains available for backward compatibility with the School Network foundation. It does not enforce the new applicant email-verification step. Before making this the sole production registration path, deprecate or restrict that legacy endpoint through a separately reviewed compatibility change.
 - This iteration uses the repository's current SQLite connection layer. PostgreSQL compatibility and RLS remain a separate approved workstream.
 - Country profiles are configurable data, not a legal compliance engine. A qualified local review is required before requiring jurisdiction-specific documents or asserting regulatory compliance.
 - The outbox dispatcher is synchronous and bounded; production scale should move delivery to a background worker with idempotent provider delivery keys.
