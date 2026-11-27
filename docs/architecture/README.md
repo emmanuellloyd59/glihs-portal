@@ -18,6 +18,7 @@ ADRs capture decisions that materially affect system structure, data ownership, 
 | ADR-0003 | API compatibility and versioning | Accepted as a future API standard; implementation pending | External/mobile integrations |
 | [ADR-0004](adr/0004-school-network-lifecycle-and-campus-model.md) | Institution lifecycle, school groups and campus ownership | Accepted; initial implementation in progress | School Network and tenant administration |
 | [ADR-0005](adr/0005-tenant-owned-school-configuration.md) | Tenant-owned organization defaults and campus overrides | Accepted; implementation in progress | Branding, academic, regional, module and operational settings |
+| [ADR-0006](adr/0006-global-identities-and-school-memberships.md) | Global platform identities and school-scoped memberships | Implemented on feature branch; acceptance pending | Multi-school accounts, invitations, membership switching and session security |
 
 ## When an ADR is required
 
