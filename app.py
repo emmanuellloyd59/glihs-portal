@@ -2874,7 +2874,7 @@ from student_information import (
     initialize_student_information_schema,
 )
 initialize_student_information_schema(get_db_connection)
-app.register_blueprint(create_student_information_blueprint(get_db_connection, INSTANCE_DIR))
+app.register_blueprint(create_student_information_blueprint(get_db_connection, INSTANCE_DIR, require_school_context))
 
 if __name__ == "__main__":
     app.run(port=5000, debug=False)
