@@ -40,7 +40,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="assign_teacher">
     <div class="col-12 col-md-4"><label class="form-label" for="assignment-teacher">Active teacher</label><select class="form-select" id="assignment-teacher" name="teacher_id" required><option value="">Choose teacher</option>{% for teacher in teachers %}<option value="{{ teacher.id }}">{{ teacher.full_name or teacher.username }} (@{{ teacher.username }})</option>{% endfor %}</select></div>
     <div class="col-12 col-md-3"><label class="form-label" for="assignment-class">Class</label><select class="form-select" id="assignment-class" name="class_level" required><option value="">Choose class</option>{% for level in class_levels %}<option value="{{ level }}">{{ level }}</option>{% endfor %}</select></div>
-    <div class="col-12 col-md-3"><label class="form-label" for="assignment-subject">Subject</label><input class="form-control" id="assignment-subject" name="subject" maxlength="80" required></div>
+    <div class="col-12 col-md-3"><label class="form-label" for="assignment-subject">Subject</label><select class="form-select" id="assignment-subject" name="subject" required><option value="">Choose subject</option>{% for subject in subjects %}<option value="{{ subject.name }}">{{ subject.name }}</option>{% endfor %}</select></div>
     <div class="col-12 col-md-2 d-flex align-items-end"><button class="btn btn-primary w-100" type="submit">Save assignment</button></div>
   </form>
   {% if teacher_assignments %}
