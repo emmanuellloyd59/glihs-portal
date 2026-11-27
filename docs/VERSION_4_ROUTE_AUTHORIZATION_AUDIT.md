@@ -9,7 +9,7 @@
 
 The repository registers **30 HTTP routes across five Python modules**: `app.py`, `homework.py`, `staff_attendance.py`, `school_performance.py`, and `demo_staff.py`. This count corrects the earlier preliminary inventory, which counted only the 25 decorators located directly in `app.py` and omitted five routes registered by helper modules.
 
-The application has server-side role checks on the protected operational routes, with more granular action checks inside several shared GET/POST endpoints. Tenant-scoped routes use the active school context and school-qualified queries; several data relationships also have database-level ownership guards. The current test suite contains substantial direct-route, role, cross-school and data-minimization tests. Two additional tests were added in this pass for librarian/counselor least privilege; CI must confirm them before this audit can be marked complete.
+The application has server-side role checks on the protected operational routes, with more granular action checks inside several shared GET/POST endpoints. Tenant-scoped routes use the active school context and school-qualified queries; several data relationships also have database-level ownership guards. The current test suite contains substantial direct-route, role, cross-school and data-minimization tests. Eight additional authorization regressions were added in this pass. The expanded suite now contains 184 test methods; the latest candidate CI run must pass on Python 3.11 and 3.14 before this audit can be marked complete.
 
 This is an engineering source review, not a penetration test, legal compliance assessment, or production certification.
 
@@ -63,7 +63,7 @@ The public staff-request workflow intentionally excludes parent and student role
 | `POST /announcements/<announcement_id>/archive` | Login required | Content-manage roles only; school-scoped mutation and audit |
 | `GET,POST /finance/payments` | Login required | Super-admin, school admin, principal, registrar, finance admin; school-scoped student lookup, serialized ledger/balance update and transactional audit |
 | `GET /parent/children` | Login required | Parent only; returns explicitly linked active children and their authorized school-scoped report, attendance and finance summaries |
-| `GET,POST /assignments` | Login required | Staff roles: super-admin, school admin, principal, vice principal, academic admin, registrar, teacher; students may view/submit only for their linked active record and class. Teacher creation/grading is constrained to assigned class/subject and teacher-authored work |
+| `GET,POST /assignments` | Login required | Staff roles: super-admin, school admin, principal, vice principal, academic admin, teacher; students may view/submit only for their linked active record and class. Teacher creation/grading is constrained to assigned class/subject and teacher-authored work. Registrar, finance, attendance, librarian and counselor roles are excluded |
 | `GET,POST /staff` | Login required | Staff management: super-admin, school admin, principal, vice principal. Assignable/manageable roles narrow by leadership level; no school-crossing account changes |
 | `GET /attendance-report` | Login required | Super-admin, school admin, principal, vice principal, registrar, academic admin, attendance officer, teacher; teachers limited to classes with active assignments |
 | `GET /school-performance` | Login required | Leadership roles receive authorized aggregate views; attendance officer receives attendance metrics; finance admin receives financial metrics only; all queries use selected school |
@@ -96,7 +96,7 @@ The public staff-request workflow intentionally excludes parent and student role
 
 - May publish/manage learning resources under the resource-specific role policy.
 - Are not staff managers, student-record administrators, academic grade-entry users, finance users, or school-wide announcement publishers.
-- Two direct-route tests have been added to verify the restricted workflows and allowed resource-page access.
+- Direct-route tests verify the restricted workflows, allowed resource-page access and librarian-only resource archiving; teachers cannot archive resources.
 
 ### Counselors
 
@@ -130,21 +130,21 @@ The current test inventory documents 176 tests before this pass. It includes:
 - Atomic audit rollback for financial, academic, registration and homework mutations.
 - Session invalidation for suspended accounts and suspended schools.
 
-Two new direct-route tests were committed to expand coverage for librarian and counselor roles. The post-change CI result is pending and must be checked before counting those tests as passed.
+Eight additional authorization tests now cover librarian/counselor least privilege, librarian resource management, registrar homework denial, the exact 30-route inventory, authentication on every non-public operational route, cross-school content/homework object IDs, and teacher report-card subject isolation. Existing tests were extended to verify that authorized leadership roles see the student-registration shortcut and that attendance CSV exports cannot expose another school's students. A dashboard mismatch was corrected: authorized principal, vice-principal and academic-administrator accounts now see the student-registration shortcut, while registrar no longer sees the homework-management shortcut. Registrar homework access was removed from the server allowlist to match the documented role scope. The latest candidate CI run is pending.
 
 ## Remaining Prompt 02 verification work
 
-- [ ] Confirm CI passes on Python 3.11 and 3.14 after the new specialist-role tests.
-- [ ] Verify the exact Flask URL map against this 30-route source inventory in a test, so newly registered routes cannot silently escape the audit.
-- [ ] Expand negative direct-route tests for every role on sensitive mutation endpoints, including resource archive, timetable create/delete, staff actions, demo provisioning and report publication.
-- [ ] Add/confirm cross-school object-ID tests for resource download/archive, announcement archive, timetable deletion, homework submission/grade and parent-linked reports/finance.
-- [ ] Review export/download responses for school, role and field-level data minimization.
-- [ ] Add a formal permission matrix artifact that is machine-readable and used by tests where practical.
-- [ ] Review counselor access policy before implementing any counseling feature.
+- [ ] Confirm the latest 184-test CI run passes on Python 3.11 and 3.14.
+- [x] Verify the exact Flask URL map against this 30-route source inventory in a test, so newly registered routes cannot silently escape the audit.
+- [x] Add/confirm negative direct-route tests for specialist-role access, resource archive, timetable deletion, homework grading, staff actions, demo provisioning and report publication.
+- [x] Add/confirm cross-school object-ID tests for resource download/archive, announcement archive, timetable deletion, homework grading and parent-linked reports/finance.
+- [x] Verify attendance CSV export remains school-isolated; teacher and parent/student field-level access remains covered by existing tests.
+- [x] Maintain the authoritative role matrix in `docs/AUTHORIZATION_MATRIX.md`; the route inventory test detects unreviewed route additions.
+- [x] Document counselor access as unavailable until a dedicated, privacy-reviewed counseling workflow is designed.
 
 ## Release and safety boundaries
 
 No live account was used to submit forms. No live student or financial records were read or changed. No production database, Render configuration, paid infrastructure, merge or deployment was changed.
 
-**Prompt 02 status: IN PROGRESS.** Do not begin Prompt 03 or any Version 5 work until the outstanding authorization verification tasks are complete and the test evidence is recorded.
+**Prompt 02 status: AWAITING FINAL CI VERIFICATION.** The route inventory, role matrix review, dashboard alignment, direct-action tests and cross-school tests have been committed. Do not begin Prompt 03 or any Version 5 work until the 184-test CI run passes on both supported Python versions and the result is recorded.
 
