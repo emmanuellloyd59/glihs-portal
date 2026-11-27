@@ -1680,6 +1680,19 @@ def academics():
                ORDER BY y.id DESC,p.sequence_no""",(school_id,)
         ).fetchall()
         subjects = get_school_subjects(connection, school_id)
+        if current_user.role == "teacher":
+            # Teachers may select only the subjects assigned to their account.
+            subjects = connection.execute(
+                """SELECT DISTINCT s.id, s.name
+                   FROM subjects s
+                   JOIN teacher_class_assignments t
+                     ON t.school_id = s.school_id
+                    AND lower(trim(t.subject)) = lower(trim(s.name))
+                   WHERE s.school_id = ? AND s.active = 1
+                     AND t.teacher_id = ? AND t.active = 1
+                   ORDER BY s.name COLLATE NOCASE""",
+                (school_id, int(current_user.id)),
+            ).fetchall()
         grades = connection.execute(
             """SELECT g.id, s.full_name, s.admission_number, s.class_level, g.subject,
                       g.assessment, g.score, g.max_score, g.academic_year, g.term,
