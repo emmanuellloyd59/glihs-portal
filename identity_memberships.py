@@ -275,7 +275,14 @@ def create_membership_blueprint(connection_factory):
 
     def _school_admin(connection, school_id):
         from authorization import require_permission
-        require_permission("school.manage_memberships", connection_factory, school_id=school_id)
+        platform_actor = (getattr(current_user, "is_super_admin", False)
+                          and getattr(current_user, "role", None) == "super_admin"
+                          and getattr(current_user, "school_id", None) is None)
+        if platform_actor:
+            require_permission("platform.manage_operators", connection_factory)
+            require_permission("school.view_dashboard", connection_factory, school_id=school_id)
+        else:
+            require_permission("school.manage_memberships", connection_factory, school_id=school_id)
         school = connection.execute(
             "SELECT id FROM schools WHERE id=? AND status='active' AND lifecycle_status='active'", (school_id,)
         ).fetchone()
@@ -360,7 +367,20 @@ def create_membership_blueprint(connection_factory):
     @login_required
     def invite_member():
         from authorization import require_permission
-        require_permission("school.manage_memberships", connection_factory)
+        platform_actor = (getattr(current_user, "is_super_admin", False)
+                          and getattr(current_user, "role", None) == "super_admin"
+                          and getattr(current_user, "school_id", None) is None)
+        if platform_actor:
+            school_id = session.get("active_school_id")
+            if not isinstance(school_id, int) or isinstance(school_id, bool):
+                abort(403)
+            require_permission("platform.manage_operators", connection_factory)
+            require_permission("school.view_dashboard", connection_factory, school_id=school_id)
+        else:
+            require_permission("school.manage_memberships", connection_factory)
+            school_id = current_user.school_id
+            if not school_id:
+                abort(403)
         payload = request.get_json(silent=True) or {}
         email = str(payload.get("email", "")).strip().lower()
         role = str(payload.get("role", "")).strip()
@@ -368,13 +388,11 @@ def create_membership_blueprint(connection_factory):
         linked_student_id = payload.get("linked_student_id")
         if len(email) > 254 or "@" not in email or role not in SCHOOL_ROLES:
             return jsonify({"error": "A valid email and school role are required."}), 400
-        if role in {"school_owner", "school_admin"} and current_user.role != "school_owner":
-            abort(403)
-        if role == "principal" and current_user.role not in {"school_owner", "school_admin"}:
-            abort(403)
-        school_id = current_user.school_id
-        if not school_id:
-            abort(403)
+        if not platform_actor:
+            if role in {"school_owner", "school_admin"} and current_user.role != "school_owner":
+                abort(403)
+            if role == "principal" and current_user.role not in {"school_owner", "school_admin"}:
+                abort(403)
         token = secrets.token_urlsafe(32)
         connection = connection_factory()
         try:
