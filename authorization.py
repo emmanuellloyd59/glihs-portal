@@ -35,6 +35,7 @@ PERMISSIONS = {
     "school.manage_memberships": "school",
     "school.manage_roles": "school",
     "school.view_staff": "school",
+    "school.view_analytics": "school",
     "school.manage_staff": "school",
     "school.manage_academic_calendar": "school",
     "school.manage_grading": "school",
@@ -71,7 +72,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     "school_owner": {
         "school.view_dashboard", "school.manage_profile", "school.view_configuration", "school.manage_configuration",
         "school.manage_campuses", "school.manage_memberships", "school.manage_roles",
-        "school.view_staff", "school.manage_staff", "school.manage_academic_calendar",
+        "school.view_staff", "school.view_analytics", "school.manage_staff", "school.manage_academic_calendar",
         "school.manage_grading", "academic.view_records", "academic.manage_records",
         "academic.manage_attendance", "academic.publish_results", "academic.manage_classes",
         "finance.view", "finance.manage_fees", "finance.record_payments",
@@ -89,7 +90,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "learning.manage_courses", "learning.manage_assignments", "learning.manage_materials", "communication.view", "communication.manage", "audit.view",
     },
     "principal": {
-        "school.view_dashboard", "school.view_configuration", "school.view_staff", "school.manage_staff",
+        "school.view_dashboard", "school.view_configuration", "school.view_staff", "school.view_analytics", "school.manage_staff",
         "school.manage_academic_calendar", "school.manage_grading", "academic.view_records",
         "academic.manage_records", "academic.manage_attendance", "academic.publish_results",
         "academic.manage_classes", "finance.view", "finance.manage_fees",
@@ -98,7 +99,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "communication.view", "communication.manage", "audit.view",
     },
     "vice_principal": {
-        "school.view_dashboard", "school.view_staff", "school.manage_staff", "academic.view_records",
+        "school.view_dashboard", "school.view_staff", "school.view_analytics", "school.manage_staff", "academic.view_records",
         "academic.manage_records", "academic.manage_attendance", "academic.manage_classes",
         "learning.view", "learning.manage_assignments", "communication.view", "communication.manage",
     },
