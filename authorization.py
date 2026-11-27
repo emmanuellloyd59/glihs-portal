@@ -104,7 +104,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     "registrar": {
         "school.view_dashboard", "academic.view_records", "academic.manage_records",
         "academic.manage_attendance", "academic.publish_results", "academic.manage_classes",
-        "communication.view",
+        "finance.view", "communication.view",
     },
     "teacher": {
         "school.view_dashboard", "academic.view_records", "academic.manage_attendance",
