@@ -21,6 +21,10 @@ class SchoolNetworkTests(unittest.TestCase):
         portal.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False, SESSION_COOKIE_SECURE=False)
         portal.initialize_database()
         initialize_school_network_schema(portal.get_db_connection)
+        from identity_memberships import initialize_membership_schema
+        from authorization import initialize_authorization_schema
+        initialize_membership_schema(portal.get_db_connection)
+        initialize_authorization_schema(portal.get_db_connection)
 
     @classmethod
     def tearDownClass(cls):
@@ -43,6 +47,7 @@ class SchoolNetworkTests(unittest.TestCase):
             ]
             for table_name in table_names:
                 connection.execute('DELETE FROM "' + table_name.replace('"', '""') + '"')
+            connection.execute("DELETE FROM schools WHERE id <> 1")
             connection.commit()
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute(
@@ -222,9 +227,9 @@ class SchoolNetworkTests(unittest.TestCase):
         })
         self.assertEqual(campus.status_code, 201)
         campus_id = campus.get_json()["data"]["id"]
-        self.assertEqual(self.client.get(f"/api/v1/schools/{other_id}/campuses").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/v1/schools/{other_id}/campuses").status_code, 403)
         cross_update = self.client.patch(f"/api/v1/schools/{other_id}/campuses/{campus_id}", json={"status": "suspended"})
-        self.assertEqual(cross_update.status_code, 404)
+        self.assertEqual(cross_update.status_code, 403)
         contact = self.client.post("/api/v1/schools/1/contacts", json={
             "contact_type": "admissions", "full_name": "Fictional Admissions Officer", "email": "admissions@example.edu"
         })
