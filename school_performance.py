@@ -12,7 +12,9 @@ def register_school_performance_routes(ns):
         role=current_user.role
         sid=school_context()
         from authorization import require_permission
-        require_permission("school.view_dashboard", dbopen, school_id=sid)
+        # School-wide analytics are a distinct capability; a teacher's
+        # class-level academic permissions must not expose institution-wide data.
+        require_permission("school.view_analytics", dbopen, school_id=sid)
         today=date.today(); start=today-timedelta(days=13); year=f"{today.year}-{today.year+1}"
         from authorization import has_permission
         policy_connection = dbopen()
