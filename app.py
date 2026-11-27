@@ -1414,6 +1414,15 @@ def admin_users():
                     flash("Unlink this student record before changing the account's role.", "danger")
                 else:
                     connection.execute("UPDATE users SET role = ? WHERE id = ?", (new_role, target_id_int))
+                    # Membership role is authoritative in the multi-school model.
+                    # Update only this user's membership in the selected school;
+                    # other school memberships must retain their independent roles.
+                    if target["school_id"] is not None:
+                        connection.execute(
+                            """UPDATE school_memberships SET role = ?, updated_at = CURRENT_TIMESTAMP
+                               WHERE user_id = ? AND school_id = ? AND status = 'active'""",
+                            (new_role, target_id_int, target["school_id"]),
+                        )
                     connection.execute(
                         "INSERT INTO audit_log (actor_user_id, action, target_username, details, school_id) VALUES (?, 'staff_role_changed', ?, ?, ?)",
                         (current_user.id, target_username, "New role: " + new_role, target["school_id"]),
