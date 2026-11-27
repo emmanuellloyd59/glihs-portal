@@ -5,12 +5,27 @@ import unittest
 from db.connection import DatabaseConnection
 
 
+class RecordingCursor:
+    def __init__(self, calls):
+        self.calls = calls
+        self.closed = False
+
+    def executemany(self, sql, parameter_sets):
+        rows = list(parameter_sets)
+        self.calls.append(("cursor.executemany", sql, rows))
+        return self
+
+    def close(self):
+        self.closed = True
+
+
 class RecordingConnection:
     def __init__(self):
         self.calls = []
         self.commits = 0
         self.rollbacks = 0
         self.closed = False
+        self.cursors = []
 
     def execute(self, sql, parameters=()):
         self.calls.append(("execute", sql, parameters))
@@ -20,6 +35,11 @@ class RecordingConnection:
         rows = list(parameter_sets)
         self.calls.append(("executemany", sql, rows))
         return "batch-cursor"
+
+    def cursor(self):
+        cursor = RecordingCursor(self.calls)
+        self.cursors.append(cursor)
+        return cursor
 
     def commit(self):
         self.commits += 1
@@ -48,28 +68,35 @@ class DatabaseConnectionAdapterTests(unittest.TestCase):
             [("execute", "SELECT '?' AS literal, %s AS value -- ? ignored", (9,))],
         )
 
-    def test_postgresql_executemany_converts_and_validates_rows(self):
+    def test_postgresql_executemany_uses_driver_cursor(self):
         raw = RecordingConnection()
         db = DatabaseConnection(raw, "postgresql")
-        db.executemany(
+        result = db.executemany(
             "INSERT INTO example (a, b) VALUES (?, ?)",
             [(1, "one"), (2, "two")],
         )
+        self.assertIs(result, raw.cursors[0])
         self.assertEqual(
             raw.calls,
-            [("executemany", "INSERT INTO example (a, b) VALUES (%s, %s)",
+            [("cursor.executemany", "INSERT INTO example (a, b) VALUES (%s, %s)",
               [(1, "one"), (2, "two")])],
         )
+        self.assertFalse(result.closed)
 
     def test_postgresql_executemany_rejects_inconsistent_parameter_lengths(self):
-        db = DatabaseConnection(RecordingConnection(), "postgresql")
+        raw = RecordingConnection()
+        db = DatabaseConnection(raw, "postgresql")
         with self.assertRaisesRegex(ValueError, "equal lengths"):
             db.executemany("INSERT INTO example VALUES (?, ?)", [(1, 2), (3,)])
+        self.assertTrue(raw.cursors[0].closed)
 
-    def test_postgresql_executemany_rejects_empty_input_explicitly(self):
-        db = DatabaseConnection(RecordingConnection(), "postgresql")
-        with self.assertRaisesRegex(ValueError, "at least one"):
-            db.executemany("INSERT INTO example VALUES (?)", [])
+    def test_postgresql_executemany_empty_batch_is_a_noop_cursor(self):
+        raw = RecordingConnection()
+        db = DatabaseConnection(raw, "postgresql")
+        result = db.executemany("INSERT INTO example VALUES (?)", [])
+        self.assertIs(result, raw.cursors[0])
+        self.assertEqual(raw.calls, [])
+        self.assertFalse(result.closed)
 
     def test_postgresql_rejects_named_parameter_mappings_until_supported(self):
         db = DatabaseConnection(RecordingConnection(), "postgresql")

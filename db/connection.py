@@ -32,16 +32,23 @@ class DatabaseConnection:
     def executemany(self, sql, parameter_sets):
         if self.backend == "postgresql":
             rows = [tuple(row) for row in parameter_sets]
+            cursor = self._connection.cursor()
             if not rows:
-                raise ValueError(
-                    "PostgreSQL executemany requires at least one parameter set "
-                    "so placeholder conversion can be validated"
-                )
+                # Match DB-API/SQLite behavior: an empty batch is a no-op and
+                # still returns a cursor. No placeholder count can be inferred.
+                return cursor
             parameter_count = len(rows[0])
             if any(len(row) != parameter_count for row in rows):
+                cursor.close()
                 raise ValueError("executemany parameter sets must have equal lengths")
-            sql = qmark_to_format(sql, parameter_count)
-            parameter_sets = rows
+            try:
+                sql = qmark_to_format(sql, parameter_count)
+            except Exception:
+                cursor.close()
+                raise
+            # Psycopg 3 exposes executemany on Cursor, not Connection.
+            # Keep the cursor open because callers may inspect/fetch its result.
+            return cursor.executemany(sql, rows)
         return self._connection.executemany(sql, parameter_sets)
 
     def commit(self):
