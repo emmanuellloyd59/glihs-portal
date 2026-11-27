@@ -610,6 +610,7 @@ def create_school_configuration_blueprint(connection_factory):
             abort(404)
         connection = connection_factory()
         try:
+            load_school(connection, school_id)
             rows = connection.execute(
                 """SELECT id, version, change_summary, changed_by, created_at
                    FROM school_configuration_versions
@@ -718,6 +719,7 @@ def create_school_configuration_blueprint(connection_factory):
             abort(404)
         connection = connection_factory()
         try:
+            load_school(connection, school_id)
             if not connection.execute(
                 "SELECT 1 FROM campuses WHERE id=? AND school_id=?", (campus_id, school_id)
             ).fetchone():
