@@ -312,6 +312,41 @@ POSTGRESQL_MIGRATIONS = (
             "CREATE TRIGGER trg_timetable_school_guard BEFORE INSERT OR UPDATE ON class_timetable FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
             "CREATE TRIGGER trg_homework_assignments_school_guard BEFORE INSERT OR UPDATE ON homework_assignments FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
             "CREATE TRIGGER trg_homework_submissions_school_guard BEFORE INSERT OR UPDATE ON homework_submissions FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
+            """CREATE FUNCTION cmhs_prevent_school_reassignment()
+            RETURNS TRIGGER LANGUAGE plpgsql AS $cmhs$
+            BEGIN
+                IF TG_TABLE_NAME = 'students'
+                   AND NEW.school_id IS DISTINCT FROM OLD.school_id THEN
+                    IF EXISTS (SELECT 1 FROM parent_student_links WHERE student_id = OLD.id)
+                       OR EXISTS (SELECT 1 FROM student_finances WHERE student_id = OLD.id)
+                       OR EXISTS (SELECT 1 FROM grades WHERE student_id = OLD.id)
+                       OR EXISTS (SELECT 1 FROM attendance WHERE student_id = OLD.id)
+                       OR EXISTS (SELECT 1 FROM report_cards WHERE student_id = OLD.id)
+                       OR EXISTS (SELECT 1 FROM homework_submissions WHERE student_id = OLD.id) THEN
+                        RAISE EXCEPTION 'cannot reassign a student with school-scoped records'
+                            USING ERRCODE = '23514';
+                    END IF;
+                ELSIF TG_TABLE_NAME = 'users'
+                   AND NEW.school_id IS DISTINCT FROM OLD.school_id THEN
+                    IF EXISTS (SELECT 1 FROM students WHERE account_user_id = OLD.id)
+                       OR EXISTS (SELECT 1 FROM parent_student_links WHERE parent_user_id = OLD.id OR created_by = OLD.id)
+                       OR EXISTS (SELECT 1 FROM student_finances WHERE updated_by = OLD.id)
+                       OR EXISTS (SELECT 1 FROM grades WHERE recorded_by = OLD.id)
+                       OR EXISTS (SELECT 1 FROM attendance WHERE recorded_by = OLD.id)
+                       OR EXISTS (SELECT 1 FROM report_cards WHERE published_by = OLD.id)
+                       OR EXISTS (SELECT 1 FROM teacher_class_assignments WHERE teacher_id = OLD.id OR created_by = OLD.id)
+                       OR EXISTS (SELECT 1 FROM class_timetable WHERE teacher_id = OLD.id OR created_by = OLD.id)
+                       OR EXISTS (SELECT 1 FROM homework_assignments WHERE created_by = OLD.id)
+                       OR EXISTS (SELECT 1 FROM homework_submissions WHERE graded_by = OLD.id) THEN
+                        RAISE EXCEPTION 'cannot reassign a user with school-scoped records'
+                            USING ERRCODE = '23514';
+                    END IF;
+                END IF;
+                RETURN NEW;
+            END;
+            $cmhs$""",
+            "CREATE TRIGGER trg_school_reassignment_users BEFORE UPDATE OF school_id ON users FOR EACH ROW EXECUTE FUNCTION cmhs_prevent_school_reassignment()",
+            "CREATE TRIGGER trg_school_reassignment_students BEFORE UPDATE OF school_id ON students FOR EACH ROW EXECUTE FUNCTION cmhs_prevent_school_reassignment()",
         ),
     ),
 )
