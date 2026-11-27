@@ -21,7 +21,7 @@ from flask_login import (
 )
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import check_password_hash, generate_password_hash
-from database import connect_sqlite
+from database import connect_sqlite, load_database_settings
 
 
 # --------------------------------------------------
@@ -33,18 +33,10 @@ app = Flask(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 INSTANCE_DIR = BASE_DIR / "instance"
 INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
-# PostgreSQL support is intentionally fail-closed until the full backend,
-# migrations, transaction semantics, and query dialect have been implemented.
-# Never silently ignore DATABASE_URL and continue against ephemeral SQLite.
-DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
-if DATABASE_URL:
-    raise RuntimeError(
-        "DATABASE_URL is configured, but this application build does not yet "
-        "support PostgreSQL. Remove DATABASE_URL or deploy a PostgreSQL-capable "
-        "build; no SQLite fallback will be attempted."
-    )
-
-DATABASE = Path(os.environ.get("DATABASE_PATH", str(INSTANCE_DIR / "glihs.db")))
+# Backend selection is centralized and fails closed on unsupported settings.
+DATABASE_SETTINGS = load_database_settings(INSTANCE_DIR / "glihs.db")
+DATABASE_BACKEND = DATABASE_SETTINGS.backend
+DATABASE = Path(DATABASE_SETTINGS.database_path)
 DATABASE.parent.mkdir(parents=True, exist_ok=True)
 
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
