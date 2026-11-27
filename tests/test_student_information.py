@@ -192,6 +192,12 @@ class StudentInformationTests(PortalTestSupport, unittest.TestCase):
 
     def test_identifier_allocator_skips_existing_values(self):
         self.create_student(1,"EXISTING-ID","STU-2026-00001","Existing Identifier Student")
+        db=portal.get_db_connection()
+        try:
+            db.execute("""UPDATE student_identifier_config
+              SET pattern='STU-{year}-{sequence:05d}',next_sequence=1 WHERE school_id=1""")
+            db.commit()
+        finally: db.close()
         self.login_as("registrar_demo","test-registrar-password")
         created=self.client.post("/api/v1/admissions",json={
             "application_number":"APP-ID-SKIP","applicant_name":"New Identifier Student",
