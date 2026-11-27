@@ -283,6 +283,10 @@ def _school_id_from_request(connection_factory):
         selected = request.view_args.get("school_id") if request.view_args else None
         selected = selected or request.args.get("school_id", type=int)
         if selected:
+            # An explicit school selection in this request establishes the
+            # platform owner's active tenant context; authorization still
+            # verifies the target school is active before returning data.
+            session["active_school_id"] = int(selected)
             from authorization import require_permission
             require_permission("school.view_configuration", connection_factory, school_id=int(selected))
             return int(selected), "platform"
