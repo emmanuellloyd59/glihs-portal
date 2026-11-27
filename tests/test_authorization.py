@@ -148,6 +148,14 @@ class ScopedAuthorizationTests(unittest.TestCase):
         })
         self.assertIn(response.status_code, (403, 404))
 
+    def test_school_admin_cannot_delegate_membership_administration(self):
+        response = self.admin.post("/api/v1/authorization/grants", json={
+            "subject_type": "role", "subject_id": "teacher",
+            "permission": "school.manage_memberships", "scope_type": "school",
+            "scope_id": 1, "school_id": 1, "effect": "allow",
+        })
+        self.assertEqual(response.status_code, 403)
+
     def test_campus_membership_cannot_be_used_for_another_campus(self):
         connection = portal.get_db_connection()
         try:
