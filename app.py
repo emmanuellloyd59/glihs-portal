@@ -672,6 +672,9 @@ def initialize_database():
     staff_initializer = globals().get("initialize_staff_records")
     if staff_initializer is not None:
         staff_initializer(get_db_connection)
+    attendance_initializer = globals().get("initialize_attendance_scheduling")
+    if attendance_initializer is not None:
+        attendance_initializer(get_db_connection)
 
 initialize_database()
 
@@ -3118,6 +3121,10 @@ register_academic_structure_routes(globals())
 from staff_records import initialize_staff_records, register_staff_records_routes
 initialize_staff_records(get_db_connection)
 register_staff_records_routes(globals())
+from attendance_scheduling import (
+    initialize_attendance_scheduling, register_attendance_scheduling_routes,
+)
+register_attendance_scheduling_routes(globals())
 
 if __name__ == "__main__":
     app.run(port=5000, debug=False)
