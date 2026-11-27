@@ -1002,7 +1002,11 @@ def login():
                 finally:
                     connection.close()
                 if membership is None:
-                    flash("This account has no active school membership.")
+                    # Use the same generic response for inactive schools and
+                    # unavailable memberships so login does not disclose tenant
+                    # lifecycle or account-membership state.
+                    write_audit(None, "login_failed", username[:64] or None)
+                    flash("Invalid username or password.")
                     return render_template("login.html")
                 user = get_user_by_id(user.id)
             session["auth_version"] = int(getattr(user, "auth_version", 1))
