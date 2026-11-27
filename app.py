@@ -372,9 +372,12 @@ def initialize_database():
                 connection.execute(f"ALTER TABLE students ADD COLUMN {column_name} {column_type}")
         if "student_id_number" not in student_columns:
             connection.execute("ALTER TABLE students ADD COLUMN student_id_number TEXT")
+        # Student identifiers are unique within a school, not globally.
+        # Replace the legacy global index without rewriting existing identifiers.
+        connection.execute("DROP INDEX IF EXISTS idx_students_student_id_number")
         connection.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_student_id_number "
-            "ON students(student_id_number) WHERE student_id_number IS NOT NULL"
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_school_student_id_number "
+            "ON students(school_id, student_id_number) WHERE student_id_number IS NOT NULL"
         )
         connection.execute(
             """UPDATE students
@@ -625,6 +628,24 @@ def initialize_database():
         connection.execute("PRAGMA foreign_keys = ON")
     finally:
         connection.close()
+
+    # Reinitialization against a disposable/test database must rebuild every
+    # registered module schema, not only the legacy core tables. Initial import
+    # remains safe because modules are registered later and are initialized below.
+    for initializer_name in (
+        "initialize_school_network_schema",
+        "initialize_onboarding_schema",
+        "initialize_configuration_schema",
+        "initialize_membership_schema",
+        "initialize_authorization_schema",
+        "initialize_subscription_schema",
+        "initialize_student_information_schema",
+        "initialize_academic_structure",
+        "initialize_staff_records",
+    ):
+        initializer = globals().get(initializer_name)
+        if callable(initializer):
+            initializer(get_db_connection)
 
 
 initialize_database()
@@ -1902,6 +1923,8 @@ def report_cards():
             ).fetchone()
 
         if request.method == "POST":
+            if current_user.role not in REPORT_CARD_PUBLISH_ROLES:
+                abort(403)
             action = request.form.get("action", "").strip()
             year_valid = (len(academic_year) == 9 and academic_year[4] == "-"
                           and academic_year[:4].isdigit() and academic_year[5:].isdigit()
