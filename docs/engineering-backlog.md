@@ -45,3 +45,11 @@ For each item, add:
 - approval/release reference when required.
 
 Do not mark an item verified based only on code presence, test names, or a previous CI run. Evidence must match the current commit.
+
+
+## NET-001 verification record
+
+- Implementation PR: https://github.com/emmanuellloyd59/glihs-portal/pull/53 (draft, stacked on the engineering-governance branch).
+- Tested code commit: f3541b8a5dfca626bfd3279318f082b6c53b07b9.
+- GitHub Actions run #833: https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45943981813 — 158 tests passed on Python 3.11 and 158 passed on Python 3.14.
+- Manual browser/accessibility review, full legacy-route tenant audit, domain verification and production migration rehearsal remain pending. NET-001 is not yet marked accepted or production-ready.
