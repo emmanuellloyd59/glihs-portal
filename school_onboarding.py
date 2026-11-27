@@ -711,7 +711,7 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             if not school:
                 abort(404)
             admins = connection.execute(
-                "SELECT COUNT(*) FROM users WHERE school_id=? AND role='school_admin' AND status='active'",(school_id,)
+                "SELECT COUNT(*) FROM school_memberships WHERE school_id=? AND role='school_admin' AND status='active'",(school_id,)
             ).fetchone()[0]
             services = connection.execute(
                 "SELECT service_key,status FROM school_service_requests WHERE school_id=? ORDER BY service_key",(school_id,)
@@ -758,7 +758,7 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             if school["status"] != "active" or school["lifecycle_status"] != "active":
                 return _json_error("school_not_active","Institution must be activated before configuration can be completed.",409)
             admin = connection.execute(
-                "SELECT 1 FROM users WHERE school_id=? AND role='school_admin' AND status='active' LIMIT 1",(school_id,)
+                "SELECT 1 FROM school_memberships WHERE school_id=? AND role='school_admin' AND status='active' LIMIT 1",(school_id,)
             ).fetchone()
             contact = connection.execute(
                 "SELECT 1 FROM school_contacts WHERE school_id=? AND status='active' LIMIT 1",(school_id,)
@@ -856,15 +856,22 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             school = connection.execute("SELECT lifecycle_status,status FROM schools WHERE id=?",(invitation["school_id"],)).fetchone()
             if not school or school["lifecycle_status"] not in {"approved","active"}:
                 return _json_error("school_not_approved","Institution is not approved for administrator onboarding.",409)
-            if connection.execute("SELECT 1 FROM users WHERE lower(username)=lower(?)",(invitation["email"],)).fetchone():
+            if connection.execute("SELECT 1 FROM users WHERE lower(username)=lower(?) OR lower(email)=lower(?)",(invitation["email"],invitation["email"])).fetchone():
                 return _json_error("account_exists","An account already exists for this email.",409)
             if school["lifecycle_status"] != "active" or school["status"] != "active":
                 return _json_error("school_not_active","The institution must be active before an administrator account can be created.",409)
             status = "active"
             cursor = connection.execute(
-                """INSERT INTO users(username,full_name,password_hash,role,status,is_super_admin,school_id)
-                   VALUES (?,?,?,'school_admin',?,0,?)""",
-                (invitation["email"],invitation["full_name"],generate_password_hash(password),status,invitation["school_id"]),
+                """INSERT INTO users(username,full_name,email,password_hash,role,status,is_super_admin,school_id)
+                   VALUES (?,?,?,?, 'school_admin',?,0,?)""",
+                (invitation["email"],invitation["full_name"],invitation["email"],
+                 generate_password_hash(password),status,invitation["school_id"]),
+            )
+            connection.execute(
+                """INSERT OR IGNORE INTO school_memberships
+                   (user_id,school_id,role,status,is_primary,accepted_at)
+                   VALUES(?,?,'school_admin','active',1,CURRENT_TIMESTAMP)""",
+                (cursor.lastrowid,invitation["school_id"]),
             )
             connection.execute(
                 "UPDATE school_admin_invitations SET accepted_at=CURRENT_TIMESTAMP,accepted_user_id=? WHERE id=?",
