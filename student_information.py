@@ -127,8 +127,7 @@ def initialize_student_information_schema(connection_factory):
           destination_name TEXT,
           approved_by INTEGER REFERENCES users(id),
           created_by INTEGER REFERENCES users(id),
-          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(school_id,student_id)
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS student_disciplinary_records (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -552,6 +551,13 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
         db = connection_factory()
         try:
             student_or_404(db, school_id, student_id)
+            parent_user_id=payload.get("parent_user_id")
+            if parent_user_id is not None:
+                linked=db.execute("""SELECT 1 FROM users u JOIN school_memberships m ON m.user_id=u.id
+                  WHERE u.id=? AND u.role='parent' AND u.status='active'
+                    AND m.school_id=? AND m.status='active'""",(parent_user_id,school_id)).fetchone()
+                if not linked:
+                    return jsonify({"error":"Guardian login must be an active parent membership in this school."}),400
             cur = db.execute("""
               INSERT INTO student_guardians
               (school_id,student_id,full_name,relationship,phone,email,address,occupation,
@@ -559,7 +565,7 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (school_id,student_id,name,relationship,phone,email,
                   _clean(payload.get("address"),300),_clean(payload.get("occupation"),120),
-                  payload.get("parent_user_id"),int(bool(payload.get("is_primary"))),
+                  parent_user_id,int(bool(payload.get("is_primary"))),
                   int(bool(payload.get("is_emergency_contact"))),
                   payload.get("consent_status","unknown"),int(current_user.id)))
             audit(db,school_id,"student_guardian_added",student_id,"guardian record added")
@@ -681,6 +687,8 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
         db=connection_factory()
         try:
             student_or_404(db,school_id,student_id)
+            if payload.get("destination_school_id") is not None:
+                return jsonify({"error":"Cross-tenant transfer handoff requires a platform-authorized workflow."}),400
             cur=db.execute("""INSERT INTO student_transfers
               (school_id,student_id,transfer_type,destination_name,destination_school_id,
                effective_date,reason,created_by) VALUES(?,?,?,?,?,?,?,?)""",
@@ -701,11 +709,16 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
             return jsonify({"error":"Invalid transfer decision."}),400
         db=connection_factory()
         try:
-            cur=db.execute("""UPDATE student_transfers SET status=?,approved_by=?,approved_at=?
-              WHERE id=? AND school_id=? AND status IN ('requested','approved')""",
+            transfer=db.execute("SELECT student_id,transfer_type FROM student_transfers WHERE id=? AND school_id=? AND status IN ('requested','approved')",
+                                (transfer_id,school_id)).fetchone()
+            if not transfer: abort(404)
+            db.execute("""UPDATE student_transfers SET status=?,approved_by=?,approved_at=?
+              WHERE id=? AND school_id=?""",
               (state,int(current_user.id),datetime.now(timezone.utc).isoformat(),transfer_id,school_id))
-            if not cur.rowcount: abort(404)
-            audit(db,school_id,"student_transfer_reviewed",transfer_id,state)
+            if state=="completed" and transfer["transfer_type"]=="outbound":
+                db.execute("UPDATE students SET status='transferred' WHERE id=? AND school_id=?",
+                           (transfer["student_id"],school_id))
+            audit(db,school_id,"student_transfer_reviewed",transfer["student_id"],state)
             db.commit()
             return jsonify({"transfer_id":transfer_id,"status":state})
         finally: db.close()
