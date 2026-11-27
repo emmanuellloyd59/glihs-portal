@@ -1604,6 +1604,10 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
                 (school_b_id,),
             ).lastrowid
             portal.ensure_content_tables(connection)
+            self.assertTrue(
+                connection.in_transaction,
+                "Content schema setup must not commit the caller's pending tenant fixtures.",
+            )
             material_id = connection.execute(
                 """INSERT INTO learning_materials
                    (school_id, title, description, class_level, stored_name, original_name, uploaded_by)
