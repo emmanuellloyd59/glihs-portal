@@ -87,3 +87,29 @@ This is why a superficial connection-string or driver swap would be unsafe. The 
 ### Current release decision
 
 The fail-closed guard is verified. PostgreSQL compatibility remains **not implemented**. The Neon staging database remains empty and untouched; no Render environment variable has been set, no student records have been migrated, and no production service or database has been changed. Keep this PR in draft until the PostgreSQL implementation and integration/recovery gates are genuinely complete.
+
+
+## Expanded backend architecture and source audit — 2026-11-27
+
+The detailed architecture decision, source inventory, staged implementation sequence and dual-backend test matrix are now recorded in [VERSION_4_DATABASE_BACKEND_DESIGN.md](VERSION_4_DATABASE_BACKEND_DESIGN.md).
+
+A source scan of the current application and operational scripts found 291 `.execute()` calls, 3 `.executemany()` calls and 537 raw question-mark tokens across the inspected production files. The question-mark count is a static token count, not a claim that every occurrence is a bind marker; any conversion must use a SQL-aware scanner and tests. Additional findings include 22 PRAGMA occurrences, 4 sqlite_master references, 9 BEGIN IMMEDIATE statements, 5 SAVEPOINT occurrences, 15 SQLite trigger definitions, 19 AUTOINCREMENT declarations, 6 INSERT OR IGNORE statements, 3 lastrowid assumptions and SQLite-specific exception handling.
+
+### Architecture decision
+
+The implementation will retain SQLite and add PostgreSQL as an explicit second backend using Psycopg 3 behind a small DB-API connection/row abstraction. We will not perform a wholesale ORM conversion in this stabilization pass. Backend-specific schema migrations, catalog queries and trigger definitions will remain explicit; no global SQL string replacement will be used. PostgreSQL transaction locking, generated IDs, null-safe comparisons, case-insensitive uniqueness and conflict handling will be implemented according to PostgreSQL semantics and covered by integration tests.
+
+### Latest CI result
+
+The connection-factory candidate at head `771a15ec01fa6d5850c35b83fe336f1760a5ff6c` passed GitHub Actions run [#722](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45928040387): **190 tests passed on Python 3.11 and 190 passed on Python 3.14**. These are SQLite regression tests only. PostgreSQL is not yet implemented or enabled.
+
+### Next implementation sequence
+
+1. Formalize and test backend configuration, connection, row and exception contracts while preserving SQLite.
+2. Add Psycopg 3 connection/transaction primitives and a disposable PostgreSQL 17 CI service.
+3. Extract the existing SQLite migrations without behavior changes and implement PostgreSQL-native fresh-install and upgrade migrations.
+4. Convert query groups and database-specific semantics with dual-backend regression coverage.
+5. Add PostgreSQL backup/restore tooling and integration tests.
+6. Only after CI passes, connect the approved Neon project to isolated staging and verify fictional authenticated workflows, persistence, backup/restore and rollback.
+
+The PR remains draft. No Neon schema, staging database URL, production service, production database or school records have been changed.
