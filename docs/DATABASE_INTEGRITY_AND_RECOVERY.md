@@ -1,0 +1,65 @@
+# CMHS Digital Campus — Database Integrity and Recovery
+
+## Scope and safety
+
+All migration, failure-injection, backup and restore tests use temporary SQLite databases with fictional records. No live school database is reset, copied, restored over, or otherwise modified by these tests. The tested and documented restore workflow creates a new destination and refuses to overwrite an existing file by default; the CLI exposes an explicit `--overwrite` flag for separately approved maintenance operations.
+
+## Migration safety
+
+- `initialize_database()` executes schema and data changes inside an explicit `BEGIN IMMEDIATE` transaction.
+- The learning-resource, announcement and finance-content schema setup and the homework schema setup now also start explicit write transactions before creating tables, indexes, triggers or ledger entries. This prevents SQLite DDL from being left partially applied when a later legacy ownership check fails. When content setup is called inside an existing caller transaction, it uses a savepoint and preserves the caller's commit/rollback boundary rather than committing unrelated pending writes. Both additive migrations also run `PRAGMA foreign_key_check` before recording their ledger milestone; orphaned legacy content or homework rows stop the migration instead of being silently skipped by ownership joins.
+- Startup rejects unknown migration versions or a known version recorded with an unexpected name, preventing older code from silently starting against a newer or inconsistent schema ledger.
+- On any migration exception, the transaction is rolled back and the connection restores foreign-key enforcement before closing.
+- The schema setup remains idempotent and records the baseline and tenant-ownership guard versions in `schema_migrations`.
+- Startup verifies `PRAGMA foreign_key_check` and audits existing student-account, parent-child, finance, grade, attendance, report-card, teacher-assignment and timetable school ownership—including the school ownership of the staff actors who created or updated those records—before committing. A broken relationship blocks the migration rather than silently accepting corruption.
+- Existing student IDs, user IDs, grade IDs and legacy records are retained by the existing table-copy migrations; the regression suite exercises a legacy upgrade and repeat initialization.
+
+## School relationship integrity
+
+Database triggers now reject inconsistent school ownership for:
+- Student-to-account links.
+- Parent-to-student links.
+- Student finance rows.
+- Grades, attendance and report cards.
+- Teacher assignments and timetable entries.
+- Finance payment rows, including the receiving user.
+- School-scoped staff actors who record or publish academic, finance, timetable and parent-link records; explicitly selected platform super-admin actions are handled as a privileged exception.
+- Learning-material uploads and announcement authors/editors.
+- Homework assignment authors, student submissions, graders and the assignment/student school and class relationship.
+- Attempts to reassign a linked student or parent/teacher account to another school while dependent records still exist.
+
+Application route checks remain required. These triggers are a second integrity boundary, not a substitute for authorization and tenant-scoped queries. Existing rows should still be audited before any production migration.
+
+## Backup and restore helpers
+
+`scripts/sqlite_backup.py` provides:
+- `copy_database(source, destination)`: uses SQLite's online backup API, publishes atomically, and validates integrity and foreign keys.
+- The same `copy_database(backup, restore_destination)` function restores a verified backup to a new file when called without `--overwrite`.
+
+The script verifies `PRAGMA integrity_check` and `PRAGMA foreign_key_check`, refuses same-path operations and existing destinations by default, and cleans up incomplete temporary output.
+
+These are tested helper functions, not a configured production backup scheduler or an operational disaster-recovery service. Production backup retention, off-host copies, encryption/key management, restore-point objectives and scheduled restore drills remain separate operational work.
+
+## Automated verification
+
+The disposable-database tests cover:
+- Legacy record preservation during upgrade.
+- Migration rollback when a legacy record cannot be copied into the new schema.
+- Fail-closed handling of unknown or conflicting migration-ledger entries while preserving existing records.
+- Rollback of content-schema tables, triggers and ledger changes when pre-existing content has a cross-school ownership mismatch.
+- Rejection of orphaned legacy finance-payment/content records with savepoint rollback that preserves caller-owned pending records.
+- Repeatable initialization and migration-ledger idempotency, including the homework schema milestone.
+- Preservation of parent-child relationships.
+- Rejection of cross-school parent, student-account, finance, finance-payment, homework-author and homework-submission relationships.
+- SQLite integrity and foreign-key checks after restore.
+- Refusal to overwrite existing backup or restore files.
+- Rejection and cleanup of backups containing foreign-key violations.
+
+The 187-test suite passed in both repository Python 3.11 and 3.14 CI jobs in workflow [#45916727267](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45916727267). Prompt 03 automated verification is complete; operational backup, durable storage and staging restore drills remain release blockers.
+
+## Known limitations
+
+- The application still uses a consolidated startup schema-upgrade function rather than a fully separated migration file per historical schema change. The new ledger records the baseline and integrity-guard milestones; it does not retroactively split every old schema operation into individual migration scripts.
+- The backup helpers are not yet connected to a scheduled production backup service.
+- Production restore drills, backup encryption, off-host retention and verified persistent storage are not configured.
+- Any production migration requires a separately approved backup and recovery plan. The currently documented Render service has no persistent disk or connected PostgreSQL database, so SQLite persistence remains a release blocker.

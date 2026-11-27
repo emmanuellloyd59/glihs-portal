@@ -66,7 +66,7 @@ class DatabaseMigrationTests(unittest.TestCase):
                 upgraded = portal.get_db_connection()
                 try:
                     user = upgraded.execute(
-                        "SELECT id, username, role, status FROM users WHERE id = 1"
+                        "SELECT id, username, password_hash, role, status FROM users WHERE id = 1"
                     ).fetchone()
                     student = upgraded.execute(
                         "SELECT id, admission_number, full_name, account_user_id, student_id_number FROM students WHERE id = 7"
@@ -80,8 +80,10 @@ class DatabaseMigrationTests(unittest.TestCase):
                     }
                     foreign_key_issues = upgraded.execute("PRAGMA foreign_key_check").fetchall()
 
-                    self.assertEqual((user["id"], user["username"], user["role"], user["status"]),
-                                     (1, "legacy_teacher", "teacher", "active"))
+                    self.assertEqual(
+                        (user["id"], user["username"], user["password_hash"], user["role"], user["status"]),
+                        (1, "legacy_teacher", "not-a-real-login-hash", "teacher", "active"),
+                    )
                     self.assertEqual((student["id"], student["admission_number"], student["full_name"]),
                                      (7, "LEGACY-007", "Fictional Legacy Student"))
                     self.assertIsNone(student["account_user_id"])
@@ -110,6 +112,411 @@ class DatabaseMigrationTests(unittest.TestCase):
                     upgraded.close()
             finally:
                 portal.DATABASE = original_database
+
+
+    def test_migration_is_atomic_when_legacy_user_copy_fails(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "interrupted_migration.db"
+            connection = sqlite3.connect(database_path)
+            connection.execute(
+                """CREATE TABLE users (
+                    id INTEGER PRIMARY KEY,
+                    username TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL
+                )"""
+            )
+            connection.execute(
+                "INSERT INTO users (id,username,password_hash,role) VALUES (9,'legacy_bad','hash','invalid_role')"
+            )
+            connection.commit()
+            connection.close()
+
+            original_database = portal.DATABASE
+            portal.DATABASE = database_path
+            try:
+                with self.assertRaises(sqlite3.IntegrityError):
+                    portal.initialize_database()
+                check = sqlite3.connect(database_path)
+                try:
+                    user = check.execute(
+                        "SELECT id,username,password_hash,role FROM users WHERE id=9"
+                    ).fetchone()
+                    migrating_table = check.execute(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='users_migrating'"
+                    ).fetchone()[0]
+                    ledger_table = check.execute(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
+                    ).fetchone()[0]
+                    self.assertEqual(user, (9, "legacy_bad", "hash", "invalid_role"))
+                    self.assertEqual(migrating_table, 0)
+                    self.assertEqual(ledger_table, 0)
+                finally:
+                    check.close()
+            finally:
+                portal.DATABASE = original_database
+
+    def test_migration_is_idempotent_and_school_relationships_are_enforced(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "tenant_integrity.db"
+            original_database = portal.DATABASE
+            portal.DATABASE = database_path
+            try:
+                portal.initialize_database()
+                connection = portal.get_db_connection()
+                try:
+                    connection.execute(
+                        "INSERT INTO schools (id,name,slug) VALUES (2,'Second School','second-school')"
+                    )
+                    parent_one = connection.execute(
+                        """INSERT INTO users (username,password_hash,role,status,is_super_admin,school_id)
+                           VALUES ('parent_one','hash','parent','active',0,1)"""
+                    ).lastrowid
+                    parent_two = connection.execute(
+                        """INSERT INTO users (username,password_hash,role,status,is_super_admin,school_id)
+                           VALUES ('parent_two','hash','parent','active',0,2)"""
+                    ).lastrowid
+                    student = connection.execute(
+                        """INSERT INTO students
+                           (admission_number,full_name,class_level,school_id)
+                           VALUES ('TENANT-001','Fictional Tenant Student','Grade 7',1)"""
+                    ).lastrowid
+                    updater = connection.execute(
+                        "SELECT id FROM users WHERE school_id=1 LIMIT 1"
+                    ).fetchone()["id"]
+                    student_account = connection.execute(
+                        """INSERT INTO users (username,password_hash,role,status,is_super_admin,school_id)
+                           VALUES ('student_account','hash','student','active',0,1)"""
+                    ).lastrowid
+                    connection.execute(
+                        "UPDATE students SET account_user_id=? WHERE id=?",
+                        (student_account, student),
+                    )
+                    connection.execute(
+                        """INSERT INTO parent_student_links (parent_user_id,student_id,school_id,created_by)
+                           VALUES (?,?,1,?)""",
+                        (parent_one, student, updater),
+                    )
+                    connection.commit()
+
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            """INSERT INTO parent_student_links
+                               (parent_user_id,student_id,school_id,created_by)
+                               VALUES (?,?,1,?)""",
+                            (parent_two, student, updater),
+                        )
+                    connection.rollback()
+
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            """INSERT INTO student_finances
+                               (student_id,academic_year,total_fee,amount_paid,updated_by,school_id)
+                               VALUES (?,'2026-2027',8000,0,?,2)""",
+                            (student, updater),
+                        )
+                    connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            """INSERT INTO student_finances
+                               (student_id,academic_year,total_fee,amount_paid,updated_by,school_id)
+                               VALUES (?,'2026-2028',8000,0,?,1)""",
+                            (student, parent_two),
+                        )
+                    connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            """INSERT INTO grades
+                               (student_id,subject,assessment,score,max_score,recorded_by,academic_year,term,school_id)
+                               VALUES (?,'Mathematics','Quiz',8,10,?,'2026-2027','Term 1',1)""",
+                            (student, parent_two),
+                        )
+                    connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            """INSERT INTO attendance
+                               (student_id,attendance_date,status,recorded_by,school_id)
+                               VALUES (?,'2026-10-22','present',?,1)""",
+                            (student, parent_two),
+                        )
+                    connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            """INSERT INTO report_cards
+                               (student_id,academic_year,term,published,published_by,school_id)
+                               VALUES (?,'2026-2027','Term 1',1,?,1)""",
+                            (student, parent_two),
+                        )
+                    connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            """INSERT INTO parent_student_links
+                               (parent_user_id,student_id,school_id,created_by)
+                               VALUES (?,?,1,?)""",
+                            (parent_one, student, parent_two),
+                        )
+                    connection.rollback()
+
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            "UPDATE students SET account_user_id=? WHERE id=?",
+                            (parent_two, student),
+                        )
+                    connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            "UPDATE users SET school_id=2 WHERE id=?",
+                            (parent_one,),
+                        )
+                    connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            "UPDATE users SET school_id=2 WHERE id=?",
+                            (student_account,),
+                        )
+                    connection.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        connection.execute(
+                            "UPDATE students SET school_id=2 WHERE id=?",
+                            (student,),
+                        )
+                    connection.rollback()
+                finally:
+                    connection.close()
+
+                # A second startup migration must preserve the parent-child link.
+                portal.initialize_database()
+                verify = portal.get_db_connection()
+                try:
+                    self.assertEqual(
+                        verify.execute(
+                            "SELECT COUNT(*) FROM parent_student_links WHERE school_id=1"
+                        ).fetchone()[0],
+                        1,
+                    )
+                    self.assertEqual(
+                        verify.execute(
+                            "SELECT account_user_id FROM students WHERE admission_number='TENANT-001'"
+                        ).fetchone()[0],
+                        student_account,
+                    )
+                    self.assertEqual(
+                        verify.execute("PRAGMA foreign_key_check").fetchall(),
+                        [],
+                    )
+                    self.assertEqual(
+                        [row["version"] for row in verify.execute(
+                            "SELECT version FROM schema_migrations ORDER BY version"
+                        ).fetchall()],
+                        [1, 2],
+                    )
+                    # Finance payment records must agree with both student and
+                    # receiver school ownership, not merely carry a caller-supplied ID.
+                    portal.ensure_content_tables(verify)
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        verify.execute(
+                            """INSERT INTO finance_payments
+                               (school_id,student_id,academic_year,amount,method,receipt_number,received_by)
+                               VALUES (1,?,'2026-2027',100,'cash','CROSS-SCHOOL-RECEIPT',?)""",
+                            (student, parent_two),
+                        )
+                    verify.rollback()
+                    self.assertEqual(
+                        [row["version"] for row in verify.execute(
+                            "SELECT version FROM schema_migrations ORDER BY version"
+                        ).fetchall()],
+                        [1, 2, 3],
+                    )
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        verify.execute(
+                            """INSERT INTO learning_materials
+                               (school_id,title,description,class_level,stored_name,original_name,uploaded_by)
+                               VALUES (1,'Test resource','','Grade 7','test.pdf','test.pdf',?)""",
+                            (parent_two,),
+                        )
+                    verify.rollback()
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        verify.execute(
+                            """INSERT INTO school_announcements
+                               (school_id,title,body,audience,created_by,updated_by)
+                               VALUES (1,'Cross-school notice','Not allowed','all',?,?)""",
+                            (parent_two, parent_two),
+                        )
+                    verify.rollback()
+                    self.assertEqual(
+                        verify.execute(
+                            "SELECT COUNT(*) FROM students WHERE admission_number='TENANT-001'"
+                        ).fetchone()[0],
+                        1,
+                    )
+                finally:
+                    verify.close()
+            finally:
+                portal.DATABASE = original_database
+
+
+    def test_unknown_or_conflicting_migration_ledger_entry_blocks_startup(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "future_schema.db"
+            original_database = portal.DATABASE
+            portal.DATABASE = database_path
+            try:
+                portal.initialize_database()
+                connection = portal.get_db_connection()
+                try:
+                    connection.execute(
+                        "INSERT INTO schema_migrations (version,name) VALUES (99,'future-schema')"
+                    )
+                    connection.execute(
+                        "INSERT INTO users (username,password_hash,role,school_id) "
+                        "VALUES ('preserved_user','preserved-hash','teacher',1)"
+                    )
+                    connection.commit()
+                finally:
+                    connection.close()
+
+                with self.assertRaisesRegex(sqlite3.DatabaseError, "Unsupported or inconsistent"):
+                    portal.initialize_database()
+
+                check = sqlite3.connect(database_path)
+                try:
+                    self.assertEqual(
+                        check.execute(
+                            "SELECT password_hash FROM users WHERE username='preserved_user'"
+                        ).fetchone()[0],
+                        "preserved-hash",
+                    )
+                    self.assertEqual(
+                        check.execute(
+                            "SELECT name FROM schema_migrations WHERE version=99"
+                        ).fetchone()[0],
+                        "future-schema",
+                    )
+                finally:
+                    check.close()
+            finally:
+                portal.DATABASE = original_database
+
+    def test_content_schema_migration_rolls_back_ddl_on_legacy_ownership_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "content_migration_failure.db"
+            original_database = portal.DATABASE
+            portal.DATABASE = database_path
+            try:
+                portal.initialize_database()
+                connection = portal.get_db_connection()
+                try:
+                    connection.execute(
+                        "INSERT INTO schools (id,name,slug) VALUES (2,'Second School','second-school')"
+                    )
+                    foreign_user = connection.execute(
+                        """INSERT INTO users
+                           (username,password_hash,role,status,is_super_admin,school_id)
+                           VALUES ('foreign_uploader','hash','teacher','active',0,2)"""
+                    ).lastrowid
+                    connection.execute("""CREATE TABLE learning_materials (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        school_id INTEGER NOT NULL REFERENCES schools(id),
+                        title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+                        class_level TEXT NOT NULL, stored_name TEXT NOT NULL,
+                        original_name TEXT NOT NULL, uploaded_by INTEGER NOT NULL REFERENCES users(id),
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0,1))
+                    )""")
+                    connection.execute(
+                        """INSERT INTO learning_materials
+                           (school_id,title,class_level,stored_name,original_name,uploaded_by)
+                           VALUES (1,'Legacy mismatch','Grade 7','legacy.pdf','legacy.pdf',?)""",
+                        (foreign_user,),
+                    )
+                    connection.commit()
+
+                    with self.assertRaisesRegex(sqlite3.DatabaseError, "ownership mismatch"):
+                        portal.ensure_content_tables(connection)
+                    connection.rollback()
+
+                    tables = {
+                        row[0] for row in connection.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table'"
+                        ).fetchall()
+                    }
+                    triggers = {
+                        row[0] for row in connection.execute(
+                            "SELECT name FROM sqlite_master WHERE type='trigger'"
+                        ).fetchall()
+                    }
+                    self.assertIn("learning_materials", tables)
+                    self.assertNotIn("finance_payments", tables)
+                    self.assertNotIn("school_announcements", tables)
+                    self.assertNotIn("trg_learning_material_school_insert", triggers)
+                    self.assertEqual(
+                        [row[0] for row in connection.execute(
+                            "SELECT version FROM schema_migrations ORDER BY version"
+                        ).fetchall()],
+                        [1, 2],
+                    )
+                    self.assertEqual(
+                        connection.execute("SELECT COUNT(*) FROM learning_materials").fetchone()[0],
+                        1,
+                    )
+                finally:
+                    connection.close()
+            finally:
+                portal.DATABASE = original_database
+
+
+    def test_content_migration_rejects_existing_foreign_key_orphans_atomically(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "content_foreign_key_failure.db"
+            original_database = portal.DATABASE
+            portal.DATABASE = database_path
+            try:
+                portal.initialize_database()
+                connection = portal.get_db_connection()
+                try:
+                    # Simulate a legacy database containing an orphaned finance
+                    # payment. The existing row is intentionally preserved while
+                    # the attempted additive schema migration is rolled back.
+                    connection.execute("PRAGMA foreign_keys = OFF")
+                    connection.execute("""CREATE TABLE finance_payments (
+                        id INTEGER PRIMARY KEY,
+                        school_id INTEGER NOT NULL,
+                        student_id INTEGER NOT NULL REFERENCES students(id),
+                        received_by INTEGER NOT NULL REFERENCES users(id)
+                    )""")
+                    connection.execute(
+                        "INSERT INTO finance_payments (id,school_id,student_id,received_by) "
+                        "VALUES (77,1,404,405)"
+                    )
+                    with self.assertRaisesRegex(sqlite3.DatabaseError, "foreign-key integrity"):
+                        portal.ensure_content_tables(connection)
+
+                    self.assertTrue(connection.in_transaction)
+                    self.assertEqual(
+                        tuple(connection.execute(
+                            "SELECT student_id,received_by FROM finance_payments WHERE id=77"
+                        ).fetchone()),
+                        (404, 405),
+                    )
+                    tables = {
+                        row[0] for row in connection.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table'"
+                        ).fetchall()
+                    }
+                    self.assertNotIn("learning_materials", tables)
+                    self.assertNotIn("school_announcements", tables)
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT COUNT(*) FROM schema_migrations WHERE version=3"
+                        ).fetchone()[0],
+                        0,
+                    )
+                    connection.rollback()
+                finally:
+                    connection.close()
+            finally:
+                portal.DATABASE = original_database
+
 
 
 if __name__ == "__main__":

@@ -8,6 +8,15 @@ from pathlib import Path
 
 
 class StylesheetCascadeTests(unittest.TestCase):
+    def test_release_notice_is_inside_a_banner_landmark(self):
+        template_path = Path(__file__).resolve().parents[1] / "templates" / "base.html"
+        template = template_path.read_text(encoding="utf-8")
+        self.assertIn('<header class="release-notice', template)
+        self.assertIn("</header>", template)
+        self.assertIn("<nav", template)
+        self.assertIn("<main", template)
+        self.assertIn("<footer", template)
+
     def test_campus_stylesheet_loads_after_inline_styles(self):
         template_path = Path(__file__).resolve().parents[1] / "templates" / "base.html"
         template = template_path.read_text(encoding="utf-8")

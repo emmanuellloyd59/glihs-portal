@@ -8,15 +8,25 @@ def register_homework_routes(ns):
     redirect, url_for = ns["redirect"], ns["url_for"]
     render_template, flash, abort = ns["render_template"], ns["flash"], ns["abort"]
     get_db_connection = ns["get_db_connection"]
-    require_school_context, write_audit = ns["require_school_context"], ns["write_audit"]
+    require_school_context = ns["require_school_context"]
     teacher_has_class_subject = ns["teacher_has_class_subject"]
     class_levels = ns["TIMETABLE_CLASS_LEVELS"]
-    staff_roles = {"super_admin", "school_admin", "principal", "vice_principal", "academic_admin", "registrar", "teacher"}
     admin_roles = {"super_admin", "school_admin", "principal", "vice_principal", "academic_admin"}
+    staff_roles = admin_roles | {"teacher"}
+
+    def audit_in_transaction(connection, action, target, details, school_id):
+        connection.execute(
+            """INSERT INTO audit_log
+               (actor_user_id,action,target_username,details,school_id)
+               VALUES (?,?,?,?,?)""",
+            (int(current_user.id), action, target, details, school_id),
+        )
 
     # Additive tables only; existing school and student records are not reset.
     connection = get_db_connection()
     try:
+        # Keep schema, trigger, integrity-check and ledger writes atomic.
+        connection.execute("BEGIN IMMEDIATE")
         connection.execute("""CREATE TABLE IF NOT EXISTS homework_assignments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             school_id INTEGER NOT NULL REFERENCES schools(id),
@@ -40,6 +50,97 @@ def register_homework_routes(ns):
         )""")
         connection.execute("""CREATE INDEX IF NOT EXISTS idx_homework_submissions_school_assignment
             ON homework_submissions(school_id,assignment_id,submitted_at)""")
+        # Keep assignment authors, student submissions and graders inside the
+        # same school. Platform super-admin actions remain possible only through
+        # their separately authorized, explicitly selected school context.
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_homework_assignment_school_insert
+            BEFORE INSERT ON homework_assignments
+            WHEN (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
+             AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_homework_assignment_school_update
+            BEFORE UPDATE OF school_id,created_by ON homework_assignments
+            WHEN ((SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
+                  AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)
+              OR EXISTS (SELECT 1 FROM homework_submissions
+                         WHERE assignment_id=OLD.id AND school_id IS NOT NEW.school_id)
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        homework_submission_guard = """
+            (SELECT school_id FROM homework_assignments WHERE id=NEW.assignment_id) IS NOT NEW.school_id
+            OR (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id
+            OR (SELECT class_level FROM homework_assignments WHERE id=NEW.assignment_id)
+               IS NOT (SELECT class_level FROM students WHERE id=NEW.student_id)
+            OR (NEW.graded_by IS NOT NULL
+                AND (SELECT school_id FROM users WHERE id=NEW.graded_by) IS NOT NEW.school_id
+                AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.graded_by),0) <> 1)
+        """
+        connection.execute(f"""
+            CREATE TRIGGER IF NOT EXISTS trg_homework_submission_school_insert
+            BEFORE INSERT ON homework_submissions
+            WHEN {homework_submission_guard}
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute(f"""
+            CREATE TRIGGER IF NOT EXISTS trg_homework_submission_school_update
+            BEFORE UPDATE OF school_id,assignment_id,student_id,graded_by ON homework_submissions
+            WHEN {homework_submission_guard}
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_student_school_homework_dependents_update
+            BEFORE UPDATE OF school_id ON students
+            WHEN EXISTS (SELECT 1 FROM homework_submissions
+                         WHERE student_id=OLD.id AND school_id IS NOT NEW.school_id)
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_user_school_homework_dependents_update
+            BEFORE UPDATE OF school_id ON users
+            WHEN EXISTS (SELECT 1 FROM homework_assignments
+                         WHERE created_by=OLD.id AND school_id IS NOT NEW.school_id)
+              OR EXISTS (SELECT 1 FROM homework_submissions
+                         WHERE graded_by=OLD.id AND school_id IS NOT NEW.school_id)
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        mismatch_count = connection.execute("""SELECT COUNT(*) FROM homework_assignments a
+            JOIN users u ON u.id=a.created_by
+            WHERE u.school_id IS NOT a.school_id AND u.is_super_admin <> 1""").fetchone()[0]
+        mismatch_count += connection.execute("""SELECT COUNT(*) FROM homework_submissions s
+            JOIN homework_assignments a ON a.id=s.assignment_id
+            JOIN students st ON st.id=s.student_id
+            LEFT JOIN users grader ON grader.id=s.graded_by
+            WHERE a.school_id IS NOT s.school_id OR st.school_id IS NOT s.school_id
+               OR (s.graded_by IS NOT NULL AND grader.school_id IS NOT s.school_id
+                   AND COALESCE(grader.is_super_admin,0) <> 1)""").fetchone()[0]
+        if mismatch_count:
+            raise RuntimeError(
+                f"Homework migration stopped: {mismatch_count} school-ownership mismatch(es)"
+            )
+        foreign_key_issues = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if foreign_key_issues:
+            raise RuntimeError(
+                f"Homework migration stopped: {len(foreign_key_issues)} foreign-key integrity issue(s)"
+            )
+        connection.execute(
+            """INSERT OR IGNORE INTO schema_migrations (version,name)
+               VALUES (4,'homework-school-ownership-guards')"""
+        )
         connection.commit()
     finally:
         connection.close()
@@ -81,8 +182,11 @@ def register_homework_routes(ns):
                         (school_id,class_level,subject,title,instructions,due_date,created_by)
                         VALUES (?,?,?,?,?,?,?)""",
                         (school_id,level,subject,title,instructions,due_date,int(current_user.id)))
+                    audit_in_transaction(
+                        connection, "homework_assignment_created", title,
+                        f"class={level}; due={due_date}", school_id,
+                    )
                     connection.commit()
-                    write_audit(current_user.id,"homework_assignment_created",title,f"class={level}; due={due_date}")
                     flash("Homework assignment published.","success")
                     return redirect(url_for("assignments"))
 
@@ -113,8 +217,10 @@ def register_homework_routes(ns):
                         score=NULL, feedback='', graded_by=NULL, graded_at=NULL
                         WHERE homework_submissions.school_id=excluded.school_id""",
                         (school_id,int(aid),student["id"],answer))
+                    audit_in_transaction(
+                        connection, "homework_submitted", aid, None, school_id,
+                    )
                     connection.commit()
-                    write_audit(current_user.id,"homework_submitted",aid)
                     flash("Your homework has been submitted.","success")
                     return redirect(url_for("assignments"))
 
@@ -153,10 +259,13 @@ def register_homework_routes(ns):
                         SET score=?,feedback=?,graded_by=?,graded_at=CURRENT_TIMESTAMP
                         WHERE id=? AND school_id=? AND assignment_id=?""",
                         (score, feedback, int(current_user.id), int(sid), school_id, assignment["id"]))
-                    connection.commit()
                     if result.rowcount != 1:
                         abort(404)
-                    write_audit(current_user.id,"homework_submission_graded",sid,f"score={score:g}")
+                    audit_in_transaction(
+                        connection, "homework_submission_graded", sid,
+                        f"score={score:g}", school_id,
+                    )
+                    connection.commit()
                     flash("Homework marked and feedback saved.","success")
                     return redirect(url_for("assignments"))
                 abort(400)

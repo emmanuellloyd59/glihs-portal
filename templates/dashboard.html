@@ -9,7 +9,7 @@
 </section>
 <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-end gap-2 mb-4">
     <div><p class="eyebrow text-primary mb-1">Your workspace</p><h2 class="h3 fw-bold mb-1">Dashboard Overview</h2><p class="text-secondary mb-0">Choose a workspace to continue.</p></div>
-    <span class="badge rounded-pill border bg-white text-secondary px-3 py-2">Version 0.3 Preview</span>
+    <span class="badge rounded-pill border bg-white text-secondary px-3 py-2">Version 4 · In Development</span>
 </div>
 {% if current_user.is_super_admin or role in ['admin', 'super_admin', 'school_admin', 'principal', 'vice_principal'] %}
 <section class="surface-card p-3 p-md-4 mb-4 border border-primary-subtle" aria-labelledby="staff-management-shortcut-title">
@@ -50,7 +50,7 @@
 {% if role in ['super_admin', 'school_admin', 'teacher', 'registrar', 'principal', 'vice_principal', 'academic_admin', 'admissions_officer', 'attendance_officer'] and school_context_selected %}
 <div class="row g-3 mb-4">
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4"><div class="d-flex justify-content-between align-items-start mb-3"><span class="fs-2">👩‍🎓</span><span class="badge text-bg-success">Available</span></div><h3 class="h5 fw-bold">Student Records</h3><p class="text-secondary">Open the student records workspace for the selected school.</p><a href="{{ url_for('list_students') }}" class="btn btn-primary mt-auto">View Student Records <span aria-hidden="true">→</span></a></article></div>
-    {% if role in ['super_admin', 'school_admin', 'registrar', 'admissions_officer'] %}
+    {% if role in ['super_admin', 'school_admin', 'principal', 'vice_principal', 'registrar', 'admissions_officer', 'academic_admin'] %}
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4"><div class="d-flex justify-content-between align-items-start mb-3"><span class="fs-2">🪪</span><span class="badge text-bg-success">Available</span></div><h3 class="h5 fw-bold">Student Registration</h3><p class="text-secondary">Register a student in the selected school workspace.</p><a href="{{ url_for('register_student') }}" class="btn btn-outline-primary mt-auto">Register Student <span aria-hidden="true">→</span></a></article></div>
     {% endif %}
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4 d-flex flex-column"><div class="d-flex justify-content-between align-items-start mb-3"><span class="fs-2">📚</span><span class="badge text-bg-success">Available</span></div><h3 class="h5 fw-bold">Class Grades & Attendance</h3><p class="text-secondary">Enter assessment scores, record daily attendance and review saved records. Teacher and academic staff access only.</p><a href="{{ url_for('academics') }}" class="btn btn-primary mt-auto">Open Grades & Attendance <span aria-hidden="true">→</span></a></article></div>
@@ -64,7 +64,7 @@
     {% if role in ['super_admin', 'school_admin', 'principal', 'vice_principal', 'academic_admin', 'registrar', 'teacher'] %}
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4 d-flex flex-column"><div class="fs-2 mb-3">🗓️</div><span class="badge text-bg-success mb-3">Available</span><h3 class="h5 fw-bold">Class Timetable</h3><p class="text-secondary">View the weekly class schedule. Authorized academic leaders can create lessons and prevent class, teacher or room conflicts.</p><a href="{{ url_for('timetable') }}" class="btn btn-primary mt-auto">Open Timetable →</a></article></div>
     {% endif %}
-    {% if role in ['super_admin', 'school_admin', 'principal', 'vice_principal', 'academic_admin', 'registrar', 'teacher'] %}
+    {% if role in ['super_admin', 'school_admin', 'principal', 'vice_principal', 'academic_admin', 'teacher'] %}
     <div class="col-12 col-md-6 col-lg-4"><article class="surface-card h-100 p-4 d-flex flex-column"><div class="fs-2 mb-3">📝</div><span class="badge text-bg-success mb-3">Available</span><h3 class="h5 fw-bold">Homework & Assignments</h3><p class="text-secondary">Publish class homework, review submissions and record marks or feedback.</p><a href="{{ url_for('assignments') }}" class="btn btn-primary mt-auto">Open Assignments →</a></article></div>
     {% endif %}
     {% if role in ['super_admin', 'school_admin', 'principal', 'vice_principal'] %}

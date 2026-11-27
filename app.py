@@ -7,6 +7,8 @@ import uuid
 from werkzeug.utils import secure_filename
 from flask import send_file
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
+import time
 
 from flask import Flask, render_template, redirect, url_for, request, flash, abort, session, jsonify
 from flask_login import (
@@ -87,6 +89,11 @@ STAFF_ROLES = {
     "counselor": "School Counselor",
     "parent": "Parent / Guardian (child link required)",
     "student": "Student (enrollment link required)",
+}
+# Public staff requests must not bypass the verified student/parent linking flow.
+STAFF_REQUEST_ROLES = {
+    role: label for role, label in STAFF_ROLES.items()
+    if role not in {"student", "parent"}
 }
 STUDENT_RECORD_ROLES = {
     "super_admin", "school_admin", "principal", "vice_principal", "registrar",
@@ -298,6 +305,35 @@ def initialize_database():
         # The legacy users-table migration replaces the table. Temporarily disable
         # FK enforcement for that schema operation, then re-enable it for normal use.
         connection.execute("PRAGMA foreign_keys = OFF")
+        # Make every schema/data change in this upgrade one SQLite transaction.
+        # SQLite DDL is transactional when enclosed in an explicit transaction;
+        # this prevents a failed table rebuild from leaving half-migrated tables.
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Refuse to run older application code against a database that records
+        # an unknown or conflicting migration. This is a fail-closed guard:
+        # schema upgrades must be explicitly implemented before startup proceeds.
+        supported_migrations = {
+            1: "legacy-to-multi-school-schema-baseline",
+            2: "school-ownership-integrity-guards",
+            3: "content-and-finance-school-ownership-guards",
+            4: "homework-school-ownership-guards",
+        }
+        for migration in connection.execute(
+            "SELECT version, name FROM schema_migrations ORDER BY version"
+        ).fetchall():
+            expected_name = supported_migrations.get(migration["version"])
+            if expected_name != migration["name"]:
+                raise sqlite3.DatabaseError(
+                    "Unsupported or inconsistent schema migration ledger entry: "
+                    f"version {migration['version']}"
+                )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -621,9 +657,177 @@ def initialize_database():
                         NEW.subject, NEW.created_by);
             END
         """)
+        # Enforce tenant ownership at the database boundary as well as in routes.
+        # These triggers prevent inconsistent school IDs on linked records even if
+        # a future endpoint accidentally omits an application-level tenant filter.
+        tenant_guards = (
+            ("trg_student_account_school_insert", "BEFORE INSERT ON students",
+             "NEW.account_user_id IS NOT NULL AND "
+             "(SELECT school_id FROM users WHERE id=NEW.account_user_id) IS NOT NEW.school_id"),
+            ("trg_student_account_school_update", "BEFORE UPDATE OF account_user_id, school_id ON students",
+             "NEW.account_user_id IS NOT NULL AND "
+             "(SELECT school_id FROM users WHERE id=NEW.account_user_id) IS NOT NEW.school_id"),
+            ("trg_student_school_dependents_update", "BEFORE UPDATE OF school_id ON students",
+             "EXISTS (SELECT 1 FROM parent_student_links WHERE student_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM student_finances WHERE student_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM grades WHERE student_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM attendance WHERE student_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM report_cards WHERE student_id=OLD.id AND school_id IS NOT NEW.school_id)"),
+            ("trg_user_school_dependents_update", "BEFORE UPDATE OF school_id ON users",
+             "EXISTS (SELECT 1 FROM students WHERE account_user_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM parent_student_links WHERE parent_user_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM teacher_class_assignments WHERE teacher_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM class_timetable WHERE teacher_id=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM student_finances WHERE updated_by=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM grades WHERE recorded_by=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM attendance WHERE recorded_by=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM report_cards WHERE published_by=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM parent_student_links WHERE created_by=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM teacher_class_assignments WHERE created_by=OLD.id AND school_id IS NOT NEW.school_id) "
+             "OR EXISTS (SELECT 1 FROM class_timetable WHERE created_by=OLD.id AND school_id IS NOT NEW.school_id)"),
+            ("trg_parent_link_school_insert", "BEFORE INSERT ON parent_student_links",
+             "(SELECT school_id FROM users WHERE id=NEW.parent_user_id) IS NOT NEW.school_id "
+             "OR (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (NEW.created_by IS NOT NULL AND (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)"),
+            ("trg_parent_link_school_update", "BEFORE UPDATE OF parent_user_id, student_id, school_id, created_by ON parent_student_links",
+             "(SELECT school_id FROM users WHERE id=NEW.parent_user_id) IS NOT NEW.school_id "
+             "OR (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (NEW.created_by IS NOT NULL AND (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)"),
+            ("trg_student_finance_school_insert", "BEFORE INSERT ON student_finances",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1"),
+            ("trg_student_finance_school_update", "BEFORE UPDATE OF student_id, school_id, updated_by ON student_finances",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1"),
+            ("trg_grade_school_insert", "BEFORE INSERT ON grades",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (SELECT school_id FROM users WHERE id=NEW.recorded_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.recorded_by),0) <> 1"),
+            ("trg_grade_school_update", "BEFORE UPDATE OF student_id, school_id, recorded_by ON grades",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (SELECT school_id FROM users WHERE id=NEW.recorded_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.recorded_by),0) <> 1"),
+            ("trg_attendance_school_insert", "BEFORE INSERT ON attendance",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (SELECT school_id FROM users WHERE id=NEW.recorded_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.recorded_by),0) <> 1"),
+            ("trg_attendance_school_update", "BEFORE UPDATE OF student_id, school_id, recorded_by ON attendance",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (SELECT school_id FROM users WHERE id=NEW.recorded_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.recorded_by),0) <> 1"),
+            ("trg_report_card_school_insert", "BEFORE INSERT ON report_cards",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (NEW.published_by IS NOT NULL AND (SELECT school_id FROM users WHERE id=NEW.published_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.published_by),0) <> 1)"),
+            ("trg_report_card_school_update", "BEFORE UPDATE OF student_id, school_id, published_by ON report_cards",
+             "(SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id "
+             "OR (NEW.published_by IS NOT NULL AND (SELECT school_id FROM users WHERE id=NEW.published_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.published_by),0) <> 1)"),
+            ("trg_teacher_assignment_school_insert", "BEFORE INSERT ON teacher_class_assignments",
+             "(SELECT school_id FROM users WHERE id=NEW.teacher_id) IS NOT NEW.school_id "
+             "OR (NEW.created_by IS NOT NULL AND (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)"),
+            ("trg_teacher_assignment_school_update", "BEFORE UPDATE OF teacher_id, school_id, created_by ON teacher_class_assignments",
+             "(SELECT school_id FROM users WHERE id=NEW.teacher_id) IS NOT NEW.school_id "
+             "OR (NEW.created_by IS NOT NULL AND (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)"),
+            ("trg_timetable_teacher_school_insert", "BEFORE INSERT ON class_timetable",
+             "(SELECT school_id FROM users WHERE id=NEW.teacher_id) IS NOT NEW.school_id "
+             "OR (NEW.created_by IS NOT NULL AND (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)"),
+            ("trg_timetable_teacher_school_update", "BEFORE UPDATE OF teacher_id, school_id, created_by ON class_timetable",
+             "(SELECT school_id FROM users WHERE id=NEW.teacher_id) IS NOT NEW.school_id "
+             "OR (NEW.created_by IS NOT NULL AND (SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id "
+             "AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)"),
+        )
+        for trigger_name, trigger_event, invalid_condition in tenant_guards:
+            connection.execute(
+                f"""CREATE TRIGGER IF NOT EXISTS {trigger_name}
+                    {trigger_event}
+                    WHEN {invalid_condition}
+                    BEGIN
+                        SELECT RAISE(ABORT, 'school ownership mismatch');
+                    END"""
+            )
+
+        # Record the idempotent legacy upgrade baseline and database-level
+        # tenant-relationship guard release. The schema setup remains safe to
+        # re-run; the ledger makes the deployed schema history inspectable.
+        connection.execute(
+            """INSERT OR IGNORE INTO schema_migrations (version,name)
+               VALUES (1,'legacy-to-multi-school-schema-baseline')"""
+        )
+        connection.execute(
+            """INSERT OR IGNORE INTO schema_migrations (version,name)
+               VALUES (2,'school-ownership-integrity-guards')"""
+        )
+        foreign_key_issues = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if foreign_key_issues:
+            raise sqlite3.DatabaseError(
+                f"Migration stopped: {len(foreign_key_issues)} foreign-key integrity issue(s)"
+            )
+        tenant_integrity_checks = (
+            ("student account", """SELECT COUNT(*) FROM students s JOIN users u
+                ON u.id=s.account_user_id WHERE s.account_user_id IS NOT NULL
+                AND u.school_id IS NOT s.school_id"""),
+            ("parent-child link", """SELECT COUNT(*) FROM parent_student_links l
+                JOIN users p ON p.id=l.parent_user_id
+                JOIN students s ON s.id=l.student_id
+                LEFT JOIN users creator ON creator.id=l.created_by
+                WHERE p.school_id IS NOT l.school_id OR s.school_id IS NOT l.school_id
+                   OR (l.created_by IS NOT NULL AND creator.school_id IS NOT l.school_id
+                       AND COALESCE(creator.is_super_admin,0) <> 1)"""),
+            ("student finance", """SELECT COUNT(*) FROM student_finances f
+                JOIN students s ON s.id=f.student_id
+                JOIN users u ON u.id=f.updated_by
+                WHERE s.school_id IS NOT f.school_id
+                   OR (u.school_id IS NOT f.school_id AND COALESCE(u.is_super_admin,0) <> 1)"""),
+            ("grade", """SELECT COUNT(*) FROM grades g JOIN students s ON s.id=g.student_id
+                JOIN users u ON u.id=g.recorded_by
+                WHERE s.school_id IS NOT g.school_id
+                   OR (u.school_id IS NOT g.school_id AND COALESCE(u.is_super_admin,0) <> 1)"""),
+            ("attendance", """SELECT COUNT(*) FROM attendance a JOIN students s ON s.id=a.student_id
+                JOIN users u ON u.id=a.recorded_by
+                WHERE s.school_id IS NOT a.school_id
+                   OR (u.school_id IS NOT a.school_id AND COALESCE(u.is_super_admin,0) <> 1)"""),
+            ("report card", """SELECT COUNT(*) FROM report_cards r JOIN students s ON s.id=r.student_id
+                LEFT JOIN users u ON u.id=r.published_by
+                WHERE s.school_id IS NOT r.school_id
+                   OR (r.published_by IS NOT NULL AND u.school_id IS NOT r.school_id
+                       AND COALESCE(u.is_super_admin,0) <> 1)"""),
+            ("teacher assignment", """SELECT COUNT(*) FROM teacher_class_assignments a
+                JOIN users u ON u.id=a.teacher_id
+                LEFT JOIN users creator ON creator.id=a.created_by
+                WHERE u.school_id IS NOT a.school_id
+                   OR (a.created_by IS NOT NULL AND creator.school_id IS NOT a.school_id
+                       AND COALESCE(creator.is_super_admin,0) <> 1)"""),
+            ("timetable", """SELECT COUNT(*) FROM class_timetable t
+                JOIN users u ON u.id=t.teacher_id
+                JOIN users creator ON creator.id=t.created_by
+                WHERE u.school_id IS NOT t.school_id
+                   OR (creator.school_id IS NOT t.school_id AND COALESCE(creator.is_super_admin,0) <> 1)"""),
+        )
+        for relationship_name, query in tenant_integrity_checks:
+            mismatch_count = connection.execute(query).fetchone()[0]
+            if mismatch_count:
+                raise sqlite3.DatabaseError(
+                    f"Migration stopped: {mismatch_count} {relationship_name} school-ownership mismatch(es)"
+                )
         connection.commit()
         connection.execute("PRAGMA foreign_keys = ON")
+    except Exception:
+        connection.rollback()
+        raise
     finally:
+        # Always restore connection-level FK enforcement, including after a
+        # failed migration. A failed transaction must never be left half-open.
+        if connection.in_transaction:
+            connection.rollback()
+        connection.execute("PRAGMA foreign_keys = ON")
         connection.close()
 
 
@@ -770,6 +974,22 @@ def write_audit(actor_user_id, action, target_username=None, details=None):
         connection.commit()
     finally:
         connection.close()
+
+
+def write_audit_in_transaction(connection, actor_user_id, action,
+                               target_username=None, details=None, school_id=None):
+    """Write an audit event in the caller's transaction with its school context."""
+    if school_id is None:
+        actor = connection.execute(
+            "SELECT school_id FROM users WHERE id = ?", (actor_user_id,)
+        ).fetchone()
+        school_id = actor["school_id"] if actor else None
+    connection.execute(
+        """INSERT INTO audit_log
+           (actor_user_id,action,target_username,details,school_id)
+           VALUES (?,?,?,?,?)""",
+        (actor_user_id, action, target_username, details, school_id),
+    )
 
 
 # --------------------------------------------------
@@ -955,6 +1175,97 @@ def feature_center():
     return render_template("features.html")
 
 
+LOGIN_FAILURE_LIMIT = 5
+LOGIN_FAILURE_WINDOW_SECONDS = 15 * 60
+LOGIN_COOLDOWN_BASE_SECONDS = 2
+LOGIN_COOLDOWN_MAX_SECONDS = 30
+
+
+def login_is_rate_limited(username, now=None):
+    """Return whether this username is in a brief cooldown after failed logins.
+
+    State is stored in SQLite rather than process memory so it is shared by
+    workers using the same database. Use a generic login response either way.
+    """
+    now = time.time() if now is None else now
+    key = (username or "").strip().casefold()[:64]
+    if not key:
+        return False
+    connection = get_db_connection()
+    try:
+        connection.execute("""CREATE TABLE IF NOT EXISTS login_attempt_limits (
+            username_key TEXT PRIMARY KEY,
+            failed_attempts INTEGER NOT NULL DEFAULT 0,
+            window_started REAL NOT NULL,
+            locked_until REAL NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL
+        )""")
+        row = connection.execute(
+            "SELECT locked_until FROM login_attempt_limits WHERE username_key=?", (key,)
+        ).fetchone()
+        return bool(row and row["locked_until"] > now)
+    finally:
+        connection.close()
+
+
+def record_failed_login(username, now=None):
+    """Count failures and apply a short, escalating cooldown instead of locking the account."""
+    now = time.time() if now is None else now
+    key = (username or "").strip().casefold()[:64]
+    if not key:
+        return
+    connection = get_db_connection()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("""CREATE TABLE IF NOT EXISTS login_attempt_limits (
+            username_key TEXT PRIMARY KEY,
+            failed_attempts INTEGER NOT NULL DEFAULT 0,
+            window_started REAL NOT NULL,
+            locked_until REAL NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL
+        )""")
+        # Keep this small operational table bounded against random-username abuse.
+        connection.execute("DELETE FROM login_attempt_limits WHERE updated_at < ?", (now - 86400,))
+        row = connection.execute(
+            "SELECT failed_attempts,window_started,locked_until FROM login_attempt_limits WHERE username_key=?",
+            (key,),
+        ).fetchone()
+        if row and row["locked_until"] > now:
+            connection.commit()
+            return
+        if not row or now - row["window_started"] >= LOGIN_FAILURE_WINDOW_SECONDS:
+            attempts, started = 1, now
+        else:
+            attempts, started = row["failed_attempts"] + 1, row["window_started"]
+        # Avoid a long account lockout that an attacker could trigger for someone else.
+        # Repeated failures receive a brief exponential cooldown, capped at 30 seconds.
+        cooldown = min(LOGIN_COOLDOWN_MAX_SECONDS, LOGIN_COOLDOWN_BASE_SECONDS * (2 ** min(max(attempts - LOGIN_FAILURE_LIMIT, 0), 4))) if attempts >= LOGIN_FAILURE_LIMIT else 0
+        locked_until = now + cooldown if cooldown else 0
+        connection.execute("""INSERT INTO login_attempt_limits
+            (username_key,failed_attempts,window_started,locked_until,updated_at)
+            VALUES (?,?,?,?,?) ON CONFLICT(username_key) DO UPDATE SET
+            failed_attempts=excluded.failed_attempts,window_started=excluded.window_started,
+            locked_until=excluded.locked_until,updated_at=excluded.updated_at""",
+            (key, attempts, started, locked_until, now))
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def clear_failed_logins(username):
+    key = (username or "").strip().casefold()[:64]
+    if not key:
+        return
+    connection = get_db_connection()
+    try:
+        connection.execute("DELETE FROM login_attempt_limits WHERE username_key=?", (key,))
+        connection.commit()
+    finally:
+        connection.close()
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
@@ -963,16 +1274,24 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
-        if not username or not password:
-            flash("Please enter your username and password.")
+        if not username or not password or len(username) > 64 or len(password) > 1024:
+            flash("Invalid username or password.")
             return render_template("login.html")
+
+        if login_is_rate_limited(username):
+            # Do not reveal whether the account exists or is in a short cooldown.
+            flash("Invalid username or password. Please wait briefly before trying again.")
+            return render_template("login.html"), 429
 
         user = get_user_by_username(username)
         if user and check_password_hash(user.password_hash, password):
+            clear_failed_logins(username)
+            session.clear()
             session.permanent = True
             login_user(user)
             write_audit(user.id, "login_success", user.username)
             return redirect(url_for("dashboard"))
+        record_failed_login(username)
         write_audit(None, "login_failed", username[:64] or None)
         flash("Invalid username or password.")
 
@@ -1079,18 +1398,18 @@ def request_staff_access():
         selected_school = next((school for school in schools if school["slug"] == school_slug), None)
         if not selected_school:
             flash("Choose an active school from the list.", "danger")
-            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
+            return render_template("admin_request.html", roles=STAFF_REQUEST_ROLES, schools=schools)
 
-        if not full_name or not username or requested_role not in STAFF_ROLES:
+        if not full_name or not username or requested_role not in STAFF_REQUEST_ROLES:
             flash("Complete all fields and choose a valid staff role.", "danger")
-            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
+            return render_template("admin_request.html", roles=STAFF_REQUEST_ROLES, schools=schools)
 
         if len(full_name) > 120 or len(username) > 64:
             flash("Name or username is too long.", "danger")
-            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
+            return render_template("admin_request.html", roles=STAFF_REQUEST_ROLES, schools=schools)
         if not username.replace("_", "").replace("-", "").isalnum():
             flash("Use only letters, numbers, underscores or hyphens in the username.", "danger")
-            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
+            return render_template("admin_request.html", roles=STAFF_REQUEST_ROLES, schools=schools)
 
         # The server resolves the submitted slug against active schools. The client
         # never supplies a school ID, and requests remain pending until approval.
@@ -1109,11 +1428,11 @@ def request_staff_access():
             return redirect(url_for("login"))
         except sqlite3.IntegrityError:
             flash("That username is already in use or has a request pending.", "danger")
-            return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
+            return render_template("admin_request.html", roles=STAFF_REQUEST_ROLES, schools=schools)
         finally:
             connection.close()
 
-    return render_template("admin_request.html", roles=STAFF_ROLES, schools=schools)
+    return render_template("admin_request.html", roles=STAFF_REQUEST_ROLES, schools=schools)
 
 
 @app.route("/admin/users", methods=["GET", "POST"])
@@ -1168,6 +1487,22 @@ def admin_users():
                 if role == "student" and student and student["account_user_id"] is not None:
                     flash("That student already has a login account.", "danger")
                     return redirect(url_for("admin_users"))
+                # Serialize the student-link check and account creation. Without an
+                # immediate write lock, two requests can both observe an unlinked
+                # student and leave one newly-created login without its student link.
+                connection.execute("BEGIN IMMEDIATE")
+                student = connection.execute(
+                    "SELECT id, account_user_id FROM students WHERE id = ? AND school_id = ? AND status = 'active'",
+                    (int(linked_student_text), int(school_text)),
+                ).fetchone()
+                if not student:
+                    connection.rollback()
+                    flash("The selected student is no longer active in that school.", "danger")
+                    return redirect(url_for("admin_users"))
+                if role == "student" and student["account_user_id"] is not None:
+                    connection.rollback()
+                    flash("That student already has a login account.", "danger")
+                    return redirect(url_for("admin_users"))
                 try:
                     cursor = connection.execute(
                         """INSERT INTO users
@@ -1178,10 +1513,12 @@ def admin_users():
                     )
                     new_user_id = cursor.lastrowid
                     if role == "student":
-                        connection.execute(
-                            "UPDATE students SET account_user_id = ? WHERE id = ? AND school_id = ? AND account_user_id IS NULL",
+                        linked = connection.execute(
+                            "UPDATE students SET account_user_id = ? WHERE id = ? AND school_id = ? AND status = 'active' AND account_user_id IS NULL",
                             (new_user_id, student["id"], int(school_text)),
                         )
+                        if linked.rowcount != 1:
+                            raise sqlite3.IntegrityError("Student record was linked by another request")
                         audit_action = "student_account_created"
                     else:
                         connection.execute(
@@ -1370,11 +1707,19 @@ def admin_users():
                     flash("This account has no linked student record.", "info")
             elif action == "change_role":
                 new_role = request.form.get("new_role", "").strip()
-                linked = connection.execute("SELECT 1 FROM students WHERE account_user_id = ?", (target_id_int,)).fetchone()
+                linked_student = connection.execute(
+                    "SELECT 1 FROM students WHERE account_user_id = ?", (target_id_int,)
+                ).fetchone()
+                linked_children = connection.execute(
+                    "SELECT 1 FROM parent_student_links WHERE parent_user_id = ? LIMIT 1",
+                    (target_id_int,),
+                ).fetchone()
                 if target["is_super_admin"] or new_role not in STAFF_ROLES:
                     flash("Super Administrator roles cannot be changed here.", "danger")
-                elif linked:
-                    flash("Unlink this student record before changing the account's role.", "danger")
+                elif new_role in {"student", "parent"}:
+                    flash("Student and parent roles must be assigned through the verified account-creation and linking workflow.", "danger")
+                elif linked_student or linked_children:
+                    flash("Remove the account's existing student or parent-child links before changing its role.", "danger")
                 else:
                     connection.execute("UPDATE users SET role = ? WHERE id = ?", (new_role, target_id_int))
                     connection.execute(
@@ -1529,9 +1874,11 @@ def academics():
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (student_id, subject, assessment, score, max_score, current_user.id, academic_year, term, require_school_context()),
                     )
+                    write_audit_in_transaction(
+                        connection, current_user.id, "grade_recorded", str(student_id),
+                        f"{subject} / {assessment}: {score}/{max_score}", school_id,
+                    )
                     connection.commit()
-                    write_audit(current_user.id, "grade_recorded", str(student_id),
-                                f"{subject} / {assessment}: {score}/{max_score}")
                     flash("Grade saved successfully.", "success")
                 except sqlite3.IntegrityError:
                     flash("This student already has that assessment in the selected subject, academic year, and term.", "danger")
@@ -1556,9 +1903,11 @@ def academics():
                            VALUES (?, ?, ?, ?, ?, ?)""",
                         (student_id, attendance_date, status, note or None, current_user.id, require_school_context()),
                     )
+                    write_audit_in_transaction(
+                        connection, current_user.id, "attendance_recorded", str(student_id),
+                        f"{attendance_date}: {status}", school_id,
+                    )
                     connection.commit()
-                    write_audit(current_user.id, "attendance_recorded", str(student_id),
-                                f"{attendance_date}: {status}")
                     flash("Attendance saved successfully.", "success")
                 except sqlite3.IntegrityError:
                     flash("Attendance has already been recorded for this student on that date.", "danger")
@@ -1649,11 +1998,15 @@ def timetable():
                     "DELETE FROM class_timetable WHERE id = ? AND school_id = ?",
                     (int(schedule_id), school_id),
                 )
-                connection.commit()
                 if cursor.rowcount:
-                    write_audit(current_user.id, "timetable_entry_deleted", details=f"entry_id={int(schedule_id)}")
+                    write_audit_in_transaction(
+                        connection, current_user.id, "timetable_entry_deleted",
+                        details=f"entry_id={int(schedule_id)}", school_id=school_id,
+                    )
+                    connection.commit()
                     flash("Timetable entry removed.", "success")
                 else:
+                    connection.rollback()
                     flash("That timetable entry was not found in this school.", "danger")
                 return redirect(url_for("timetable"))
 
@@ -1714,11 +2067,12 @@ def timetable():
                 (school_id, class_level, subject, int(teacher_text), weekday,
                  start_time, end_time, room, int(current_user.id)),
             )
-            connection.commit()
-            write_audit(
-                current_user.id, "timetable_entry_created",
+            write_audit_in_transaction(
+                connection, current_user.id, "timetable_entry_created",
                 details=f"class={class_level}; day={weekday}; time={start_time}-{end_time}",
+                school_id=school_id,
             )
+            connection.commit()
             flash("Class timetable entry saved.", "success")
             return redirect(url_for("timetable"))
 
@@ -1863,9 +2217,12 @@ def report_cards():
                      updated_at = CURRENT_TIMESTAMP""",
                 (student_id, academic_year, term, published, current_user.id, published, require_school_context()),
             )
+            write_audit_in_transaction(
+                connection, current_user.id, "report_card_" + action,
+                selected_student["admission_number"], academic_year + " / " + term,
+                report_school_id,
+            )
             connection.commit()
-            write_audit(current_user.id, "report_card_" + action, selected_student["admission_number"],
-                        academic_year + " / " + term)
             flash("Report card publication updated.", "success")
             return redirect(url_for("report_cards", student_id=student_id, academic_year=academic_year, term=term))
 
@@ -1910,12 +2267,12 @@ def report_cards():
 @app.route("/students/register", methods=["GET", "POST"])
 @login_required
 def register_student():
-    if current_user.role not in ("super_admin", "school_admin", "registrar", "admissions_officer"):
+    if current_user.role not in {"super_admin", "school_admin", "principal", "vice_principal", "registrar", "admissions_officer", "academic_admin"}:
         flash("You are not authorized to register students.", "danger")
         return redirect(url_for("dashboard"))
     # Enforce tenant context on GET as well as POST so platform admins cannot
     # open a school-scoped form that they cannot safely submit.
-    require_school_context()
+    school_id = require_school_context()
 
     if request.method == "POST":
         admission_number = request.form.get("admission_number", "").strip()
@@ -1985,16 +2342,18 @@ def register_student():
                 (admission_number, full_name, class_level, date_of_birth or None,
                  guardian_name or None, guardian_phone or None, enrollment_date or None,
                  previous_school or None, emergency_contact_name or None,
-                 emergency_contact_phone or None, record_notes or None, require_school_context()),
+                 emergency_contact_phone or None, record_notes or None, school_id),
             )
             student_id_number = f"CMHS-{datetime.now().year}-{cursor.lastrowid:05d}"
             connection.execute(
                 "UPDATE students SET student_id_number = ? WHERE id = ? AND school_id = ?",
-                (student_id_number, cursor.lastrowid, require_school_context()),
+                (student_id_number, cursor.lastrowid, school_id),
+            )
+            write_audit_in_transaction(
+                connection, current_user.id, "student_registered", admission_number,
+                "Fictional/demo record created", school_id,
             )
             connection.commit()
-            write_audit(current_user.id, "student_registered", admission_number,
-                        "Fictional/demo record created")
             flash("Student registered successfully.", "success")
             return redirect(url_for("list_students"))
         except sqlite3.IntegrityError:
@@ -2078,9 +2437,10 @@ def student_detail(student_id):
 def edit_student(student_id):
     if current_user.role not in {"principal", "registrar"}:
         abort(403)
+    school_id = require_school_context()
     connection = get_db_connection()
     try:
-        student = connection.execute("SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, require_school_context())).fetchone()
+        student = connection.execute("SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, school_id)).fetchone()
         if student is None:
             abort(404)
         if request.method == "POST":
@@ -2134,11 +2494,13 @@ def edit_student(student_id):
                  fields["guardian_name"] or None, fields["guardian_phone"] or None,
                  fields["enrollment_date"] or None, fields["previous_school"] or None,
                  fields["emergency_contact_name"] or None, fields["emergency_contact_phone"] or None,
-                 fields["record_notes"] or None, student_id, require_school_context()),
+                 fields["record_notes"] or None, student_id, school_id),
+            )
+            write_audit_in_transaction(
+                connection, current_user.id, "student_record_updated", student["admission_number"],
+                f"class changed from {old_class} to {fields['class_level']}", school_id,
             )
             connection.commit()
-            write_audit(current_user.id, "student_record_updated", student["admission_number"],
-                        f"class changed from {old_class} to {fields['class_level']}")
             flash("Student record updated successfully.", "success")
             return redirect(url_for("student_detail", student_id=student_id))
     finally:
@@ -2232,7 +2594,13 @@ def student_finances():
 
     connection = get_db_connection()
     try:
+        # This page can be the first finance module opened on a fresh install.
+        # Ensure the payment ledger exists before checking it below.
+        ensure_content_tables(connection)
         if request.method == "POST":
+            # Serialize financial validation and writes so concurrent requests
+            # cannot overwrite or spend the same balance based on stale reads.
+            connection.execute("BEGIN IMMEDIATE")
             student_id = request.form.get("student_id", "").strip()
             academic_year = request.form.get("academic_year", "").strip()
             total_text = request.form.get("total_fee", "").strip()
@@ -2246,13 +2614,46 @@ def student_finances():
                 (student_id, require_school_context()),
             ).fetchone()
             try:
-                total_fee, amount_paid = float(total_text), float(paid_text)
-                if not (0 <= amount_paid <= total_fee and total_fee <= 100000000
-                        and len(notes) <= 250 and valid_year and student):
+                total_decimal = Decimal(total_text)
+                paid_decimal = Decimal(paid_text)
+                if (
+                    not total_decimal.is_finite() or not paid_decimal.is_finite()
+                    or total_decimal.as_tuple().exponent < -2
+                    or paid_decimal.as_tuple().exponent < -2
+                    or total_decimal < 0 or paid_decimal < 0
+                    or total_decimal > Decimal("100000000")
+                    or paid_decimal > Decimal("100000000")
+                ):
                     raise ValueError
-            except (ValueError, TypeError):
-                flash("Check the student, academic year, fee and payment amounts. Payments cannot exceed the total fees.", "danger")
+                # Bound Decimal values before converting to int so maliciously
+                # large exponents cannot trigger enormous integer allocations.
+                total_cents = int(total_decimal * 100)
+                paid_cents = int(paid_decimal * 100)
+                if not (
+                    0 <= paid_cents <= total_cents <= 10000000000
+                    and len(notes) <= 250 and valid_year and student
+                ):
+                    raise ValueError
+                total_fee, amount_paid = total_cents / 100, paid_cents / 100
+            except (InvalidOperation, ValueError, TypeError):
+                flash("Check the student, academic year, fee and payment amounts (maximum two decimal places). Payments cannot exceed the total fees.", "danger")
                 return redirect(url_for("student_finances"))
+
+            # Once a fee record has a payment ledger, its paid total must continue
+            # to agree with the ledger. Never silently erase or rewrite receipts by
+            # editing the summary form; record new payments in the payment workflow.
+            ledger = connection.execute(
+                """SELECT COUNT(*) AS payment_count,
+                          COALESCE(SUM(CAST(ROUND(amount * 100) AS INTEGER)), 0) AS paid_cents
+                   FROM finance_payments
+                   WHERE student_id=? AND school_id=? AND academic_year=?""",
+                (student_id, school_id, academic_year),
+            ).fetchone()
+            if ledger["payment_count"] and (
+                paid_cents != ledger["paid_cents"] or total_cents < ledger["paid_cents"]
+            ):
+                flash("This student has recorded payment receipts. The paid total must match the payment history; use the payment workflow to record additional payments.", "danger")
+                return redirect(url_for("student_finances", academic_year=academic_year))
             connection.execute(
                 """INSERT INTO student_finances
                    (student_id, academic_year, total_fee, amount_paid, notes, updated_by, school_id)
@@ -2263,9 +2664,11 @@ def student_finances():
                      updated_at = CURRENT_TIMESTAMP""",
                 (student_id, academic_year, total_fee, amount_paid, notes or None, current_user.id, school_id),
             )
+            write_audit_in_transaction(
+                connection, current_user.id, "student_finance_updated", student["admission_number"],
+                f"{academic_year}; fees={total_fee:.2f}; paid={amount_paid:.2f}", school_id,
+            )
             connection.commit()
-            write_audit(current_user.id, "student_finance_updated", student["admission_number"],
-                        f"{academic_year}; fees={total_fee:.2f}; paid={amount_paid:.2f}")
             flash("Student financial record saved.", "success")
             return redirect(url_for("student_finances", academic_year=academic_year))
 
@@ -2320,50 +2723,173 @@ MATERIALS_MANAGE_ROLES = CONTENT_MANAGE_ROLES | {"librarian"}
 
 def ensure_content_tables(connection):
     """Create tenant-scoped content tables without altering existing school data."""
-    connection.execute("""
-        CREATE TABLE IF NOT EXISTS learning_materials (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            school_id INTEGER NOT NULL REFERENCES schools(id),
-            title TEXT NOT NULL,
-            description TEXT NOT NULL DEFAULT '',
-            class_level TEXT NOT NULL,
-            stored_name TEXT NOT NULL,
-            original_name TEXT NOT NULL,
-            uploaded_by INTEGER NOT NULL REFERENCES users(id),
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1))
+    # Use a savepoint when the caller already has pending writes. This lets
+    # schema setup remain atomic without committing unrelated caller work.
+    owns_transaction = not connection.in_transaction
+    if owns_transaction:
+        connection.execute("BEGIN IMMEDIATE")
+    else:
+        connection.execute("SAVEPOINT content_schema_migration")
+    try:
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS learning_materials (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                school_id INTEGER NOT NULL REFERENCES schools(id),
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                class_level TEXT NOT NULL,
+                stored_name TEXT NOT NULL,
+                original_name TEXT NOT NULL,
+                uploaded_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1))
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS school_announcements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                school_id INTEGER NOT NULL REFERENCES schools(id),
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                audience TEXT NOT NULL CHECK (audience IN ('public','students','staff','all')),
+                status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('published','archived')),
+                created_by INTEGER NOT NULL REFERENCES users(id),
+                updated_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS finance_payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                school_id INTEGER NOT NULL REFERENCES schools(id),
+                student_id INTEGER NOT NULL,
+                academic_year TEXT NOT NULL,
+                amount REAL NOT NULL CHECK (amount > 0),
+                method TEXT NOT NULL CHECK (method IN ('cash','bank_transfer','mobile_money','other')),
+                reference TEXT,
+                receipt_number TEXT NOT NULL UNIQUE,
+                received_by INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(student_id) REFERENCES students(id)
+            )
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_finance_payment_school_insert
+            BEFORE INSERT ON finance_payments
+            WHEN (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id
+              OR ((SELECT school_id FROM users WHERE id=NEW.received_by) IS NOT NEW.school_id
+                  AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.received_by),0) <> 1)
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_finance_payment_school_update
+            BEFORE UPDATE OF student_id, received_by, school_id ON finance_payments
+            WHEN (SELECT school_id FROM students WHERE id=NEW.student_id) IS NOT NEW.school_id
+              OR ((SELECT school_id FROM users WHERE id=NEW.received_by) IS NOT NEW.school_id
+                  AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.received_by),0) <> 1)
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_learning_material_school_insert
+            BEFORE INSERT ON learning_materials
+            WHEN (SELECT school_id FROM users WHERE id=NEW.uploaded_by) IS NOT NEW.school_id
+              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.uploaded_by),0) <> 1
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_learning_material_school_update
+            BEFORE UPDATE OF school_id,uploaded_by ON learning_materials
+            WHEN (SELECT school_id FROM users WHERE id=NEW.uploaded_by) IS NOT NEW.school_id
+              AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.uploaded_by),0) <> 1
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_announcement_school_insert
+            BEFORE INSERT ON school_announcements
+            WHEN ((SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
+                  AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)
+              OR ((SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
+                  AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1)
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_announcement_school_update
+            BEFORE UPDATE OF created_by, updated_by, school_id ON school_announcements
+            WHEN ((SELECT school_id FROM users WHERE id=NEW.created_by) IS NOT NEW.school_id
+                  AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.created_by),0) <> 1)
+              OR ((SELECT school_id FROM users WHERE id=NEW.updated_by) IS NOT NEW.school_id
+                  AND COALESCE((SELECT is_super_admin FROM users WHERE id=NEW.updated_by),0) <> 1)
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        connection.execute("""
+            CREATE TRIGGER IF NOT EXISTS trg_user_school_content_dependents_update
+            BEFORE UPDATE OF school_id ON users
+            WHEN EXISTS (SELECT 1 FROM finance_payments
+                         WHERE received_by=OLD.id AND school_id IS NOT NEW.school_id)
+              OR EXISTS (SELECT 1 FROM learning_materials
+                         WHERE uploaded_by=OLD.id AND school_id IS NOT NEW.school_id)
+              OR EXISTS (SELECT 1 FROM school_announcements
+                         WHERE (created_by=OLD.id OR updated_by=OLD.id)
+                           AND school_id IS NOT NEW.school_id)
+            BEGIN
+                SELECT RAISE(ABORT, 'school ownership mismatch');
+            END
+        """)
+        content_integrity_checks = (
+            ("finance payment", """SELECT COUNT(*) FROM finance_payments p
+                JOIN students s ON s.id=p.student_id
+                JOIN users u ON u.id=p.received_by
+                WHERE s.school_id IS NOT p.school_id
+                   OR (u.school_id IS NOT p.school_id AND COALESCE(u.is_super_admin,0) <> 1)"""),
+            ("learning material", """SELECT COUNT(*) FROM learning_materials m
+                JOIN users u ON u.id=m.uploaded_by
+                WHERE u.school_id IS NOT m.school_id AND COALESCE(u.is_super_admin,0) <> 1"""),
+            ("announcement", """SELECT COUNT(*) FROM school_announcements a
+                JOIN users creator ON creator.id=a.created_by
+                JOIN users editor ON editor.id=a.updated_by
+                WHERE (creator.school_id IS NOT a.school_id AND COALESCE(creator.is_super_admin,0) <> 1)
+                   OR (editor.school_id IS NOT a.school_id AND COALESCE(editor.is_super_admin,0) <> 1)"""),
         )
-    """)
-    connection.execute("""
-        CREATE TABLE IF NOT EXISTS school_announcements (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            school_id INTEGER NOT NULL REFERENCES schools(id),
-            title TEXT NOT NULL,
-            body TEXT NOT NULL,
-            audience TEXT NOT NULL CHECK (audience IN ('public','students','staff','all')),
-            status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('published','archived')),
-            created_by INTEGER NOT NULL REFERENCES users(id),
-            updated_by INTEGER NOT NULL REFERENCES users(id),
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        for relationship_name, query in content_integrity_checks:
+            mismatch_count = connection.execute(query).fetchone()[0]
+            if mismatch_count:
+                raise sqlite3.DatabaseError(
+                    f"Content migration stopped: {mismatch_count} {relationship_name} school-ownership mismatch(es)"
+                )
+        foreign_key_issues = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if foreign_key_issues:
+            raise sqlite3.DatabaseError(
+                f"Content migration stopped: {len(foreign_key_issues)} foreign-key integrity issue(s)"
+            )
+        connection.execute(
+            """INSERT OR IGNORE INTO schema_migrations (version,name)
+               VALUES (3,'content-and-finance-school-ownership-guards')"""
         )
-    """)
-    connection.execute("""
-        CREATE TABLE IF NOT EXISTS finance_payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            school_id INTEGER NOT NULL REFERENCES schools(id),
-            student_id INTEGER NOT NULL,
-            academic_year TEXT NOT NULL,
-            amount REAL NOT NULL CHECK (amount > 0),
-            method TEXT NOT NULL CHECK (method IN ('cash','bank_transfer','mobile_money','other')),
-            reference TEXT,
-            receipt_number TEXT NOT NULL UNIQUE,
-            received_by INTEGER NOT NULL REFERENCES users(id),
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(student_id) REFERENCES students(id)
-        )
-    """)
-    connection.commit()
+        if owns_transaction:
+            connection.commit()
+        else:
+            connection.execute("RELEASE SAVEPOINT content_schema_migration")
+
+    except Exception:
+        if owns_transaction:
+            connection.rollback()
+        else:
+            connection.execute("ROLLBACK TO SAVEPOINT content_schema_migration")
+            connection.execute("RELEASE SAVEPOINT content_schema_migration")
+        raise
 
 def can_view_material(role, class_level, archived=False):
     if archived:
@@ -2406,16 +2932,25 @@ def learning_materials():
             stored_name = uuid.uuid4().hex + suffix
             target = RESOURCE_DIR / stored_name
             upload.save(target)
-            connection.execute(
-                """INSERT INTO learning_materials
-                   (school_id,title,description,class_level,stored_name,original_name,uploaded_by)
-                   VALUES (?,?,?,?,?,?,?)""",
-                (school_id, title, description, class_level, stored_name, original,
-                 int(current_user.id)),
-            )
-            connection.commit()
-            write_audit(current_user.id, "learning_material_uploaded", original,
-                        "class=" + class_level)
+            try:
+                connection.execute(
+                    """INSERT INTO learning_materials
+                       (school_id,title,description,class_level,stored_name,original_name,uploaded_by)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (school_id, title, description, class_level, stored_name, original,
+                     int(current_user.id)),
+                )
+                write_audit_in_transaction(
+                    connection, current_user.id, "learning_material_uploaded", original,
+                    "class=" + class_level, school_id,
+                )
+                connection.commit()
+            except Exception:
+                # Do not leave an orphaned resource file when its metadata or
+                # required audit event fails to commit.
+                if target.is_file():
+                    target.unlink()
+                raise
             flash("Learning material uploaded.", "success")
             return redirect(url_for("learning_materials"))
         rows = connection.execute(
@@ -2481,12 +3016,15 @@ def archive_learning_material(material_id):
             "UPDATE learning_materials SET archived=1 WHERE id=? AND school_id=?",
             (material_id, school_id),
         )
-        connection.commit()
         if result.rowcount != 1:
             abort(404)
+        write_audit_in_transaction(
+            connection, current_user.id, "learning_material_archived",
+            str(material_id), school_id=school_id,
+        )
+        connection.commit()
     finally:
         connection.close()
-    write_audit(current_user.id, "learning_material_archived", str(material_id))
     flash("Learning material archived.", "success")
     return redirect(url_for("learning_materials"))
 
@@ -2528,8 +3066,10 @@ def announcements():
                     (school_id, title, body, audience, int(current_user.id), int(current_user.id)),
                 )
                 action = "announcement_published"
+            write_audit_in_transaction(
+                connection, current_user.id, action, title, school_id=school_id,
+            )
             connection.commit()
-            write_audit(current_user.id, action, title)
             flash("Announcement saved.", "success")
             return redirect(url_for("announcements"))
         if role in CONTENT_MANAGE_ROLES:
@@ -2565,12 +3105,15 @@ def archive_announcement(announcement_id):
                updated_at=CURRENT_TIMESTAMP WHERE id=? AND school_id=? AND status='published'""",
             (int(current_user.id), announcement_id, school_id),
         )
-        connection.commit()
         if result.rowcount != 1:
             abort(404)
+        write_audit_in_transaction(
+            connection, current_user.id, "announcement_archived",
+            str(announcement_id), school_id=school_id,
+        )
+        connection.commit()
     finally:
         connection.close()
-    write_audit(current_user.id, "announcement_archived", str(announcement_id))
     flash("Announcement archived.", "success")
     return redirect(url_for("announcements"))
 
@@ -2584,6 +3127,9 @@ def finance_payments():
     try:
         ensure_content_tables(connection)
         if request.method == "POST":
+            # Lock the SQLite write transaction before reading the outstanding
+            # balance; this prevents concurrent payments from overspending it.
+            connection.execute("BEGIN IMMEDIATE")
             student_id = request.form.get("student_id", "").strip()
             academic_year = request.form.get("academic_year", "").strip()
             amount_text = request.form.get("amount", "").strip()
@@ -2597,11 +3143,21 @@ def finance_payments():
                 (student_id, school_id),
             ).fetchone()
             try:
-                amount = float(amount_text)
-                if not student or not valid_year or not (0 < amount <= 100000000) or method not in {"cash","bank_transfer","mobile_money","other"}:
+                amount_decimal = Decimal(amount_text)
+                if (
+                    not amount_decimal.is_finite()
+                    or amount_decimal.as_tuple().exponent < -2
+                    or amount_decimal <= 0
+                    or amount_decimal > Decimal("100000000")
+                ):
                     raise ValueError
-            except (ValueError, TypeError):
-                flash("Check the student, academic year, payment amount and payment method.", "danger")
+                # Reject out-of-range values before converting Decimal to int.
+                amount_cents = int(amount_decimal * 100)
+                if not student or not valid_year or not (0 < amount_cents <= 10000000000) or method not in {"cash","bank_transfer","mobile_money","other"}:
+                    raise ValueError
+                amount = amount_cents / 100
+            except (InvalidOperation, ValueError, TypeError):
+                flash("Check the student, academic year, payment amount (maximum two decimal places) and payment method.", "danger")
                 return redirect(url_for("finance_payments"))
             finance = connection.execute(
                 "SELECT total_fee,amount_paid FROM student_finances WHERE student_id=? AND school_id=? AND academic_year=?",
@@ -2610,7 +3166,21 @@ def finance_payments():
             if not finance:
                 flash("Set up the student's fee record before recording a payment.", "danger")
                 return redirect(url_for("student_finances", academic_year=academic_year))
-            if amount > float(finance["total_fee"]) - float(finance["amount_paid"]) + 0.00001:
+            ledger = connection.execute(
+                """SELECT COUNT(*) AS payment_count,
+                          COALESCE(SUM(CAST(ROUND(amount * 100) AS INTEGER)), 0) AS paid_cents
+                   FROM finance_payments
+                   WHERE student_id=? AND school_id=? AND academic_year=?""",
+                (student_id, school_id, academic_year),
+            ).fetchone()
+            # Compare integer cents rather than binary floats, preventing a
+            # fractional-cent overpayment from slipping through a tolerance.
+            total_fee_cents = int(round(float(finance["total_fee"]) * 100))
+            paid_cents = int(round(float(finance["amount_paid"]) * 100))
+            if ledger["payment_count"] and paid_cents != ledger["paid_cents"]:
+                flash("The payment ledger does not match the fee summary. Reconcile the existing record before accepting another payment.", "danger")
+                return redirect(url_for("finance_payments"))
+            if amount_cents > total_fee_cents - paid_cents:
                 flash("Payment exceeds the outstanding balance. Reconcile the fee record first.", "danger")
                 return redirect(url_for("finance_payments"))
             receipt = "RCPT-" + datetime.now(timezone.utc).strftime("%Y%m%d") + "-" + uuid.uuid4().hex[:10].upper()
@@ -2625,9 +3195,21 @@ def finance_payments():
                    updated_at=CURRENT_TIMESTAMP WHERE student_id=? AND school_id=? AND academic_year=?""",
                 (amount, int(current_user.id), student_id, school_id, academic_year),
             )
+            # Keep the payment ledger, fee summary, and audit event in one
+            # SQLite transaction. A failed audit write must not leave an
+            # untraceable financial mutation behind.
+            connection.execute(
+                """INSERT INTO audit_log
+                   (actor_user_id, action, target_username, details, school_id)
+                   VALUES (?, 'finance_payment_recorded', ?, ?, ?)""",
+                (
+                    int(current_user.id),
+                    receipt,
+                    f"student={student['admission_number']}; amount={amount:.2f}; method={method}",
+                    school_id,
+                ),
+            )
             connection.commit()
-            write_audit(current_user.id, "finance_payment_recorded", receipt,
-                        f"student={student['admission_number']}; amount={amount:.2f}; method={method}")
             flash("Payment recorded. Receipt number: " + receipt, "success")
             return redirect(url_for("finance_payments", receipt=receipt))
         students = connection.execute(

@@ -1,6 +1,6 @@
-# CMHS Digital Campus — Version 0.3 Development Preview
+# CMHS Digital Campus — Version 4 In Development
 
-CMHS Digital Campus is a Flask-based school-portal demonstration built with Flask, Flask-Login, SQLite, Flask-WTF, and Bootstrap. This branch continues the existing Version 0.2 work and adds Version 0.3 multi-school security foundations. Version 0.3 remains a development preview—not a production release—until the complete tenant-security audit, migration and recovery checks, browser/print verification, durable storage, and staging release gates pass. The current live Render service remains on `main`.
+CMHS Digital Campus is a Flask-based school-portal project built with Flask, Flask-Login, SQLite, Flask-WTF, and Bootstrap. This Version 4 branch continues the existing application with targeted finance-integrity, access-control, and regression-test improvements; it is not a rewrite or a production release. The current live Render service remains on `main`; changes on this branch are not live until separately reviewed, merged, and deployed.
 
 ## What is included
 

@@ -2,48 +2,36 @@
 {% block title %}Feature Center | CMHS Digital Campus{% endblock %}
 {% block content %}
 <section class="rounded-4 p-4 p-md-5 mb-4 text-white" style="background:linear-gradient(120deg,#102a43,#164e78 65%,#1769aa);">
-    <p class="eyebrow mb-2" style="color:#8ce7df;">CMHS DIGITAL CAMPUS · VERSION 0.2 PREVIEW</p>
+    <p class="eyebrow mb-2" style="color:#8ce7df;">CMHS DIGITAL CAMPUS · VERSION 4</p>
     <h1 class="display-6 fw-bold mb-2">Feature Center</h1>
-    <p class="lead mb-0" style="color:#e1edf7;">A clear guide to what you can use today, what requires sign-in, and what is planned next.</p>
+    <p class="lead mb-0" style="color:#e1edf7;">A transparent guide to the portal's current development scope.</p>
 </section>
-<div class="alert alert-info rounded-4"><strong>Important:</strong> Production readiness checks are still required before real student data can be used. Student self-service report cards require a verified account-to-student link. Features marked “Planned” are not operational yet.</div>
+<div class="alert alert-warning rounded-4">
+    <strong>Development notice:</strong> Version 4 is undergoing security, data-integrity, browser and hosting verification. Use fictional data only. A working page does not mean a module is approved for real school operations.
+</div>
 <section class="mb-5">
-    <p class="eyebrow text-primary mb-1">Available now</p><h2 class="h3 fw-bold mb-3">Working portal actions</h2>
+    <p class="eyebrow text-primary mb-1">Portal foundation</p>
+    <h2 class="h3 fw-bold mb-3">Core areas</h2>
     <div class="row g-3">
-        <div class="col-12 col-md-6"><article class="surface-card p-4 h-100 d-flex flex-column"><div class="fs-2 mb-3">🔐</div><h3 class="h5 fw-bold">Portal sign-in</h3><p class="text-secondary">Sign in with an active account. Protected pages check your role before showing records or administrator tools.</p><a class="btn btn-primary mt-auto" href="{{ url_for('login') }}">Go to Login →</a></article></div>
-        <div class="col-12 col-md-6"><article class="surface-card p-4 h-100 d-flex flex-column"><div class="fs-2 mb-3">🪪</div><h3 class="h5 fw-bold">Request staff access</h3><p class="text-secondary">Submit a staff access request. It stays pending until a Super Administrator approves it.</p><a class="btn btn-outline-primary mt-auto" href="{{ url_for('request_staff_access') }}">Request Access →</a></article></div>
-        {% if current_user.is_authenticated %}
-        {% if current_user.is_super_admin %}
-        <div class="col-12 col-md-6"><article class="surface-card p-4 h-100 d-flex flex-column"><div class="fs-2 mb-3">🏫</div><h3 class="h5 fw-bold">School workspace</h3><p class="text-secondary">Choose an active school before opening school-specific records and modules.</p><a class="btn btn-primary mt-auto" href="{{ url_for('select_school_context') }}">Select School Workspace →</a></article></div>
-        {% endif %}
-        <div class="col-12 col-md-6"><article class="surface-card p-4 h-100 d-flex flex-column"><div class="fs-2 mb-3">📊</div><h3 class="h5 fw-bold">Your dashboard</h3><p class="text-secondary">Return to the workspace available to your account.</p><a class="btn btn-outline-primary mt-auto" href="{{ url_for('dashboard') }}">Open Dashboard →</a></article></div>
-        {% if current_user.role in ['super_admin', 'principal', 'registrar', 'academic_admin', 'teacher'] %}
-        <div class="col-12 col-md-6"><article class="surface-card p-4 h-100 d-flex flex-column"><div class="fs-2 mb-3">🎓</div><h3 class="h5 fw-bold">Student records</h3><p class="text-secondary">Browse registered student records, subject to your account permissions.</p><a class="btn btn-outline-primary mt-auto" href="{{ url_for('list_students') }}">View Student Records →</a></article></div>
-        {% endif %}
-        {% if current_user.role in ['super_admin', 'registrar', 'teacher'] %}
-        <div class="col-12 col-md-6"><article class="surface-card p-4 h-100 d-flex flex-column"><div class="fs-2 mb-3">➕</div><h3 class="h5 fw-bold">Register a student</h3><p class="text-secondary">Register a student and review the saved record.</p><a class="btn btn-outline-primary mt-auto" href="{{ url_for('register_student') }}">Register Student →</a></article></div>
-        {% endif %}
-        {% if current_user.role in ['super_admin', 'principal', 'academic_admin', 'teacher', 'registrar'] %}
-        <div class="col-12 col-md-6"><article class="surface-card p-4 h-100 d-flex flex-column"><div class="fs-2 mb-3">📝</div><h3 class="h5 fw-bold">Report Card Builder</h3><p class="text-secondary">Review term grades, preview subject summaries, and publish or unpublish reports according to your role. Use Print / Save as PDF from a report preview.</p><a class="btn btn-primary mt-auto" href="{{ url_for('report_cards') }}">Open Report Cards →</a></article></div>
-        {% endif %}
-        {% if current_user.is_super_admin %}
-        <div class="col-12 col-md-6"><article class="surface-card p-4 h-100 d-flex flex-column"><div class="fs-2 mb-3">🛡️</div><h3 class="h5 fw-bold">Administrator management</h3><p class="text-secondary">Review staff requests, approve accounts, manage roles, and review recent audit activity.</p><a class="btn btn-outline-primary mt-auto" href="{{ url_for('admin_users') }}">Manage Administrators →</a></article></div>
-        {% endif %}
-        {% if current_user.role == 'student' %}
-        <div class="col-12 col-md-6"><article class="surface-card p-4 h-100 d-flex flex-column"><div class="fs-2 mb-3">📊</div><h3 class="h5 fw-bold">My Report Cards</h3><p class="text-secondary">View published results for your verified linked student record. A school administrator must link your account first.</p><a class="btn btn-primary mt-auto" href="{{ url_for('my_report_cards') }}">Open My Report Cards →</a></article></div>
-        {% endif %}
-        {% endif %}
+        <div class="col-12 col-md-6"><article class="surface-card p-4 h-100"><h3 class="h5 fw-bold">Secure sign-in and role access</h3><p class="text-secondary mb-0">Account status checks, protected routes, role permissions, CSRF protection and school-context checks are part of the application. Continue to review access boundaries before production use.</p></article></div>
+        <div class="col-12 col-md-6"><article class="surface-card p-4 h-100"><h3 class="h5 fw-bold">Student records and admissions</h3><p class="text-secondary mb-0">Student registration, records and profile workflows are available to authorized roles. Use fictional student details while the release is under review.</p></article></div>
+        <div class="col-12 col-md-6"><article class="surface-card p-4 h-100"><h3 class="h5 fw-bold">Grades, attendance and report cards</h3><p class="text-secondary mb-0">Academic records and report-card workflows have role and school boundaries. Teacher access is subject to the assignment and class-scope rules.</p></article></div>
+        <div class="col-12 col-md-6"><article class="surface-card p-4 h-100"><h3 class="h5 fw-bold">Fees, payments and receipts</h3><p class="text-secondary mb-0">Fee summaries and payment receipts are implemented for authorized finance roles. Reconciliation, correction, refund and recovery procedures still require further assurance.</p></article></div>
+        <div class="col-12 col-md-6"><article class="surface-card p-4 h-100"><h3 class="h5 fw-bold">Staff and school administration</h3><p class="text-secondary mb-0">Staff requests, account administration and school workspaces are being verified for least-privilege access and tenant isolation.</p></article></div>
+        <div class="col-12 col-md-6"><article class="surface-card p-4 h-100"><h3 class="h5 fw-bold">Learning resources and communication</h3><p class="text-secondary mb-0">Learning materials, announcements, timetable and assignment workflows are subject to their route-level permissions and functional testing.</p></article></div>
     </div>
 </section>
-<section id="learning-tools" class="mb-5">
-    <p class="eyebrow text-primary mb-1">Development roadmap</p><h2 class="h3 fw-bold mb-3">Features still to build</h2>
-    <div class="row g-3">
-        <div class="col-12 col-md-6"><article id="grades-attendance" class="surface-card p-4 h-100"><span class="badge text-bg-success mb-3">Available for staff</span><h3 class="h5 fw-bold">Grades and attendance</h3><p class="text-secondary mb-3">Authorized teachers and academic staff can save assessment scores, record daily attendance, and review saved records. Homework is still planned.</p>{% if current_user.is_authenticated and current_user.role in ['super_admin', 'teacher', 'academic_admin', 'principal', 'registrar'] %}<a class="btn btn-primary" href="{{ url_for('academics') }}">Open Grades &amp; Attendance →</a>{% else %}<a class="btn btn-outline-primary" href="{{ url_for('login') }}">Sign in for academic access →</a>{% endif %}</article></div>
-        <div class="col-12 col-md-6"><article id="timetable" class="surface-card p-4 h-100"><span class="badge text-bg-success mb-3">Available for academic staff</span><h3 class="h5 fw-bold">Class timetable</h3><p class="text-secondary mb-3">Create weekly class lessons, assign active teachers, record rooms and validate overlapping class, teacher and room bookings. Entries are restricted to the selected school.</p>{% if current_user.is_authenticated and current_user.role in ['super_admin','school_admin','principal','vice_principal','academic_admin','registrar','teacher'] %}<a class="btn btn-primary" href="{{ url_for('timetable') }}">Open Timetable →</a>{% else %}<a class="btn btn-outline-primary" href="{{ url_for('login') }}">Sign in for timetable access →</a>{% endif %}</article></div>
-        <div class="col-12 col-md-6"><article id="learning-materials" class="surface-card p-4 h-100"><span class="badge text-bg-success mb-3">Available for school-wide resources</span><h3 class="h5 fw-bold">Learning materials</h3><p class="text-secondary mb-3">Authorized staff can upload approved file types. Downloads are school-scoped and checked by role; student accounts currently receive school-wide resources until verified class linking is available.</p>{% if current_user.is_authenticated %}<a class="btn btn-primary" href="{{ url_for('learning_materials') }}">Open Learning Materials →</a>{% else %}<a class="btn btn-outline-primary" href="{{ url_for('login') }}">Sign in →</a>{% endif %}</article></div>
-        <div class="col-12 col-md-6"><article id="announcements" class="surface-card p-4 h-100"><span class="badge text-bg-success mb-3">Available</span><h3 class="h5 fw-bold">School announcements</h3><p class="text-secondary mb-3">Authorized staff can publish notices for students, staff or all portal users. Authorized managers can archive announcements.</p>{% if current_user.is_authenticated %}<a class="btn btn-primary" href="{{ url_for('announcements') }}">Open Announcements →</a>{% else %}<a class="btn btn-outline-primary" href="{{ url_for('login') }}">Sign in →</a>{% endif %}</article></div>
-        <div class="col-12 col-md-6"><article id="finance" class="surface-card p-4 h-100"><span class="badge text-bg-warning mb-3">Partially available</span><h3 class="h5 fw-bold">School fees and finance</h3><p class="text-secondary mb-3">Fee accounts and individual payment recording with receipt numbers are available to authorized staff. Bank reconciliation, refunds and audited correction workflows remain future work.</p>{% if current_user.is_authenticated and current_user.role in ['super_admin','principal','registrar','finance_admin'] %}<a class="btn btn-primary" href="{{ url_for('finance_payments') }}">Payments & Receipts →</a>{% endif %}</article></div>
-    </div>
+<section class="surface-card p-4 p-md-5 mb-4">
+    <p class="eyebrow text-primary mb-1">Your next step</p>
+    <h2 class="h4 fw-bold">Open your authorized workspace</h2>
+    <p class="text-secondary">The dashboard displays the modules and shortcuts available to your signed-in account. Access is checked again by each protected route; a hidden link is not the security boundary.</p>
+    {% if current_user.is_authenticated %}
+        <a class="btn btn-primary" href="{{ url_for('dashboard') }}">Open Dashboard →</a>
+    {% else %}
+        <a class="btn btn-primary me-2" href="{{ url_for('login') }}">Portal Login →</a>
+        <a class="btn btn-outline-primary" href="{{ url_for('request_staff_access') }}">Request Staff Access →</a>
+    {% endif %}
 </section>
-<div class="d-flex flex-wrap gap-2"><a class="btn btn-primary" href="{{ url_for('index') }}">← Home</a>{% if current_user.is_authenticated %}<a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Return to Dashboard</a>{% endif %}</div>
+<p class="small text-secondary">Production readiness still requires durable database storage, tested backup and restore, security review, responsive browser testing, monitoring and a documented recovery plan.</p>
+<a class="btn btn-outline-secondary" href="{{ url_for('index') }}">← Home</a>
 {% endblock %}

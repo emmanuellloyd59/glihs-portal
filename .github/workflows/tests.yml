@@ -2,13 +2,18 @@ name: Automated tests
 
 on:
   push:
-    branches: [main, "feature/**", "version-0.3-*"]
-  pull_request:
     branches: [main]
+  pull_request:
+    branches: [main, "version-4/**"]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# Run the latest PR revision instead of queueing duplicate push + PR runs.
+concurrency:
+  group: cmhs-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
