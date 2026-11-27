@@ -83,6 +83,14 @@ class AcademicStructureTests(unittest.TestCase):
             with self.assertRaises(sqlite3.IntegrityError):
                 db.execute("INSERT INTO academic_classes(school_id,academic_year_id,grade_level_id,name) VALUES(1,?,?, 'Invalid cross-tenant class')",(year_id,level_b))
             db.execute("INSERT INTO academic_classes(school_id,academic_year_id,grade_level_id,name) VALUES(1,?,?, 'Valid class')",(year_id,level_a))
+            class_id=db.execute("SELECT id FROM academic_classes WHERE school_id=1 AND name='Valid class'").fetchone()[0]
+            db.execute("INSERT INTO class_sections(school_id,class_id,name) VALUES(1,?,'A')",(class_id,))
+            section_id=db.execute("SELECT id FROM class_sections WHERE school_id=1 AND class_id=?",(class_id,)).fetchone()[0]
+            db.execute("INSERT INTO subjects(school_id,name) VALUES(1,'Mathematics')")
+            subject_id=db.execute("SELECT id FROM subjects WHERE school_id=1 AND name='Mathematics'").fetchone()[0]
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("INSERT INTO course_enrollments(school_id,student_id,class_section_id,subject_id,academic_year_id) VALUES(1,20,?,?,?)",(section_id,subject_id,year_id))
+            db.execute("INSERT INTO course_enrollments(school_id,student_id,class_section_id,subject_id,academic_year_id) VALUES(1,10,?,?,?)",(section_id,subject_id,year_id))
             db.commit()
         finally: db.close()
 
