@@ -46,5 +46,40 @@ class PostgreSQLRowFactoryTests(unittest.TestCase):
         )
 
 
+
+class PostgreSQLServerIntegrationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import os
+        cls.database_url = os.environ.get("TEST_POSTGRES_URL")
+        if not cls.database_url:
+            raise unittest.SkipTest("TEST_POSTGRES_URL is not configured")
+
+    def test_real_server_connection_row_access_and_transaction(self):
+        connection = connect_postgresql(self.database_url)
+        try:
+            row = connection.execute(
+                "SELECT 42 AS answer, 'connected' AS state"
+            ).fetchone()
+            self.assertEqual(row["answer"], 42)
+            self.assertEqual(row[0], 42)
+            self.assertEqual(row["state"], "connected")
+            self.assertEqual(row[1], "connected")
+
+            connection.execute(
+                "CREATE TEMP TABLE cmhs_connection_probe (id INTEGER PRIMARY KEY)"
+            )
+            connection.execute(
+                "INSERT INTO cmhs_connection_probe (id) VALUES (%s)", (1,)
+            )
+            connection.rollback()
+            tables = connection.execute(
+                "SELECT to_regclass('pg_temp.cmhs_connection_probe')"
+            ).fetchone()
+            self.assertIsNone(tables[0])
+        finally:
+            connection.close()
+
+
 if __name__ == "__main__":
     unittest.main()
