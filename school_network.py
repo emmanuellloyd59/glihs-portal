@@ -176,6 +176,12 @@ def _school_access(school_id, connection_factory, permission="school.manage_prof
     """Authorize by scoped RBAC/ABAC and re-check the tenant lifecycle."""
     if not current_user.is_authenticated:
         abort(401)
+    # Conceal other tenants' identifiers from school-scoped users: the
+    # response is identical whether a foreign school exists or not.
+    if not _is_platform_owner():
+        actor_school_id = getattr(current_user, "school_id", None)
+        if actor_school_id is None or int(actor_school_id) != int(school_id):
+            abort(404)
     from authorization import require_permission
     require_permission(permission, connection_factory, school_id=school_id)
     if _is_platform_owner():
