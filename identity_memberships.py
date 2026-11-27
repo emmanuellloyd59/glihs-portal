@@ -368,7 +368,9 @@ def create_membership_blueprint(connection_factory):
         linked_student_id = payload.get("linked_student_id")
         if len(email) > 254 or "@" not in email or role not in SCHOOL_ROLES:
             return jsonify({"error": "A valid email and school role are required."}), 400
-        if role in {"school_owner", "school_admin", "principal"} and current_user.role not in {"school_owner", "school_admin"}:
+        if role in {"school_owner", "school_admin"} and current_user.role != "school_owner":
+            abort(403)
+        if role == "principal" and current_user.role not in {"school_owner", "school_admin"}:
             abort(403)
         school_id = current_user.school_id
         if not school_id:
