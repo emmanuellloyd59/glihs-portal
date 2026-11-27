@@ -12,7 +12,7 @@
     <form method="POST" action="{{ url_for('assignments') }}" class="row g-3">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="create">
         <div class="col-12 col-md-4"><label class="form-label" for="class_level">Class</label><select class="form-select" id="class_level" name="class_level" required>{% for level in class_levels %}<option value="{{ level }}">{{ level }}</option>{% endfor %}</select></div>
-        <div class="col-12 col-md-4"><label class="form-label" for="subject">Subject</label><input class="form-control" id="subject" name="subject" maxlength="80" required></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="subject">Subject</label><select class="form-select" id="subject" name="subject" required><option value="">Choose subject</option>{% for subject in subjects %}<option value="{{ subject.name }}">{{ subject.name }}</option>{% endfor %}</select></div>
         <div class="col-12 col-md-4"><label class="form-label" for="due_date">Due date</label><input class="form-control" type="date" id="due_date" name="due_date" min="{{ today }}" required></div>
         <div class="col-12"><label class="form-label" for="title">Assignment title</label><input class="form-control" id="title" name="title" maxlength="140" required></div>
         <div class="col-12"><label class="form-label" for="instructions">Instructions</label><textarea class="form-control" id="instructions" name="instructions" rows="4" maxlength="10000" required></textarea></div>
