@@ -63,12 +63,19 @@ The V4 branch changes that notice to a top-level `header` banner landmark and ad
 |---|---|---|---|
 | QA-01 | Critical | Render service has no configured persistent disk or connected PostgreSQL database; SQLite durability across service replacement/redeploy remains unproven | Open — production release blocked; merge to `main` would auto-trigger deployment on the active `glihs-portal-3` service |
 | QA-02 | Critical | Scheduled, encrypted, off-host backup retention and operational restore drills are not configured | Open — helper and automated tests only |
-| QA-03 | High | Complete route-by-route authorization and cross-school review, including counselor and full parent/student workflows | Prompt 02 source audit and 30-route inventory complete; 184-test candidate passed on Python 3.11 and 3.14 |
+| QA-03 | High | Complete route-by-route authorization and cross-school review, including counselor and full parent/student workflows | Prompt 02 source audit and exact 30-route inventory complete; final 187-test suite passed on Python 3.11 and 3.14 |
 | QA-04 | High | Authenticated desktop/mobile browser testing of the V4 candidate has not been run against a staging deployment | Open — no verified V4 staging deployment; live public login page only was inspected |
 | QA-05 | High | Latest full regression run for current candidate | 187-test candidate passed on Python 3.11 and 3.14 in workflow [#45916727267](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45916727267) |
 | QA-06 | Medium | Historical schema upgrades remain consolidated in the startup migration function; ledger milestones do not yet represent one migration file per historical change | Documented limitation |
 | QA-07 | Moderate | Live Version 0.3 release notice is outside an accessibility landmark | V4 branch fix and regression test added; live service not changed |
 | QA-08 | High | Render service `glihs-portal-4` is configured with root directory `.github/` and its latest deploy failed; pull-request previews are disabled | Open — requires a separately approved hosting configuration correction; do not use as V4 staging as currently configured |
+
+## Version 4 prompt completion status
+
+- Prompt 01 — mainline reconciliation audit: complete.
+- Prompt 02 — route authorization and teacher least privilege: complete; exact 30-route inventory and 187-test CI evidence recorded.
+- Prompt 03 — database integrity and migration safety: complete at source and automated-test level; transactional schema setup, savepoint handling, migration-ledger validation, foreign-key checks and regression coverage passed in CI.
+- Prompt 04 — comprehensive QA and release readiness: in progress; automated tests are green, but V4 staging, authenticated browser testing, durable storage, operational backup/restore and deployment rollback evidence remain release blockers.
 
 ## Database recovery status
 
@@ -91,7 +98,7 @@ This is not yet a production disaster-recovery service. Scheduling, encrypted ba
 
 Required before production approval:
 1. Both Python 3.11 and 3.14 CI jobs pass for the latest candidate, including the additional transaction and foreign-key regressions — satisfied by workflow [#45916727267](https://github.com/emmanuellloyd59/glihs-portal/actions/runs/45916727267).
-2. Complete route-by-route authorization review and tests for all roles and cross-school object access (source audit and expanded tests committed; verify final CI).
+2. Complete route-by-route authorization review and tests for all roles and cross-school object access (source audit, role matrix, route inventory and 187-test CI evidence recorded) — satisfied at source/automated-test level.
 3. A staging environment with durable database storage is configured and verified.
 4. Authenticated desktop/mobile end-to-end testing is completed using fictional test accounts and records.
 5. Backup encryption, off-host retention, restore rehearsal and rollback procedures are demonstrated.
