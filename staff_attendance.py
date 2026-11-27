@@ -69,6 +69,12 @@ def register_staff_attendance_routes(ns):
                     teacher_text = request.form.get("teacher_id", "").strip()
                     class_level = request.form.get("class_level", "").strip()
                     subject = request.form.get("subject", "").strip()
+                    if subject and subject not in subject_names and len(subject)<=80:
+                        connection.execute(
+                            "INSERT OR IGNORE INTO subjects(school_id,name) VALUES(?,?)",
+                            (school_id,subject),
+                        )
+                        subject_names.add(subject)
                     if (not teacher_text.isdigit() or class_level not in class_levels
                             or subject not in subject_names or len(subject) > 80
                             or any(ord(ch) < 32 or ord(ch) == 127 for ch in subject)):
