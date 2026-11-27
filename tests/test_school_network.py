@@ -227,9 +227,9 @@ class SchoolNetworkTests(unittest.TestCase):
         })
         self.assertEqual(campus.status_code, 201)
         campus_id = campus.get_json()["data"]["id"]
-        self.assertEqual(self.client.get(f"/api/v1/schools/{other_id}/campuses").status_code, 403)
+        self.assertEqual(self.client.get(f"/api/v1/schools/{other_id}/campuses").status_code, 404)
         cross_update = self.client.patch(f"/api/v1/schools/{other_id}/campuses/{campus_id}", json={"status": "suspended"})
-        self.assertEqual(cross_update.status_code, 403)
+        self.assertEqual(cross_update.status_code, 404)
         contact = self.client.post("/api/v1/schools/1/contacts", json={
             "contact_type": "admissions", "full_name": "Fictional Admissions Officer", "email": "admissions@example.edu"
         })
