@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}School Configuration Centre | {{ school.name }}{% endblock %}
+{% block content %}
+<section class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+ <div><p class="eyebrow text-primary mb-1">Institution administration · Configuration</p><h1 class="h2 fw-bold mb-1">School Configuration Centre</h1><p class="text-secondary mb-0">{{ school.name }} · Version {{ version }}</p></div>
+ {% if access == 'platform' %}<a class="btn btn-outline-secondary" href="{{ url_for('school_network.platform_schools') }}">Back to School Network</a>{% endif %}
+</section>
+<div class="alert alert-info">These settings belong only to <strong>{{ school.name }}</strong>. Campus overrides inherit organization defaults unless explicitly changed. Every save creates a version and an audit record.</div>
+<form method="post" class="surface-card p-4 mb-4">
+ <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+ <h2 class="h5 fw-bold mb-3">Identity and visual branding</h2>
+ <div class="row g-3">
+  <div class="col-md-6"><label class="form-label" for="display_name">School display name</label><input class="form-control" id="display_name" name="display_name" maxlength="160" required value="{{ config.branding.display_name }}"></div>
+  <div class="col-md-6"><label class="form-label" for="logo_url">Logo URL</label><input class="form-control" id="logo_url" name="logo_url" type="url" placeholder="https://… or /static/…" value="{{ config.branding.logo_url }}"><div class="form-text">Use HTTPS or a locally hosted static asset. Direct file upload/storage is a separate integration.</div></div>
+  <div class="col-md-3"><label class="form-label" for="primary_color">Primary color</label><input class="form-control form-control-color w-100" id="primary_color" name="primary_color" type="color" value="{{ config.branding.primary_color }}"></div>
+  <div class="col-md-3"><label class="form-label" for="secondary_color">Secondary color</label><input class="form-control form-control-color w-100" id="secondary_color" name="secondary_color" type="color" value="{{ config.branding.secondary_color }}"></div>
+ </div>
+ <hr class="my-4"><h2 class="h5 fw-bold mb-3">Institution contact information</h2>
+ <div class="row g-3">
+  <div class="col-md-6"><label class="form-label">Email</label><input class="form-control" name="contact_email" type="email" value="{{ config.contact.email }}"></div>
+  <div class="col-md-6"><label class="form-label">Phone</label><input class="form-control" name="contact_phone" value="{{ config.contact.phone }}"></div>
+  <div class="col-md-6"><label class="form-label">Website (HTTPS)</label><input class="form-control" name="website_url" type="url" value="{{ config.contact.website_url }}"></div>
+  <div class="col-md-6"><label class="form-label">Address line 1</label><input class="form-control" name="address_line1" value="{{ config.contact.address_line1 }}"></div>
+  <div class="col-md-6"><label class="form-label">Address line 2</label><input class="form-control" name="address_line2" value="{{ config.contact.address_line2 }}"></div>
+  <div class="col-md-3"><label class="form-label">City</label><input class="form-control" name="city" value="{{ config.contact.city }}"></div>
+  <div class="col-md-3"><label class="form-label">Region / administrative area</label><input class="form-control" name="region" value="{{ config.contact.region }}"></div>
+  <div class="col-md-3"><label class="form-label">County / district</label><input class="form-control" name="county" value="{{ config.contact.county }}"></div>
+  <div class="col-md-3"><label class="form-label">Postal code</label><input class="form-control" name="postal_code" value="{{ config.contact.postal_code }}"></div>
+  <div class="col-md-3"><label class="form-label">Country code</label><input class="form-control" name="country_code" maxlength="2" pattern="[A-Za-z]{2}" value="{{ config.contact.country_code }}"></div>
+ </div>
+ <hr class="my-4"><h2 class="h5 fw-bold mb-3">Regional preferences</h2>
+ <div class="row g-3">
+  <div class="col-md-3"><label class="form-label">Currency (ISO 4217)</label><input class="form-control text-uppercase" name="currency" maxlength="3" pattern="[A-Za-z]{3}" required value="{{ config.regional.currency }}"></div>
+  <div class="col-md-5"><label class="form-label">Time zone (IANA)</label><input class="form-control" name="timezone" required placeholder="Africa/Monrovia" value="{{ config.regional.timezone }}"></div>
+  <div class="col-md-4"><label class="form-label">Default language</label><input class="form-control" name="default_language" required value="{{ config.regional.default_language }}"></div>
+  <div class="col-12"><label class="form-label">Supported languages (comma separated)</label><input class="form-control" name="supported_languages" value="{{ config.regional.supported_languages|join(', ') }}"></div>
+ </div>
+ <hr class="my-4"><h2 class="h5 fw-bold mb-2">Available platform modules</h2>
+ <p class="small text-secondary">This controls configured availability; subscription entitlements and module authorization remain enforced separately.</p>
+ <div class="row g-2">{% for module in modules %}<div class="col-sm-6 col-lg-4"><label class="border rounded p-2 d-flex gap-2 align-items-center"><input type="checkbox" name="enabled_modules" value="{{ module }}" {% if module in config.modules.enabled %}checked{% endif %}> <span>{{ module.replace('_',' ').title() }}</span></label></div>{% endfor %}</div>
+ <hr class="my-4"><h2 class="h5 fw-bold mb-2">Academic calendar</h2><p class="small text-secondary">Academic year boundaries, term names and dates. JSON is validated before saving.</p>
+ <textarea class="form-control font-monospace" name="academic_calendar_json" rows="7" spellcheck="false">{{ config.academic_calendar|tojson(indent=2) }}</textarea>
+ <hr class="my-4"><h2 class="h5 fw-bold mb-2">Grading system</h2><textarea class="form-control font-monospace" name="grading_system_json" rows="8" spellcheck="false">{{ config.grading_system|tojson(indent=2) }}</textarea>
+ <hr class="my-4"><h2 class="h5 fw-bold mb-2">Operational policies</h2><textarea class="form-control font-monospace" name="operational_policies_json" rows="6" spellcheck="false">{{ config.operational_policies|tojson(indent=2) }}</textarea>
+ <div class="d-flex justify-content-end mt-4"><button class="btn btn-primary px-4" type="submit">Validate and save configuration</button></div>
+</form>
+<section class="surface-card p-4 mb-4">
+ <h2 class="h5 fw-bold">Campus structure and overrides</h2><p class="small text-secondary">Campuses inherit organization defaults. Overrides are scoped to the selected campus and cannot affect another school or campus.</p>
+ {% if campuses %}
+ <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Campus</th><th>Code</th><th>Status</th><th>Configuration</th></tr></thead><tbody>
+ {% for campus in campuses %}<tr><td>{{ campus.name }}</td><td>{{ campus.code }}</td><td>{{ campus.status }}</td><td><button class="btn btn-sm btn-outline-primary" type="button" onclick="loadCampus({{ campus.id }}, {{ campus.name|tojson }})">Manage overrides</button></td></tr>{% endfor %}
+ </tbody></table></div>
+ <div id="campusEditor" class="border rounded p-3 mt-3" hidden><h3 class="h6 fw-bold" id="campusTitle">Campus override</h3>
+ <label class="form-label" for="campusOverrides">Override sections (JSON)</label><textarea class="form-control font-monospace mb-2" id="campusOverrides" rows="9" spellcheck="false">{}</textarea>
+ <div class="d-flex gap-2"><button class="btn btn-primary" type="button" onclick="saveCampus()">Save campus override</button><button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('campusEditor').hidden=true">Close</button></div>
+ <p class="small text-secondary mt-2 mb-0">Allowed sections: branding, contact, academic_calendar, grading_system, regional and operational_policies. Omit a section to inherit organization settings.</p><div id="campusMessage" class="small mt-2" role="status" aria-live="polite"></div></div>
+ {% else %}<p class="text-secondary mb-0">No campuses have been registered for this institution yet.</p>{% endif %}
+</section>
+<section class="surface-card p-4"><h2 class="h5 fw-bold">Configuration version history</h2><p class="small text-secondary">Immutable snapshots are retained for audit and traceability.</p>
+ <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Version</th><th>Change</th><th>Changed by</th><th>Date</th></tr></thead><tbody>
+ {% for item in versions %}<tr><td>{{ item.version }}</td><td>{{ item.change_summary }}</td><td>{{ item.changed_by or 'System migration' }}</td><td>{{ item.created_at }}</td></tr>{% endfor %}
+ </tbody></table></div></section>
+{% endblock %}
+{% block scripts %}
+<script>
+let activeCampusId = null;
+const schoolId = {{ school_id|tojson }};
+const csrfToken = {{ csrf_token()|tojson }};
+async function loadCampus(id, name) {
+ const panel=document.getElementById("campusEditor"), message=document.getElementById("campusMessage");
+ message.textContent="Loading campus configuration…";
+ try {
+  const response=await fetch("/api/v1/schools/"+schoolId+"/campuses/"+id+"/configuration");
+  if(!response.ok) throw new Error("Could not load this campus configuration.");
+  const data=await response.json(); activeCampusId=id;
+  document.getElementById("campusTitle").textContent=name+" · Version "+data.campus_version;
+  document.getElementById("campusOverrides").value=JSON.stringify(data.overrides,null,2);
+  panel.hidden=false; message.textContent="Loaded. Omitted sections inherit organization defaults.";
+ } catch(error) { message.textContent=error.message; }
+}
+async function saveCampus() {
+ const message=document.getElementById("campusMessage"); if(!activeCampusId) return;
+ let overrides; try { overrides=JSON.parse(document.getElementById("campusOverrides").value); }
+ catch (_) { message.textContent="Enter valid JSON."; return; }
+ try {
+  const response=await fetch("/api/v1/schools/"+schoolId+"/campuses/"+activeCampusId+"/configuration",{
+   method:"PATCH",headers:{"Content-Type":"application/json","X-CSRFToken":csrfToken},
+   body:JSON.stringify({overrides})
+  });
+  const data=await response.json();
+  if(!response.ok) throw new Error((data.errors||[data.error||"Save failed."]).join(" "));
+  message.textContent="Saved campus configuration version "+data.version+".";
+  window.location.reload();
+ } catch(error) { message.textContent=error.message; }
+}
+</script>
+{% endblock %}
