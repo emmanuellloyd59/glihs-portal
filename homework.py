@@ -72,6 +72,12 @@ def register_homework_routes(ns):
                         valid_date = datetime.strptime(due_date, "%Y-%m-%d").date().isoformat() == due_date
                     except (TypeError, ValueError):
                         valid_date = False
+                    if subject not in subject_names and role in admin_roles and subject and len(subject)<=80:
+                        connection.execute(
+                            "INSERT OR IGNORE INTO subjects(school_id,name) VALUES(?,?)",
+                            (school_id,subject),
+                        )
+                        subject_names.add(subject)
                     if (level not in class_levels or subject not in subject_names or len(subject) > 80 or
                         not title or len(title) > 140 or not instructions or
                         len(instructions) > 10000 or not valid_date):
