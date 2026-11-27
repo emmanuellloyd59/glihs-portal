@@ -297,8 +297,8 @@ def _school_id_from_request():
 def initialize_configuration_schema(connection_factory):
     connection = connection_factory()
     try:
-        connection.execute("BEGIN IMMEDIATE")
         connection.executescript("""
+        BEGIN IMMEDIATE;
         CREATE TABLE IF NOT EXISTS school_configurations (
             school_id INTEGER PRIMARY KEY REFERENCES schools(id),
             version INTEGER NOT NULL DEFAULT 0,
