@@ -414,6 +414,22 @@ def create_membership_blueprint(connection_factory):
             """, (_hash_token(token),)).fetchone()
             if invite is None or invite["expires_at"] <= _stamp():
                 return jsonify({"error": "Invitation is invalid or expired."}), 400
+            school_active = connection.execute(
+                "SELECT 1 FROM schools WHERE id=? AND status='active'",
+                (invite["school_id"],),
+            ).fetchone()
+            if not school_active:
+                return jsonify({"error": "The invited school is not active."}), 409
+            if invite["campus_id"] is not None and not connection.execute(
+                "SELECT 1 FROM campuses WHERE id=? AND school_id=? AND status='active'",
+                (invite["campus_id"], invite["school_id"]),
+            ).fetchone():
+                return jsonify({"error": "The invited campus is not active."}), 409
+            if invite["linked_student_id"] is not None and not connection.execute(
+                "SELECT 1 FROM students WHERE id=? AND school_id=? AND status='active'",
+                (invite["linked_student_id"], invite["school_id"]),
+            ).fetchone():
+                return jsonify({"error": "The linked student record is no longer active."}), 409
             if current_user.is_authenticated:
                 user_id = int(current_user.id)
                 user = connection.execute(
