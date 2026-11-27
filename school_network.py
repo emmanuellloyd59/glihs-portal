@@ -167,16 +167,14 @@ def _is_platform_owner():
     )
 
 
-def _school_access(school_id, connection_factory):
-    """Authorize by server-side identity and re-check the tenant lifecycle."""
+def _school_access(school_id, connection_factory, permission="school.manage_profile"):
+    """Authorize by scoped RBAC/ABAC and re-check the tenant lifecycle."""
     if _is_platform_owner():
         return "platform"
     if not current_user.is_authenticated:
         abort(401)
-    if getattr(current_user, "school_id", None) != school_id:
-        abort(404)
-    if getattr(current_user, "role", None) not in {"school_admin", "principal"}:
-        abort(403)
+    from authorization import require_permission
+    require_permission(permission, connection_factory, school_id=school_id)
     connection = connection_factory()
     try:
         school = connection.execute(
@@ -492,7 +490,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.get("/api/v1/schools/<int:school_id>")
     @login_required
     def api_get_school(school_id):
-        _school_access(school_id, connection_factory)
+        _school_access(school_id, connection_factory, "school.view_dashboard")
         connection = connection_factory()
         try:
             row = connection.execute("SELECT * FROM schools WHERE id=?", (school_id,)).fetchone()
@@ -508,7 +506,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.patch("/api/v1/schools/<int:school_id>")
     @login_required
     def api_update_school(school_id):
-        access = _school_access(school_id, connection_factory)
+        access = _school_access(school_id, connection_factory, "school.manage_profile")
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
@@ -623,7 +621,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.get("/api/v1/schools/<int:school_id>/campuses")
     @login_required
     def api_list_campuses(school_id):
-        _school_access(school_id, connection_factory)
+        _school_access(school_id, connection_factory, "school.view_dashboard")
         connection = connection_factory()
         try:
             rows = connection.execute("SELECT * FROM campuses WHERE school_id=? ORDER BY is_main DESC, name", (school_id,)).fetchall()
@@ -634,7 +632,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.post("/api/v1/schools/<int:school_id>/campuses")
     @login_required
     def api_create_campus(school_id):
-        access = _school_access(school_id, connection_factory)
+        access = _school_access(school_id, connection_factory, "school.manage_campuses")
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
@@ -675,7 +673,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.patch("/api/v1/schools/<int:school_id>/campuses/<int:campus_id>")
     @login_required
     def api_update_campus(school_id, campus_id):
-        access = _school_access(school_id, connection_factory)
+        access = _school_access(school_id, connection_factory, "school.manage_campuses")
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
@@ -723,7 +721,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.post("/api/v1/schools/<int:school_id>/contacts")
     @login_required
     def api_create_contact(school_id):
-        access = _school_access(school_id, connection_factory)
+        access = _school_access(school_id, connection_factory, "school.manage_profile")
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
