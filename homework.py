@@ -206,9 +206,11 @@ def register_homework_routes(ns):
                     JOIN students st ON st.id=s.student_id AND st.school_id=s.school_id
                     WHERE s.school_id=? AND a.status='published'""" + own_submission +
                     " ORDER BY s.submitted_at DESC",sub_params).fetchall()
+            from authorization import has_permission
+            can_manage_assignments = has_permission(connection, "learning.manage_assignments", school_id=school_id)
         finally:
             connection.close()
         return render_template("assignments.html",assignments=assignment_rows,
-            submissions=submissions,student=student,role=role,can_create=role in staff_roles,
-            can_grade=role in staff_roles,class_levels=class_levels,
+            submissions=submissions,student=student,role=role,can_create=can_manage_assignments,
+            can_grade=can_manage_assignments,class_levels=class_levels,
             today=datetime.now().date().isoformat())
