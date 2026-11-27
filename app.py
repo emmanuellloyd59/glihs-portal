@@ -372,13 +372,6 @@ def initialize_database():
                 connection.execute(f"ALTER TABLE students ADD COLUMN {column_name} {column_type}")
         if "student_id_number" not in student_columns:
             connection.execute("ALTER TABLE students ADD COLUMN student_id_number TEXT")
-        # Student identifiers are unique within a school, not globally.
-        # Replace the legacy global index without rewriting existing identifiers.
-        connection.execute("DROP INDEX IF EXISTS idx_students_student_id_number")
-        connection.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_school_student_id_number "
-            "ON students(school_id, student_id_number) WHERE student_id_number IS NOT NULL"
-        )
         connection.execute(
             """UPDATE students
                SET student_id_number = 'CMHS-' || strftime('%Y', 'now') || '-' || printf('%05d', id)
@@ -516,6 +509,15 @@ def initialize_database():
         # Remove the legacy global admission-number constraint only after all
         # records have a school owner, so the new constraint can be tenant-scoped.
         migrate_student_admission_number_uniqueness(connection)
+
+        # Student identifiers are school-scoped. Apply this after the legacy
+        # students table has its school_id column and after its admission migration.
+        connection.execute("DROP INDEX IF EXISTS idx_students_student_id_number")
+        connection.execute("DROP INDEX IF EXISTS idx_students_school_student_id_number")
+        connection.execute(
+            "CREATE UNIQUE INDEX idx_students_school_student_id_number "
+            "ON students(school_id, student_id_number) WHERE student_id_number IS NOT NULL"
+        )
 
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_users_school_role ON users(school_id, role)"
