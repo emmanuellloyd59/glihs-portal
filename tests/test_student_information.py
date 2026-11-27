@@ -4,6 +4,7 @@ import unittest
 
 from test_app import PortalTestSupport
 import app as portal
+from werkzeug.security import generate_password_hash
 from student_information import initialize_student_information_schema
 
 
