@@ -59,8 +59,10 @@ Do not mark an item verified based only on code presence, test names, or a previ
 ## NET-003 implementation record
 
 - Implementation branch: `feature/international-school-onboarding` (stacked on `feature/school-network-foundation`).
-- Added `school_onboarding.py` with additive onboarding schema, country profiles, service catalogue, resumable drafts, email verification, duplicate detection, rate limits, audit events, administrator invitations, progress/configuration APIs and email outbox.
+- Added `school_onboarding.py` with additive onboarding schema, configurable country profiles, service catalogue, resumable drafts, separate email verification, duplicate detection, IP/email rate limits, audit events, administrator invitations, live progress/configuration APIs and a bounded SMTP outbox.
 - Registered onboarding with the existing Flask app and School Network / users authentication infrastructure.
-- Added `/school-network/onboarding` international registration wizard and `docs/international-school-onboarding.md`.
-- Automated coverage: `tests/test_international_onboarding.py`; results pending current-commit CI.
+- Added `/school-network/onboarding`, secure `/school-network/invitations/accept`, and `docs/international-school-onboarding.md`.
+- Automated coverage: `tests/test_international_onboarding.py` (11 cases). Current-commit CI status is not exposed by the connected GitHub status endpoints; execution remains unverified and must be checked in GitHub Actions before acceptance.
 - No merge, deployment, production migration, or production data changes.
+
+- Latest implementation commit: `3d4e126cb92839d4eeffbecc9cd951fe5857f2a9`.
