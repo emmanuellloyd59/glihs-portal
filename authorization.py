@@ -44,6 +44,7 @@ PERMISSIONS = {
     "finance.export": "school",
     "learning.view": "school",
     "learning.manage_courses": "school",
+    "learning.manage_assignments": "school",
     "learning.manage_materials": "school",
     "parent.view_child_finances": "school",
     "learning.submit_work": "school",
@@ -69,7 +70,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "academic.manage_attendance", "academic.publish_results", "academic.manage_classes",
         "finance.view", "finance.manage_fees", "finance.record_payments",
         "finance.refund_payments", "finance.export", "learning.view",
-        "learning.manage_courses", "learning.manage_materials", "communication.view", "communication.manage", "audit.view",
+        "learning.manage_courses", "learning.manage_assignments", "learning.manage_materials", "communication.view", "communication.manage", "audit.view",
     },
     "school_admin": {
         "school.view_dashboard", "school.manage_profile", "school.view_configuration", "school.manage_configuration",
@@ -92,7 +93,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     "vice_principal": {
         "school.view_dashboard", "school.view_staff", "academic.view_records",
         "academic.manage_records", "academic.manage_attendance", "academic.manage_classes",
-        "learning.view", "communication.view", "communication.manage",
+        "learning.view", "learning.manage_assignments", "communication.view", "communication.manage",
     },
     "registrar": {
         "school.view_dashboard", "academic.view_records", "academic.manage_records",
@@ -101,7 +102,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     },
     "teacher": {
         "school.view_dashboard", "academic.view_records", "academic.manage_attendance",
-        "learning.view", "learning.manage_materials", "learning.submit_work", "communication.view",
+        "learning.view", "learning.manage_assignments", "learning.manage_materials", "learning.submit_work", "communication.view",
     },
     "finance_officer": {
         "school.view_dashboard", "finance.view", "finance.manage_fees",
