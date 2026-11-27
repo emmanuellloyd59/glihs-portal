@@ -2869,6 +2869,11 @@ def ensure_content_tables(connection):
                 raise sqlite3.DatabaseError(
                     f"Content migration stopped: {mismatch_count} {relationship_name} school-ownership mismatch(es)"
                 )
+        foreign_key_issues = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if foreign_key_issues:
+            raise sqlite3.DatabaseError(
+                f"Content migration stopped: {len(foreign_key_issues)} foreign-key integrity issue(s)"
+            )
         connection.execute(
             """INSERT OR IGNORE INTO schema_migrations (version,name)
                VALUES (3,'content-and-finance-school-ownership-guards')"""
