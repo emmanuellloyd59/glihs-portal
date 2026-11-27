@@ -233,7 +233,15 @@ def register_staff_records_routes(ns):
     generate_password_hash = ns["generate_password_hash"]
     base_dir = Path(ns["BASE_DIR"])
     staff_admin_roles = {"super_admin","school_admin","principal","vice_principal"}
+    all_school_staff_roles = {"school_admin","principal","vice_principal","registrar","admissions_officer",
+                              "academic_admin","attendance_officer","teacher","finance_admin","librarian","counselor"}
+    leadership_staff_roles = {"teacher","attendance_officer","librarian","counselor","registrar"}
     allowed_extensions = {"pdf","png","jpg","jpeg"}
+
+    def manageable_staff_roles():
+        if current_user.role in {"super_admin","school_admin"}:
+            return all_school_staff_roles
+        return leadership_staff_roles
 
     def actor_school():
         if current_user.role not in staff_admin_roles:
@@ -274,8 +282,13 @@ def register_staff_records_routes(ns):
             member = get_membership(connection,school_id,user_id)
             if member is None:
                 abort(404)
+            manageable = manageable_staff_roles()
+            if int(user_id)!=int(current_user.id) and member["role"] not in manageable:
+                abort(403)
             if request.method == "POST":
                 action=request.form.get("action","").strip()
+                if member["role"] not in manageable and action!="update_profile":
+                    abort(403)
                 if action=="update_profile":
                     fields={key:request.form.get(key,"").strip() for key in (
                         "employee_number","preferred_name","phone","email","address",
@@ -540,11 +553,12 @@ def register_staff_records_routes(ns):
         connection=get_db_connection()
         try:
             row=connection.execute("""
-                SELECT d.storage_key,d.original_filename FROM staff_documents d
+                SELECT d.storage_key,d.original_filename,u.role FROM staff_documents d
                 JOIN staff_memberships m ON m.id=d.membership_id AND m.school_id=d.school_id
+                JOIN users u ON u.id=m.user_id AND u.school_id=m.school_id
                 WHERE d.id=? AND d.school_id=? AND m.user_id=? AND d.archived_at IS NULL
             """,(document_id,school_id,user_id)).fetchone()
-            if row is None: abort(404)
+            if row is None or row["role"] not in manageable_staff_roles(): abort(404)
             path=Path(ns["INSTANCE_DIR"])/"private_staff_documents"/str(school_id)/row["storage_key"]
             if not path.is_file(): abort(404)
             return send_file(path,as_attachment=True,download_name=row["original_filename"])
