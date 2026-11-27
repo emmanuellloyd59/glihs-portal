@@ -7,7 +7,7 @@ All migration, failure-injection, backup and restore tests use temporary SQLite 
 ## Migration safety
 
 - `initialize_database()` executes schema and data changes inside an explicit `BEGIN IMMEDIATE` transaction.
-- The learning-resource, announcement and finance-content schema setup and the homework schema setup now also start explicit write transactions before creating tables, indexes, triggers or ledger entries. This prevents SQLite DDL from being left partially applied when a later legacy ownership check fails. When content setup is called inside an existing caller transaction, it uses a savepoint and preserves the caller's commit/rollback boundary rather than committing unrelated pending writes.
+- The learning-resource, announcement and finance-content schema setup and the homework schema setup now also start explicit write transactions before creating tables, indexes, triggers or ledger entries. This prevents SQLite DDL from being left partially applied when a later legacy ownership check fails. When content setup is called inside an existing caller transaction, it uses a savepoint and preserves the caller's commit/rollback boundary rather than committing unrelated pending writes. Both additive migrations also run `PRAGMA foreign_key_check` before recording their ledger milestone; orphaned legacy content or homework rows stop the migration instead of being silently skipped by ownership joins.
 - Startup rejects unknown migration versions or a known version recorded with an unexpected name, preventing older code from silently starting against a newer or inconsistent schema ledger.
 - On any migration exception, the transaction is rolled back and the connection restores foreign-key enforcement before closing.
 - The schema setup remains idempotent and records the baseline and tenant-ownership guard versions in `schema_migrations`.
@@ -47,6 +47,7 @@ The disposable-database tests cover:
 - Migration rollback when a legacy record cannot be copied into the new schema.
 - Fail-closed handling of unknown or conflicting migration-ledger entries while preserving existing records.
 - Rollback of content-schema tables, triggers and ledger changes when pre-existing content has a cross-school ownership mismatch.
+- Rejection of orphaned legacy finance-payment/content records with savepoint rollback that preserves caller-owned pending records.
 - Repeatable initialization and migration-ledger idempotency, including the homework schema milestone.
 - Preservation of parent-child relationships.
 - Rejection of cross-school parent, student-account, finance, finance-payment, homework-author and homework-submission relationships.
