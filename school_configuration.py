@@ -23,6 +23,15 @@ MODULES = {
 LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
 COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+CURRENCY_CODES = set("""AED AFN ALL AMD ANG AOA ARS AUD AWG AZN BAM BBD BDT BGN BHD BIF
+BMD BND BOB BRL BSD BTN BWP BYN BZD CAD CDF CHF CLP CNY COP CRC CUP CVE CZK DJF
+DKK DOP DZD EGP ERN ETB EUR FJD FKP GBP GEL GHS GIP GMD GNF GTQ GYD HKD HNL
+HTG HUF IDR ILS INR IQD IRR ISK JMD JOD JPY KES KGS KHR KMF KPW KRW KWD KYD
+KZT LAK LBP LKR LRD LSL LYD MAD MDL MGA MKD MMK MNT MOP MRU MUR MVR MWK MXN
+MYR MZN NAD NGN NIO NOK NPR NZD OMR PAB PEN PGK PHP PKR PLN PYG QAR RON RSD
+RUB RWF SAR SBD SCR SDG SEK SGD SHP SLE SLL SOS SRD SSP STN SVC SYP SZL THB
+TJS TMT TND TOP TRY TTD TWD TZS UAH UGX USD UYU UZS VES VND VUV WST XAF XCD
+XOF XPF YER ZAR ZMW ZWL""".split())
 TOP_LEVEL_KEYS = {
     "branding", "contact", "academic_calendar", "grading_system",
     "regional", "modules", "operational_policies",
@@ -146,13 +155,16 @@ def _validate_config(config, campus=False):
             "monday", "sunday", "saturday"
         }:
             errors.append("Week start must be Monday, Sunday or Saturday.")
+        parsed_year = {}
         for key in ("year_start", "year_end"):
             value = calendar.get(key, "")
             if value:
                 try:
-                    date.fromisoformat(value)
+                    parsed_year[key] = date.fromisoformat(value)
                 except (TypeError, ValueError):
                     errors.append(key.replace("_", " ").title() + " must be an ISO date (YYYY-MM-DD).")
+        if len(parsed_year) == 2 and parsed_year["year_start"] > parsed_year["year_end"]:
+            errors.append("Academic year start date must not follow its end date.")
         terms = calendar.get("terms", [])
         if not isinstance(terms, list) or len(terms) > 12:
             errors.append("Academic calendar may contain at most 12 terms.")
@@ -187,6 +199,7 @@ def _validate_config(config, campus=False):
             errors.append("Grading system may contain at most 30 grade bands.")
         else:
             labels = set()
+            numeric_bands = []
             for band in grades:
                 if not isinstance(band, dict):
                     errors.append("Each grade band must be an object.")
@@ -197,14 +210,19 @@ def _validate_config(config, campus=False):
                     if not label or label.lower() in labels or low < 0 or high > 100 or low > high:
                         errors.append("Grade bands require unique labels and valid 0–100 ranges.")
                     labels.add(label.lower())
+                    numeric_bands.append((low, high))
                 except (KeyError, TypeError, ValueError):
                     errors.append("Each grade band requires numeric minimum and maximum values.")
+            ordered_bands = sorted(numeric_bands)
+            if any(ordered_bands[index][0] <= ordered_bands[index - 1][1]
+                   for index in range(1, len(ordered_bands))):
+                errors.append("Grading bands must not overlap.")
     regional = config.get("regional", {})
     if not isinstance(regional, dict):
         errors.append("Regional preferences must be an object.")
     else:
         currency = regional.get("currency", "USD")
-        if not isinstance(currency, str) or not CURRENCY_RE.fullmatch(currency):
+        if not isinstance(currency, str) or not CURRENCY_RE.fullmatch(currency) or currency not in CURRENCY_CODES:
             errors.append("Currency must be a three-letter uppercase ISO 4217 code.")
         timezone_name = regional.get("timezone", "UTC")
         try:
@@ -400,7 +418,7 @@ def initialize_configuration_schema(connection_factory):
         connection.close()
 
 
-def _record_version(connection, school_id, campus_id, version, snapshot, summary, actor):
+def _record_version(connection, school_id, campus_id, version, snapshot, summary, actor, changed_sections=None):
     connection.execute(
         """INSERT INTO school_configuration_versions
            (school_id, campus_id, version, snapshot_json, change_summary, changed_by)
@@ -415,7 +433,7 @@ def _record_version(connection, school_id, campus_id, version, snapshot, summary
            VALUES (?, ?, ?, ?, ?, ?)""",
         (school_id, campus_id, actor,
          "configuration.updated" if campus_id is None else "campus_configuration.updated",
-         version, json.dumps(sorted(snapshot.keys()))),
+         version, json.dumps(sorted(changed_sections if changed_sections is not None else snapshot.keys()))),
     )
 
 
@@ -657,6 +675,9 @@ def create_school_configuration_blueprint(connection_factory):
                 (school_id, campus_id),
             ).fetchone()
             current = json.loads(row["overrides_json"]) if row else {}
+            if len(json.dumps(patch)) > 65536:
+                connection.rollback()
+                return jsonify({"errors": ["Campus configuration payload exceeds 64 KB."]}), 413
             merged = _deep_merge(current, patch)
             errors = _validate_config(merged, campus=True)
             if errors:
@@ -678,8 +699,9 @@ def create_school_configuration_blueprint(connection_factory):
                      updated_by=excluded.updated_by, updated_at=CURRENT_TIMESTAMP""",
                 (school_id, campus_id, version, encoded, current_user.id),
             )
+            changed_sections = [key for key in merged if current.get(key) != merged.get(key)]
             _record_version(connection, school_id, campus_id, version, merged,
-                            "Campus configuration updated", current_user.id)
+                            "Campus configuration updated", current_user.id, changed_sections)
             connection.commit()
             return jsonify({"school_id": school_id, "campus_id": campus_id, "version": version, "status": "saved"})
         except Exception:
@@ -735,6 +757,9 @@ def _save_school_config(connection_factory, school_id, patch, actor_id, expected
         if expected_version is not None and expected_version != row["version"]:
             connection.rollback()
             return False, ["Configuration changed since it was loaded. Refresh before saving."], None
+        if len(json.dumps(patch)) > 65536:
+            connection.rollback()
+            return False, ["Configuration payload exceeds 64 KB."], None
         current = json.loads(row["config_json"])
         merged = _deep_merge(current, patch)
         errors = _validate_config(merged)
@@ -762,8 +787,9 @@ def _save_school_config(connection_factory, school_id, patch, actor_id, expected
              contact.get("region", ""), contact.get("postal_code", ""),
              contact.get("country_code", ""), regional["timezone"], school_id),
         )
+        changed_sections = [key for key in merged if current.get(key) != merged.get(key)]
         _record_version(connection, school_id, None, version, merged,
-                        "School configuration updated", actor_id)
+                        "School configuration updated", actor_id, changed_sections)
         connection.commit()
         return True, [], version
     except Exception:
