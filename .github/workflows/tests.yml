@@ -12,8 +12,8 @@ permissions:
 
 # Run the latest PR revision instead of queueing duplicate push + PR runs.
 concurrency:
-  group: cmhs-ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: cmhs-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   test:
