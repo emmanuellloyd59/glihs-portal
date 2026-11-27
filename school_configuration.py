@@ -209,7 +209,7 @@ def _validate_config(config, campus=False):
         timezone_name = regional.get("timezone", "UTC")
         try:
             ZoneInfo(timezone_name)
-        except (TypeError, ZoneInfoNotFoundError):
+        except (TypeError, ValueError, ZoneInfoNotFoundError):
             errors.append("Choose a valid IANA time zone.")
         default_language = regional.get("default_language", "en")
         languages = regional.get("supported_languages", [default_language])
@@ -320,6 +320,18 @@ def initialize_configuration_schema(connection_factory):
             if exists:
                 continue
             config = _defaults(school)
+            # Preserve requested modules from verified onboarding applications where available.
+            service_table = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='school_service_requests'"
+            ).fetchone()
+            if service_table:
+                requested = connection.execute(
+                    "SELECT service_key FROM school_service_requests WHERE school_id=? AND status IN ('requested','approved')",
+                    (school["id"],),
+                ).fetchall()
+                enabled = {item["service_key"] for item in requested if item["service_key"] in MODULES}
+                if enabled:
+                    config["modules"]["enabled"] = sorted(set(config["modules"]["enabled"]) | enabled)
             encoded = json.dumps(config, sort_keys=True, separators=(",", ":"))
             connection.execute(
                 """INSERT INTO school_configurations
@@ -337,6 +349,48 @@ def initialize_configuration_schema(connection_factory):
                    (school_id, campus_id, actor_user_id, action, version, changed_sections)
                    VALUES (?, NULL, NULL, 'configuration.migrated', 1, ?)""",
                 (school["id"], json.dumps(sorted(config.keys()))),
+            )
+        # Existing campus addresses and contact details remain canonical in campuses;
+        # mirror them into versioned overrides so effective settings preserve their values.
+        campuses = connection.execute("SELECT * FROM campuses ORDER BY school_id, id").fetchall()
+        for campus in campuses:
+            exists = connection.execute(
+                "SELECT 1 FROM campus_configurations WHERE school_id=? AND campus_id=?",
+                (campus["school_id"], campus["id"]),
+            ).fetchone()
+            if exists:
+                continue
+            overrides = {
+                "branding": {"display_name": campus["name"]},
+                "contact": {
+                    "address_line1": campus["address_line1"] or "",
+                    "address_line2": campus["address_line2"] or "",
+                    "city": campus["city"] or "",
+                    "region": campus["region"] or campus["county"] or "",
+                    "postal_code": campus["postal_code"] or "",
+                    "country_code": (campus["country_code"] or "").upper(),
+                    "email": campus["contact_email"] or "",
+                    "phone": campus["contact_phone"] or "",
+                },
+            }
+            encoded = json.dumps(overrides, sort_keys=True, separators=(",", ":"))
+            connection.execute(
+                """INSERT INTO campus_configurations
+                   (school_id, campus_id, version, overrides_json, updated_by)
+                   VALUES (?, ?, 1, ?, NULL)""",
+                (campus["school_id"], campus["id"], encoded),
+            )
+            connection.execute(
+                """INSERT INTO school_configuration_versions
+                   (school_id, campus_id, version, snapshot_json, change_summary, changed_by)
+                   VALUES (?, ?, 1, ?, 'Initial legacy-campus-settings preservation snapshot', NULL)""",
+                (campus["school_id"], campus["id"], encoded),
+            )
+            connection.execute(
+                """INSERT INTO school_configuration_audit
+                   (school_id, campus_id, actor_user_id, action, version, changed_sections)
+                   VALUES (?, ?, NULL, 'campus_configuration.migrated', 1, ?)""",
+                (campus["school_id"], campus["id"], json.dumps(sorted(overrides.keys()))),
             )
         connection.commit()
     except Exception:
