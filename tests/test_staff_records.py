@@ -88,6 +88,18 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         finally:
             db.close()
         initialize_staff_records(portal.get_db_connection)
+        db=portal.get_db_connection()
+        try:
+            db.execute(
+                """UPDATE staff_employment SET employment_status='suspended'
+                   WHERE membership_id=(
+                       SELECT m.id FROM staff_memberships m JOIN users u ON u.id=m.user_id
+                       WHERE m.school_id=1 AND u.username='inactive_teacher'
+                   )"""
+            )
+            db.commit()
+        finally:
+            db.close()
         self.admin_id = self.user_id("staff_admin")
         self.teacher_id = self.user_id("existing_teacher")
         self.inactive_id = self.user_id("inactive_teacher")
