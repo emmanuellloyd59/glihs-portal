@@ -169,12 +169,12 @@ def _is_platform_owner():
 
 def _school_access(school_id, connection_factory, permission="school.manage_profile"):
     """Authorize by scoped RBAC/ABAC and re-check the tenant lifecycle."""
-    if _is_platform_owner():
-        return "platform"
     if not current_user.is_authenticated:
         abort(401)
     from authorization import require_permission
     require_permission(permission, connection_factory, school_id=school_id)
+    if _is_platform_owner():
+        return "platform"
     connection = connection_factory()
     try:
         school = connection.execute(
