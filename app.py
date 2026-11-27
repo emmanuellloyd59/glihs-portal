@@ -1754,6 +1754,25 @@ def get_school_class_levels(connection, school_id):
     return sorted(labels, key=lambda value: value.casefold())
 
 
+def get_school_subjects(connection, school_id):
+    """Return the school's subject catalogue, importing legacy subject labels safely."""
+    sources = (("grades","subject"),("teacher_class_assignments","subject"),
+               ("class_timetable","subject"),("homework_assignments","subject"))
+    for table, column in sources:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(" + table + ")")}
+        if column in columns and "school_id" in columns:
+            connection.execute(
+                "INSERT OR IGNORE INTO subjects(school_id,name) SELECT DISTINCT school_id," + column +
+                " FROM " + table + " WHERE school_id=? AND " + column +
+                " IS NOT NULL AND trim(" + column + ")<>''",
+                (school_id,),
+            )
+    return connection.execute(
+        "SELECT id,name FROM subjects WHERE school_id=? AND active=1 ORDER BY name",
+        (school_id,),
+    ).fetchall()
+
+
 @app.route("/timetable", methods=["GET", "POST"])
 @login_required
 def timetable():
@@ -1765,10 +1784,7 @@ def timetable():
     connection = get_db_connection()
     try:
         class_levels = get_school_class_levels(connection, school_id)
-        subjects = connection.execute(
-            "SELECT id,name FROM subjects WHERE school_id=? AND active=1 ORDER BY name",
-            (school_id,),
-        ).fetchall()
+        subjects = get_school_subjects(connection, school_id)
         subject_names = {row["name"] for row in subjects}
         if request.method == "POST":
             if not can_manage:
