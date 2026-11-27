@@ -68,6 +68,12 @@ def register_homework_routes(ns):
                     title = request.form.get("title", "").strip()
                     instructions = request.form.get("instructions", "").strip()
                     due_date = request.form.get("due_date", "").strip()
+                    if level and level not in class_levels and role in admin_roles and len(level)<=80:
+                        connection.execute(
+                            "INSERT OR IGNORE INTO grade_levels(school_id,name,sequence_no) VALUES(?,?,COALESCE((SELECT MAX(sequence_no)+1 FROM grade_levels WHERE school_id=?),1))",
+                            (school_id,level,school_id),
+                        )
+                        class_levels.append(level)
                     try:
                         valid_date = datetime.strptime(due_date, "%Y-%m-%d").date().isoformat() == due_date
                     except (TypeError, ValueError):
