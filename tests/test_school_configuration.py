@@ -21,6 +21,10 @@ class SchoolConfigurationTests(unittest.TestCase):
         portal.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False, SESSION_COOKIE_SECURE=False)
         portal.initialize_database()
         initialize_school_network_schema(portal.get_db_connection)
+        from identity_memberships import initialize_membership_schema
+        from authorization import initialize_authorization_schema
+        initialize_membership_schema(portal.get_db_connection)
+        initialize_authorization_schema(portal.get_db_connection)
         connection = portal.get_db_connection()
         try:
             connection.execute(
