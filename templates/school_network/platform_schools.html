@@ -10,6 +10,16 @@
  <div class="col-6 col-md-2"><div class="surface-card p-3 h-100"><div class="small text-secondary">{{ status.replace('_',' ').title() }}</div><div class="h3 fw-bold mb-0">{{ schools|selectattr('lifecycle_status','equalto',status)|list|length }}</div></div></div>
  {% endfor %}
 </div>
+<section class="surface-card p-3 p-md-4 mb-4">
+ <h2 class="h5 fw-bold">Create a school group</h2>
+ <form method="post" action="{{ url_for('school_network.platform_create_group_form') }}" class="row g-2">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="col-md-4"><label class="form-label">Group name</label><input class="form-control" name="group_name" maxlength="160" required></div>
+  <div class="col-md-3"><label class="form-label">Unique group identity</label><input class="form-control" name="group_slug" maxlength="63" pattern="[a-z0-9]+(-[a-z0-9]+)*"></div>
+  <div class="col-md-3"><label class="form-label">Owner / authority</label><input class="form-control" name="group_owner" maxlength="160"></div>
+  <div class="col-md-2 d-flex align-items-end"><button class="btn btn-primary w-100">Create group</button></div>
+ </form>
+</section>
 <section class="surface-card p-3 p-md-4">
  <div class="table-responsive"><table class="table align-middle">
   <thead><tr><th>Institution</th><th>Identity</th><th>Classification</th><th>Location</th><th>Group</th><th>Status</th><th>Actions</th></tr></thead>
