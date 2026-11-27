@@ -82,7 +82,8 @@ def initialize_student_information_schema(connection_factory):
           consent_status TEXT NOT NULL DEFAULT 'unknown'
             CHECK(consent_status IN ('unknown','pending','granted','withdrawn')),
           created_by INTEGER REFERENCES users(id),
-          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          archived_at TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_student_guardians_school_student
           ON student_guardians(school_id,student_id);
@@ -187,6 +188,9 @@ def initialize_student_information_schema(connection_factory):
           CREATE UNIQUE INDEX IF NOT EXISTS idx_students_school_admission
           ON students(school_id,admission_number COLLATE NOCASE)
         """)
+        guardian_columns = {row["name"] for row in db.execute("PRAGMA table_info(student_guardians)").fetchall()}
+        if "archived_at" not in guardian_columns:
+            db.execute("ALTER TABLE student_guardians ADD COLUMN archived_at TEXT")
         # Tenant integrity is also enforced at the database boundary for all
         # related student records, not just by route-level checks.
         for table in ("student_guardians","student_academic_history","student_transfers",
@@ -335,6 +339,8 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
                               "emergency_contact_phone","record_notes"):
                     result.pop(field, None)
             result.pop("account_user_id", None)
+            if not sensitive_allowed(db, school_id):
+                result.pop("previous_school", None)
             return jsonify({"student": result})
         finally:
             db.close()
@@ -418,6 +424,19 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
             return jsonify({"error": str(exc)}), 400
         db = connection_factory()
         try:
+            if dob:
+                matches = db.execute("""SELECT id,full_name,admission_number FROM students
+                  WHERE school_id=? AND lower(trim(full_name))=lower(trim(?)) AND date_of_birth=?
+                  ORDER BY id LIMIT 5""", (school_id,name,dob)).fetchall()
+                applications = db.execute("""SELECT id,application_number,applicant_name FROM student_admissions
+                  WHERE school_id=? AND lower(trim(applicant_name))=lower(trim(?)) AND date_of_birth=?
+                  ORDER BY id DESC LIMIT 5""", (school_id,name,dob)).fetchall()
+                override = _clean(payload.get("duplicate_override_reason"),500)
+                if (matches or applications) and len(override) < 10:
+                    return jsonify({"error":"Possible duplicate applicant found. Review matching records before continuing.",
+                                    "student_matches":_json_rows(matches),
+                                    "application_matches":_json_rows(applications),
+                                    "override_required":True}),409
             cur = db.execute("""
               INSERT INTO student_admissions
               (school_id,application_number,applicant_name,date_of_birth,requested_class,
@@ -561,11 +580,56 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
             rows = db.execute("""
               SELECT id,full_name,relationship,phone,email,address,occupation,is_primary,
                      is_emergency_contact,verified_at,consent_status
-              FROM student_guardians WHERE school_id=? AND student_id=? ORDER BY is_primary DESC,id
+              FROM student_guardians WHERE school_id=? AND student_id=? AND archived_at IS NULL
+              ORDER BY is_primary DESC,id
             """,(school_id,student_id)).fetchall()
             return jsonify({"items":_json_rows(rows)})
         finally:
             db.close()
+
+    @bp.put("/api/v1/student-guardians/<int:guardian_id>")
+    @login_required
+    def update_guardian(guardian_id):
+        school_id=school_context("student.manage_guardians")
+        payload=request.get_json(silent=True) or {}
+        try:
+            name=_clean(payload.get("full_name"),150,True)
+            relationship=_clean(payload.get("relationship"),60,True)
+            phone=_clean(payload.get("phone"),40)
+            email=_clean(payload.get("email"),254)
+            if email and not re.fullmatch(r"[^\\s@]+@[^\\s@]+\\.[^\\s@]+",email):
+                raise ValueError("Enter a valid guardian email address.")
+        except ValueError as exc: return jsonify({"error":str(exc)}),400
+        db=connection_factory()
+        try:
+            row=db.execute("SELECT student_id FROM student_guardians WHERE id=? AND school_id=? AND archived_at IS NULL",
+                           (guardian_id,school_id)).fetchone()
+            if not row: abort(404)
+            db.execute("""UPDATE student_guardians SET full_name=?,relationship=?,phone=?,email=?,
+              address=?,occupation=?,is_primary=?,is_emergency_contact=?,consent_status=?
+              WHERE id=? AND school_id=?""",
+              (name,relationship,phone,email,_clean(payload.get("address"),300),
+               _clean(payload.get("occupation"),120),int(bool(payload.get("is_primary"))),
+               int(bool(payload.get("is_emergency_contact"))),payload.get("consent_status","unknown"),
+               guardian_id,school_id))
+            audit(db,school_id,"student_guardian_updated",row["student_id"],"guardian record updated")
+            db.commit(); return jsonify({"guardian_id":guardian_id,"status":"updated"})
+        finally: db.close()
+
+    @bp.delete("/api/v1/student-guardians/<int:guardian_id>")
+    @login_required
+    def archive_guardian(guardian_id):
+        school_id=school_context("student.manage_guardians")
+        db=connection_factory()
+        try:
+            row=db.execute("SELECT student_id FROM student_guardians WHERE id=? AND school_id=? AND archived_at IS NULL",
+                           (guardian_id,school_id)).fetchone()
+            if not row: abort(404)
+            db.execute("UPDATE student_guardians SET archived_at=CURRENT_TIMESTAMP WHERE id=? AND school_id=?",
+                       (guardian_id,school_id))
+            audit(db,school_id,"student_guardian_archived",row["student_id"],"guardian relationship archived")
+            db.commit(); return jsonify({"guardian_id":guardian_id,"status":"archived"})
+        finally: db.close()
 
     @bp.post("/api/v1/students/<int:student_id>/academic-history")
     @login_required
@@ -783,6 +847,21 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
             if not path.is_file(): abort(404)
             return send_file(path,as_attachment=True,download_name=row["original_name"],
                              mimetype=row["mime_type"],conditional=True)
+        finally: db.close()
+
+    @bp.delete("/api/v1/student-documents/<int:document_id>")
+    @login_required
+    def archive_document(document_id):
+        school_id=school_context("student.manage_documents")
+        db=connection_factory()
+        try:
+            row=db.execute("SELECT student_id FROM student_documents WHERE id=? AND school_id=? AND archived_at IS NULL",
+                           (document_id,school_id)).fetchone()
+            if not row: abort(404)
+            db.execute("UPDATE student_documents SET archived_at=CURRENT_TIMESTAMP WHERE id=? AND school_id=?",
+                       (document_id,school_id))
+            audit(db,school_id,"student_document_archived",row["student_id"],"document archived")
+            db.commit(); return jsonify({"document_id":document_id,"status":"archived"})
         finally: db.close()
 
     @bp.get("/api/v1/students/export.csv")
