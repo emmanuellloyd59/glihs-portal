@@ -382,6 +382,27 @@ def create_student_information_blueprint(connection_factory, instance_path):
         finally:
             db.close()
 
+    @bp.get("/api/v1/students/duplicate-check")
+    @login_required
+    def duplicate_check():
+        school_id=school_context("student.view_records")
+        name=_clean(request.args.get("full_name"),150,True)
+        dob=_valid_date(request.args.get("date_of_birth"))
+        if not dob:
+            return jsonify({"error":"Date of birth is required for a duplicate check."}),400
+        db=connection_factory()
+        try:
+            rows=db.execute("""SELECT id,student_id_number,admission_number,full_name,class_level,status
+              FROM students WHERE school_id=? AND lower(trim(full_name))=lower(trim(?))
+                AND date_of_birth=? ORDER BY id LIMIT 10""",(school_id,name,dob)).fetchall()
+            applications=db.execute("""SELECT id,application_number,applicant_name,requested_class,status
+              FROM student_admissions WHERE school_id=? AND lower(trim(applicant_name))=lower(trim(?))
+                AND date_of_birth=? ORDER BY id DESC LIMIT 10""",(school_id,name,dob)).fetchall()
+            return jsonify({"possible_student_matches":_json_rows(rows),
+                            "possible_application_matches":_json_rows(applications),
+                            "requires_manual_identity_review":bool(rows or applications)})
+        finally: db.close()
+
     @bp.post("/api/v1/admissions")
     @login_required
     def create_admission():
@@ -609,6 +630,25 @@ def create_student_information_blueprint(connection_factory, instance_path):
                int(current_user.id)))
             audit(db,school_id,"student_transfer_requested",student_id,transfer_type)
             db.commit(); return jsonify({"transfer_id":cur.lastrowid,"status":"requested"}),201
+        finally: db.close()
+
+    @bp.post("/api/v1/student-transfers/<int:transfer_id>/review")
+    @login_required
+    def review_transfer(transfer_id):
+        school_id=school_context("student.manage_transfers")
+        payload=request.get_json(silent=True) or {}
+        state=payload.get("status")
+        if state not in {"approved","completed","rejected","cancelled"}:
+            return jsonify({"error":"Invalid transfer decision."}),400
+        db=connection_factory()
+        try:
+            cur=db.execute("""UPDATE student_transfers SET status=?,approved_by=?,approved_at=?
+              WHERE id=? AND school_id=? AND status IN ('requested','approved')""",
+              (state,int(current_user.id),datetime.now(timezone.utc).isoformat(),transfer_id,school_id))
+            if not cur.rowcount: abort(404)
+            audit(db,school_id,"student_transfer_reviewed",transfer_id,state)
+            db.commit()
+            return jsonify({"transfer_id":transfer_id,"status":state})
         finally: db.close()
 
     @bp.post("/api/v1/students/<int:student_id>/withdraw")
