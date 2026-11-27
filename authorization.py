@@ -44,6 +44,8 @@ PERMISSIONS = {
     "finance.export": "school",
     "learning.view": "school",
     "learning.manage_courses": "school",
+    "learning.manage_materials": "school",
+    "parent.view_child_finances": "school",
     "learning.submit_work": "school",
     "communication.view": "school",
     "communication.manage": "school",
@@ -67,7 +69,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "academic.manage_attendance", "academic.publish_results", "academic.manage_classes",
         "finance.view", "finance.manage_fees", "finance.record_payments",
         "finance.refund_payments", "finance.export", "learning.view",
-        "learning.manage_courses", "communication.view", "communication.manage", "audit.view",
+        "learning.manage_courses", "learning.manage_materials", "communication.view", "communication.manage", "audit.view",
     },
     "school_admin": {
         "school.view_dashboard", "school.manage_profile", "school.view_configuration", "school.manage_configuration",
@@ -99,7 +101,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     },
     "teacher": {
         "school.view_dashboard", "academic.view_records", "academic.manage_attendance",
-        "learning.view", "learning.manage_courses", "learning.submit_work", "communication.view",
+        "learning.view", "learning.manage_materials", "learning.submit_work", "communication.view",
     },
     "finance_officer": {
         "school.view_dashboard", "finance.view", "finance.manage_fees",
@@ -115,8 +117,8 @@ DEFAULT_ROLE_PERMISSIONS = {
         "communication.view",
     },
     "parent": {
-        "school.view_dashboard", "parent.view_linked_children", "academic.view_records",
-        "finance.view", "communication.view",
+        "school.view_dashboard", "parent.view_linked_children", "parent.view_child_finances", "academic.view_records",
+        "communication.view",
     },
     "external_service_provider": {"provider.access_assigned_services"},
     "admissions_officer": {"school.view_dashboard", "school.view_staff", "academic.view_records", "academic.manage_records"},
@@ -439,8 +441,18 @@ def create_authorization_blueprint(connection_factory):
                 abort(403)
             if scope_type == "platform" and PERMISSIONS[permission] != "platform":
                 return jsonify({"error": "Platform grants are reserved for platform-scope permissions."}), 403
-            if scope_type == "organization" and PERMISSIONS[permission] == "platform":
-                return jsonify({"error": "Platform permissions cannot be assigned to organizations."}), 403
+            if scope_type == "organization":
+                if PERMISSIONS[permission] == "platform":
+                    return jsonify({"error": "Platform permissions cannot be assigned to organizations."}), 403
+                connection = connection_factory()
+                try:
+                    valid_org = connection.execute(
+                        "SELECT 1 FROM school_groups WHERE id=? AND status='active'", (scope_id,)
+                    ).fetchone()
+                    if not valid_org:
+                        abort(404)
+                finally:
+                    connection.close()
         else:
             school_id = payload.get("school_id")
             if not isinstance(school_id, int) or isinstance(school_id, bool):
