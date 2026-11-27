@@ -3146,5 +3146,10 @@ from staff_records import initialize_staff_records, register_staff_records_route
 initialize_staff_records(get_db_connection)
 register_staff_records_routes(globals())
 
+# Configurable, tenant-scoped assessment and grading engine.
+from assessment_engine import initialize_assessment_schema, create_assessment_blueprint
+initialize_assessment_schema(get_db_connection)
+app.register_blueprint(create_assessment_blueprint(get_db_connection, require_school_context))
+
 if __name__ == "__main__":
     app.run(port=5000, debug=False)
