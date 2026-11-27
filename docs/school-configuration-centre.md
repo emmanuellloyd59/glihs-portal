@@ -61,7 +61,7 @@ The additive, idempotent startup migration creates:
 - school_configuration_versions;
 - school_configuration_audit.
 
-For each existing school without a configuration row, the migration copies the existing school name, website, address, country, time zone and contact values into version 1. Existing campus names, addresses, country and contact details are preserved as campus override version 1. Requested onboarding services seed the initial organization module list when those records exist.
+For each existing school without a configuration row, the migration copies the existing school name, website, address, country, time zone and contact values into version 1. Existing campus names, addresses, county/region, country and contact details are preserved as campus override version 1. The neutral initial currency fallback is USD; each institution must select its actual operating currency rather than inheriting a Liberia-specific assumption. Requested onboarding services seed the initial organization module list when those records exist.
 
 Existing configuration rows and version histories are never overwritten. Legacy school/campus records and IDs remain intact. Existing schools display/contact fields are synchronized on subsequent organization configuration saves for compatibility with legacy application code.
 
@@ -71,7 +71,7 @@ The server validates:
 - display-name and contact field lengths;
 - HTTPS/local logo locations and HTTPS institutional website URLs;
 - six-digit hexadecimal brand colors;
-- email, country code, language tags and three-letter currency format;
+- email, country code, language tags and a supported ISO 4217 currency code;
 - IANA time zones;
 - ISO academic dates, term names and date ordering;
 - grading bands and passing-score bounds;
