@@ -241,7 +241,7 @@ class SchoolConfigurationTests(unittest.TestCase):
         self.assertEqual(forbidden.status_code, 404)
 
     def test_non_administrator_cannot_access_configuration(self):
-        self.login("config_viewer", "config-viewer-password")
+        self.login("config_teacher", "config-viewer-password")
         response = self.client.get("/school-network/configuration")
         self.assertEqual(response.status_code, 403)
 
