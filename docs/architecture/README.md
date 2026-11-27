@@ -40,3 +40,5 @@ Copy this structure into `docs/architecture/adr/NNNN-short-title.md`:
 8. **Related backlog IDs and superseding ADRs**
 
 ADRs are append-only in intent: do not rewrite history to hide a prior decision. If a decision changes, create a new ADR and mark the old one superseded.
+
+| [ADR-0007](adr/0007-scoped-rbac-abac-authorization.md) | Scoped RBAC and ABAC authorization | Implemented on feature branch; CI/security review pending | Platform, organization, school and campus permissions with explicit deny and audit |
