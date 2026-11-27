@@ -10,6 +10,8 @@ def register_demo_staff_routes(ns):
     @login_required
     def create_demo_staff_team():
         if (current_user.role != "super_admin" or not current_user.is_super_admin or current_user.school_id is not None): abort(403)
+        from authorization import require_permission
+        require_permission("platform.manage_operators", get_db_connection)
         if request.form.get("confirm_demo_team") != "yes": abort(400)
         school_id=require_school_context()
         people=[
