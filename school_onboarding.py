@@ -574,6 +574,9 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
                 connection.commit()
                 return _json_error("possible_duplicate","An institution with matching identity details may already exist. Contact platform support for review.",409)
             slug_base = re.sub(r"[^a-z0-9]+","-",checked["name"].lower()).strip("-")[:55] or "institution"
+            reserved_slugs = {"admin","api","login","logout","register","platform","www","school","schools"}
+            if slug_base in reserved_slugs:
+                slug_base = slug_base + "-institution"
             slug = slug_base
             suffix = 1
             while connection.execute("SELECT 1 FROM schools WHERE slug=?",(slug,)).fetchone():
