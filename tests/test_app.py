@@ -1565,8 +1565,7 @@ class CMHSPortalTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(dashboard.status_code, 200)
         self.assertIn(b"Parent / Guardian Workspace", dashboard.data)
         records = self.client.get("/students", follow_redirects=True)
-        self.assertEqual(records.status_code, 200)
-        self.assertIn(b"not authorized to view student records", records.data)
+        self.assertEqual(records.status_code, 403)
         self.assertEqual(self.client.get("/announcements").status_code, 200)
 
 if __name__ == "__main__":
