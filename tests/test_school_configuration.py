@@ -191,12 +191,13 @@ class SchoolConfigurationTests(unittest.TestCase):
         response = self.client.patch(
             "/api/v1/schools/1/configuration",
             json={"configuration": {
-                "regional": {"currency": "US", "timezone": "Not/AZone"},
+                "regional": {"currency": "ZZZ", "timezone": "Not/AZone"},
+                "branding": {"unsupported_setting": "unexpected"},
                 "grading_system": {"passing_score": 150, "grades": []}
             }},
         )
         self.assertEqual(response.status_code, 422)
-        self.assertGreaterEqual(len(response.get_json()["errors"]), 3)
+        self.assertGreaterEqual(len(response.get_json()["errors"]), 4)
 
     def test_optimistic_version_conflict_prevents_overwrite(self):
         self.login("config_admin_a", "config-admin-a-password")
