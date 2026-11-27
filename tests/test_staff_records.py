@@ -76,6 +76,17 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         # Recreate canonical school memberships for the newly seeded test identities;
         # staff records are extensions of these rows, never standalone tenant links.
         initialize_membership_schema(portal.get_db_connection)
+        db=portal.get_db_connection()
+        try:
+            # Ensure the suspended legacy user has a suspended school membership
+            # before the staff employment backfill derives its initial status.
+            db.execute(
+                """UPDATE school_memberships SET status='suspended'
+                   WHERE user_id=(SELECT id FROM users WHERE username='inactive_teacher')"""
+            )
+            db.commit()
+        finally:
+            db.close()
         initialize_staff_records(portal.get_db_connection)
         self.admin_id = self.user_id("staff_admin")
         self.teacher_id = self.user_id("existing_teacher")
