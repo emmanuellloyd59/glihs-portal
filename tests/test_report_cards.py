@@ -124,6 +124,8 @@ class ReportCardTests(unittest.TestCase):
         try:
             names = {row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             self.assertIn("report_cards", names)
+            report_schema = connection.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='report_cards'").fetchone()["sql"]
+            self.assertNotIn("Term 1", report_schema)
             grade_columns = {row["name"] for row in connection.execute("PRAGMA table_info(grades)")}
             self.assertIn("academic_year", grade_columns)
             self.assertIn("term", grade_columns)
