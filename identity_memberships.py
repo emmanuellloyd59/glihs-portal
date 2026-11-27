@@ -211,7 +211,7 @@ def resolve_membership(connection, user_id, session_data):
                 INSERT OR IGNORE INTO school_memberships
                     (user_id,school_id,role,status,is_primary,accepted_at)
                 SELECT ?,?,?,'active',1,CURRENT_TIMESTAMP
-                WHERE EXISTS (SELECT 1 FROM schools WHERE id=? AND status='active')
+                WHERE EXISTS (SELECT 1 FROM schools WHERE id=? AND status='active' AND lifecycle_status='active')
             """, (user_id, legacy["school_id"], legacy["role"], legacy["school_id"]))
             connection.commit()
             row = connection.execute("""
@@ -270,7 +270,7 @@ def create_membership_blueprint(connection_factory):
                 FROM school_memberships m
                 JOIN schools s ON s.id=m.school_id
                 LEFT JOIN campuses c ON c.id=m.campus_id AND c.school_id=m.school_id
-                WHERE m.user_id=? AND m.status='active' AND s.status='active'
+                WHERE m.user_id=? AND m.status='active' AND s.status='active' AND s.lifecycle_status='active'
                   AND (m.campus_id IS NULL OR c.status='active')
                 ORDER BY m.is_primary DESC, s.name, c.name
             """, (int(current_user.id),)).fetchall()
