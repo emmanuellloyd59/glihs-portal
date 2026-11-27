@@ -2424,16 +2424,14 @@ def ensure_content_tables(connection):
     """)
     connection.commit()
 
-def can_view_material(role, class_level, archived=False):
+def can_view_material(role, class_level, archived=False, can_manage=False):
     if archived:
-        return role in MATERIALS_MANAGE_ROLES
-    if role in MATERIALS_PUBLISH_ROLES:
-        return True
+        return bool(can_manage)
     if role in {"student", "parent"}:
         # Until student/parent accounts have a verified enrollment link, only school-wide
         # materials are exposed; never trust a class supplied by the browser.
         return class_level.lower() in {"all classes", "school-wide"}
-    return False
+    return True
 
 @app.route("/learning-materials", methods=["GET", "POST"])
 @login_required
@@ -2445,10 +2443,10 @@ def learning_materials():
     role = current_user.role
     connection = get_db_connection()
     try:
+        from authorization import has_permission
+        can_manage_materials = has_permission(connection, "learning.manage_materials", school_id=school_id)
         ensure_content_tables(connection)
         if request.method == "POST":
-            if role not in MATERIALS_PUBLISH_ROLES:
-                abort(403)
             upload = request.files.get("resource_file")
             title = request.form.get("title", "").strip()
             description = request.form.get("description", "").strip()
@@ -2485,7 +2483,7 @@ def learning_materials():
                FROM learning_materials WHERE school_id = ?
                ORDER BY archived, created_at DESC, id DESC""", (school_id,)
         ).fetchall()
-        visible = [row for row in rows if can_view_material(role, row["class_level"], bool(row["archived"]))]
+        visible = [row for row in rows if can_view_material(role, row["class_level"], bool(row["archived"]), can_manage_materials)]
         if role == "teacher":
             assigned_levels = teacher_assigned_class_levels(connection, current_user.id, school_id)
             visible = [
@@ -2496,8 +2494,8 @@ def learning_materials():
     finally:
         connection.close()
     return render_template("learning_materials.html", materials=visible,
-                           can_upload=role in MATERIALS_PUBLISH_ROLES,
-                           can_manage=role in MATERIALS_MANAGE_ROLES)
+                           can_upload=can_manage_materials,
+                           can_manage=can_manage_materials)
 
 @app.route("/learning-materials/<int:material_id>/download")
 @login_required
@@ -2512,8 +2510,10 @@ def download_learning_material(material_id):
             "SELECT * FROM learning_materials WHERE id=? AND school_id=?",
             (material_id, school_id),
         ).fetchone()
+        from authorization import has_permission
+        can_manage_materials = has_permission(connection, "learning.manage_materials", school_id=school_id)
         if material is None or not can_view_material(
-            current_user.role, material["class_level"], bool(material["archived"])
+            current_user.role, material["class_level"], bool(material["archived"]), can_manage_materials
         ):
             abort(404)
         if current_user.role == "teacher":
@@ -2564,10 +2564,10 @@ def announcements():
     role = current_user.role
     connection = get_db_connection()
     try:
+        from authorization import has_permission
+        can_manage_communications = has_permission(connection, "communication.manage", school_id=school_id)
         ensure_content_tables(connection)
         if request.method == "POST":
-            if role not in CONTENT_PUBLISH_ROLES:
-                abort(403)
             title = request.form.get("title", "").strip()
             body = request.form.get("body", "").strip()
             audience = request.form.get("audience", "all").strip()
@@ -2576,8 +2576,8 @@ def announcements():
                 flash("Check the announcement title, message length and audience.", "danger")
                 return redirect(url_for("announcements"))
             if edit_id:
-                if role not in CONTENT_MANAGE_ROLES or not edit_id.isdigit():
-                    abort(403)
+                if not edit_id.isdigit():
+                    abort(400)
                 result = connection.execute(
                     """UPDATE school_announcements SET title=?,body=?,audience=?,
                        updated_by=?,updated_at=CURRENT_TIMESTAMP
@@ -2599,7 +2599,7 @@ def announcements():
             write_audit(current_user.id, action, title)
             flash("Announcement saved.", "success")
             return redirect(url_for("announcements"))
-        if role in CONTENT_MANAGE_ROLES:
+        if can_manage_communications:
             rows = connection.execute(
                 """SELECT * FROM school_announcements WHERE school_id=?
                    ORDER BY CASE status WHEN 'published' THEN 0 ELSE 1 END, updated_at DESC""",
@@ -2615,8 +2615,8 @@ def announcements():
     finally:
         connection.close()
     return render_template("announcements.html", announcements=rows,
-                           can_publish=role in CONTENT_PUBLISH_ROLES,
-                           can_manage=role in CONTENT_MANAGE_ROLES)
+                           can_publish=can_manage_communications,
+                           can_manage=can_manage_communications)
 
 @app.route("/announcements/<int:announcement_id>/archive", methods=["POST"])
 @login_required
