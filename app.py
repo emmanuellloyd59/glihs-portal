@@ -2855,3 +2855,14 @@ app.register_blueprint(create_authorization_blueprint(get_db_connection))
 
 if __name__ == "__main__":
     app.run(port=5000, debug=False)
+
+
+# Institutional lifecycle and provider-neutral subscription foundation.
+# Schema creation is additive; no existing institution is enrolled, suspended,
+# billed or otherwise changed during application startup.
+from institution_subscriptions import (
+    create_subscription_blueprint,
+    initialize_subscription_schema,
+)
+initialize_subscription_schema(get_db_connection)
+app.register_blueprint(create_subscription_blueprint(get_db_connection))
