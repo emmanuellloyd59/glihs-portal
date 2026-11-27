@@ -63,12 +63,15 @@ def register_staff_attendance_routes(ns):
             connection = get_db_connection()
             try:
                 class_levels = get_school_class_levels(connection, school_id)
+                subject_names = {row["name"] for row in connection.execute(
+                    "SELECT name FROM subjects WHERE school_id=? AND active=1",(school_id,)
+                ).fetchall()}
                 if action == "assign_teacher":
                     teacher_text = request.form.get("teacher_id", "").strip()
                     class_level = request.form.get("class_level", "").strip()
                     subject = request.form.get("subject", "").strip()
                     if (not teacher_text.isdigit() or class_level not in class_levels
-                            or not subject or len(subject) > 80
+                            or subject not in subject_names or len(subject) > 80
                             or any(ord(ch) < 32 or ord(ch) == 127 for ch in subject)):
                         abort(400)
                     teacher = connection.execute(
@@ -234,6 +237,10 @@ def register_staff_attendance_routes(ns):
         connection = get_db_connection()
         try:
             class_levels = get_school_class_levels(connection, school_id)
+            subjects = connection.execute(
+                "SELECT id,name FROM subjects WHERE school_id=? AND active=1 ORDER BY name",
+                (school_id,),
+            ).fetchall()
             users = connection.execute(
                 """SELECT id, username, full_name, role, status, created_at, approved_at
                    FROM users
@@ -274,7 +281,7 @@ def register_staff_attendance_routes(ns):
             "staff_management.html", users=users, counts=counts, school=school,
             assignable_roles={key: staff_roles[key] for key in sorted(assignable) if key in staff_roles},
             manageable_roles=manageable, can_manage_roles=current_user.role in {"super_admin", "school_admin"},
-            teachers=teachers, teacher_assignments=teacher_assignments, class_levels=class_levels,
+            teachers=teachers, teacher_assignments=teacher_assignments, class_levels=class_levels, subjects=subjects,
         )
 
     @app.route("/attendance-report", methods=["GET"])
