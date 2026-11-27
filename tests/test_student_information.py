@@ -193,6 +193,57 @@ class StudentInformationTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(downloaded.status_code,200)
         self.assertTrue(downloaded.data.startswith(b"%PDF-1.4"))
 
+    def test_admission_duplicate_screen_requires_a_reasoned_override(self):
+        self.login_as("registrar_demo","test-registrar-password")
+        first=self.client.post("/api/v1/admissions",json={
+            "application_number":"APP-DUP-1","applicant_name":"Casey Fiction",
+            "requested_class":"Grade 7","date_of_birth":"2013-06-01"
+        })
+        self.assertEqual(first.status_code,201)
+        duplicate=self.client.post("/api/v1/admissions",json={
+            "application_number":"APP-DUP-2","applicant_name":"Casey Fiction",
+            "requested_class":"Grade 7","date_of_birth":"2013-06-01"
+        })
+        self.assertEqual(duplicate.status_code,409)
+        override=self.client.post("/api/v1/admissions",json={
+            "application_number":"APP-DUP-2","applicant_name":"Casey Fiction",
+            "requested_class":"Grade 7","date_of_birth":"2013-06-01",
+            "duplicate_override_reason":"Registrar verified different applicants"
+        })
+        self.assertEqual(override.status_code,201)
+
+    def test_outbound_transfer_completion_updates_status_without_deleting_record(self):
+        student_id=self.create_student()
+        self.login_as("registrar_demo","test-registrar-password")
+        created=self.client.post(f"/api/v1/students/{student_id}/transfers",json={
+            "transfer_type":"outbound","destination_name":"Receiving School",
+            "effective_date":"2026-11-27","reason":"Family relocation"
+        })
+        self.assertEqual(created.status_code,201)
+        transfer_id=created.get_json()["transfer_id"]
+        completed=self.client.post(f"/api/v1/student-transfers/{transfer_id}/review",json={"status":"completed"})
+        self.assertEqual(completed.status_code,200)
+        db=portal.get_db_connection()
+        try:
+            row=db.execute("SELECT status FROM students WHERE id=? AND school_id=1",(student_id,)).fetchone()
+            self.assertEqual(row["status"],"transferred")
+        finally: db.close()
+
+    def test_guardian_and_document_archive_preserve_audit_history(self):
+        student_id=self.create_student()
+        self.login_as("registrar_demo","test-registrar-password")
+        guardian=self.client.post(f"/api/v1/students/{student_id}/guardians",json={
+            "full_name":"Pat Fiction","relationship":"Parent"
+        }).get_json()["guardian_id"]
+        self.assertEqual(self.client.delete(f"/api/v1/student-guardians/{guardian}").status_code,200)
+        uploaded=self.client.post(f"/api/v1/students/{student_id}/documents",
+            data={"document_type":"other","file":(io.BytesIO(b"%PDF-1.4\\narchive test"),"record.pdf")},
+            content_type="multipart/form-data")
+        self.assertEqual(uploaded.status_code,201)
+        document_id=uploaded.get_json()["document_id"]
+        self.assertEqual(self.client.delete(f"/api/v1/student-documents/{document_id}").status_code,200)
+        self.assertEqual(self.client.get(f"/api/v1/students/{student_id}/documents").get_json()["items"],[])
+
     def test_identifier_configuration_is_school_specific(self):
         self.login_as("registrar_demo","test-registrar-password")
         response=self.client.put("/api/v1/students/identifier-config",
