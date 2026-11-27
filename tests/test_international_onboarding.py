@@ -206,6 +206,13 @@ class InternationalOnboardingTests(unittest.TestCase):
             self.assertEqual(event["event_type"], "application.submitted")
         finally:
             connection.close()
+        self.login_owner()
+        queue = self.client.get("/api/v1/onboarding/applications")
+        self.assertEqual(queue.status_code,200)
+        item = next(row for row in queue.get_json()["data"] if row["reference"] == draft["reference"])
+        self.assertEqual(item["onboarding_stage"],"verification")
+        self.assertEqual(item["institution_details"]["administrator_email"],"admin@example.test")
+        self.assertIn("school_management",item["requested_services"])
 
     def test_country_specific_requirements_are_configurable(self):
         self.login_owner()
