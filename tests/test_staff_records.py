@@ -392,6 +392,67 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         denied=self.client.get(f"/staff-records/{self.teacher_id}/documents/{doc['id']}")
         self.assertEqual(denied.status_code,404)
 
+    def test_teacher_class_subject_assignments_and_staff_responsibilities(self):
+        self.login()
+        assigned=self.client.post("/staff",data={
+            "action":"assign_teacher","teacher_id":str(self.teacher_id),
+            "class_level":"Grade 8","subject":"Biology"
+        },follow_redirects=True)
+        self.assertEqual(assigned.status_code,200)
+        db=portal.get_db_connection()
+        try:
+            assignment=db.execute(
+                """SELECT id,active FROM teacher_class_assignments
+                   WHERE school_id=1 AND teacher_id=? AND class_level='Grade 8'
+                     AND subject='Biology'""",
+                (self.teacher_id,),
+            ).fetchone()
+            subject_id=db.execute(
+                "SELECT id FROM subjects WHERE school_id=1 AND name='Biology'"
+            ).fetchone()["id"]
+            self.assertEqual(assignment["active"],1)
+        finally:
+            db.close()
+
+        detail=f"/staff-records/{self.teacher_id}"
+        response=self.client.post(detail,data={
+            "action":"add_responsibility","responsibility_type":"subject",
+            "title":"Biology Subject Lead","description":"Coordinate Biology delivery",
+            "class_label":"Grade 8","subject_id":str(subject_id)
+        },follow_redirects=True)
+        self.assertEqual(response.status_code,200)
+        db=portal.get_db_connection()
+        try:
+            responsibility=db.execute(
+                """SELECT id,active,subject_id FROM staff_responsibilities
+                   WHERE school_id=1 AND membership_id=(SELECT id FROM staff_memberships WHERE user_id=?)
+                     AND title='Biology Subject Lead'""",
+                (self.teacher_id,),
+            ).fetchone()
+            self.assertEqual(responsibility["active"],1)
+            self.assertEqual(responsibility["subject_id"],subject_id)
+        finally:
+            db.close()
+
+        archived=self.client.post(detail,data={
+            "action":"archive_responsibility","item_id":str(responsibility["id"])
+        },follow_redirects=True)
+        self.assertEqual(archived.status_code,200)
+        revoked=self.client.post("/staff",data={
+            "action":"revoke_teacher_assignment","assignment_id":str(assignment["id"])
+        },follow_redirects=True)
+        self.assertEqual(revoked.status_code,200)
+        db=portal.get_db_connection()
+        try:
+            self.assertEqual(db.execute(
+                "SELECT active FROM staff_responsibilities WHERE id=?",(responsibility["id"],)
+            ).fetchone()["active"],0)
+            self.assertEqual(db.execute(
+                "SELECT active FROM teacher_class_assignments WHERE id=?",(assignment["id"],)
+            ).fetchone()["active"],0)
+        finally:
+            db.close()
+
     def test_cross_school_staff_records_are_not_discoverable(self):
         db=portal.get_db_connection()
         try:
