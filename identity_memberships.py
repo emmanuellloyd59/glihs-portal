@@ -19,8 +19,18 @@ from werkzeug.security import check_password_hash, generate_password_hash
 SCHOOL_ROLES = {
     "school_admin", "teacher", "registrar", "principal", "vice_principal",
     "student", "parent", "admissions_officer", "academic_admin",
-    "attendance_officer", "finance_admin", "librarian", "counselor",
+    "attendance_officer", "finance_admin", "finance_officer", "librarian", "counselor",
+    "school_owner", "external_service_provider",
 }
+
+
+def _legacy_account_role(role):
+    # Preserve the legacy users.role CHECK constraint; membership role is authoritative.
+    if role == "school_owner":
+        return "school_admin"
+    if role in {"finance_officer", "external_service_provider"}:
+        return "teacher"
+    return role
 
 
 def _now():
@@ -264,10 +274,8 @@ def create_membership_blueprint(connection_factory):
         )
 
     def _school_admin(connection, school_id):
-        if (not current_user.is_authenticated or
-            current_user.school_id != school_id or
-            current_user.role not in {"school_admin", "principal"}):
-            abort(403)
+        from authorization import require_permission
+        require_permission("school.manage_memberships", connection_factory, school_id=school_id)
         school = connection.execute(
             "SELECT id FROM schools WHERE id=? AND status='active' AND lifecycle_status='active'", (school_id,)
         ).fetchone()
@@ -351,6 +359,8 @@ def create_membership_blueprint(connection_factory):
     @bp.post("/api/v1/identity/invitations")
     @login_required
     def invite_member():
+        from authorization import require_permission
+        require_permission("school.manage_memberships", connection_factory)
         payload = request.get_json(silent=True) or {}
         email = str(payload.get("email", "")).strip().lower()
         role = str(payload.get("role", "")).strip()
@@ -483,7 +493,7 @@ def create_membership_blueprint(connection_factory):
                         INSERT INTO users(username,full_name,email,password_hash,role,status,is_super_admin,school_id)
                         VALUES(?,?,?,?,?,'active',0,?)
                     """, (username, full_name, invite["email"],
-                          generate_password_hash(password), invite["role"], invite["school_id"]))
+                          generate_password_hash(password), _legacy_account_role(invite["role"]), invite["school_id"]))
                     user_id = int(cursor.lastrowid)
                 except sqlite3.IntegrityError:
                     return jsonify({"error": "Username already exists. Sign in to the existing account and accept the invitation."}), 409
