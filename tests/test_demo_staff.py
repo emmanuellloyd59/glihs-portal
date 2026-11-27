@@ -26,6 +26,8 @@ class DemoStaffProvisioningTests(unittest.TestCase):
     def setUp(self):
         db = portal.get_db_connection()
         for table in (
+            "identity_recovery_tokens", "membership_invitations",
+            "identity_security_events", "school_memberships",
             "homework_submissions", "homework_assignments", "parent_student_links",
             "finance_payments", "school_announcements", "learning_materials",
             "class_timetable", "grades", "attendance", "report_cards",
@@ -46,6 +48,10 @@ class DemoStaffProvisioningTests(unittest.TestCase):
             """INSERT INTO users (username,password_hash,role,status,is_super_admin,school_id)
                VALUES (?,?, 'teacher','active',0,1)""",
             ("teacher_demo", generate_password_hash("test-teacher-password")),
+        )
+        db.execute(
+            """INSERT INTO school_memberships (user_id, school_id, role, status, is_primary)
+               SELECT id, school_id, role, 'active', 1 FROM users WHERE school_id IS NOT NULL"""
         )
         db.commit()
         db.close()
