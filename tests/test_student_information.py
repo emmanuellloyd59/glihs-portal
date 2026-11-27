@@ -87,6 +87,14 @@ class StudentInformationTests(PortalTestSupport, unittest.TestCase):
 
     def test_teacher_api_response_excludes_sensitive_student_fields(self):
         student_id = self.create_student()
+        db=portal.get_db_connection()
+        try:
+            teacher=db.execute("SELECT id FROM users WHERE username='teacher_demo'").fetchone()["id"]
+            db.execute("""INSERT INTO teacher_class_assignments
+              (school_id,teacher_id,class_level,subject,created_by)
+              VALUES(1,?,'Grade 7','Mathematics',?)""",(teacher,teacher))
+            db.commit()
+        finally: db.close()
         self.login_as("teacher_demo","test-teacher-password")
         response = self.client.get(f"/api/v1/students/{student_id}")
         self.assertEqual(response.status_code,200)
