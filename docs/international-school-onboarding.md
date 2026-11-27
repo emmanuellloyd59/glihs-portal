@@ -52,8 +52,9 @@ The wildcard profile supplies neutral defaults for other valid country codes. Co
 ## Data and security controls
 
 - Draft applications are stored separately; no school row is created until verified submission.
-- Resume and invitation tokens are cryptographically random; only SHA-256 token hashes are stored in their respective token columns.
+- Resume and invitation tokens are cryptographically random; only SHA-256 token hashes are stored in their application/invitation token columns.
 - Email verification uses a separate one-time token hash; successful verification consumes it.
+- The notification outbox necessarily holds a short-lived delivery copy of verification/invitation tokens. Outbox access is not exposed through an API; message bodies are cleared after successful delivery or after the fifth failed attempt.
 - Resume tokens are returned once to the applicant's browser and must be stored privately. They are never written to application audit events.
 - Public draft creation is rate limited by an HMAC of source address and normalized email; a honeypot field provides a low-cost bot signal.
 - Duplicate detection compares normalized institution name or registration number within the same country and returns a non-disclosing response.
