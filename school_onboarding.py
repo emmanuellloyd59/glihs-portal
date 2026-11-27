@@ -404,12 +404,27 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             profile = _country_profile(connection,country)
             if not profile:
                 return _json_error("country_unavailable","Country is not configured.",422)
-            connection.execute(
-                """UPDATE onboarding_applications SET applicant_email=?,country_code=?,payload_json=?,
-                   updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='draft'""",
-                (email,country,json.dumps(merged),row["id"]),
-            )
-            _record_event(connection,row["id"],None,None,"application.draft_updated",{"country_code":country})
+            email_changed = email != row["applicant_email"]
+            verification_token = secrets.token_urlsafe(32) if email_changed else None
+            if email_changed:
+                connection.execute(
+                    """UPDATE onboarding_applications SET applicant_email=?,country_code=?,payload_json=?,
+                       email_verified=0,verification_token_hash=?,updated_at=CURRENT_TIMESTAMP
+                       WHERE id=? AND status='draft'""",
+                    (email,country,json.dumps(merged),_token_hash(verification_token),row["id"]),
+                )
+                verify_url = request.host_url.rstrip("/") + "/api/v1/onboarding/applications/" + reference + "/verify-email"
+                _queue_email(connection,email,"Verify your updated school registration email",
+                             "Your application email was changed. Verify the new address using this one-time token: "+
+                             verification_token+"\\nVerification endpoint: "+verify_url)
+            else:
+                connection.execute(
+                    """UPDATE onboarding_applications SET applicant_email=?,country_code=?,payload_json=?,
+                       updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='draft'""",
+                    (email,country,json.dumps(merged),row["id"]),
+                )
+            _record_event(connection,row["id"],None,None,"application.draft_updated",
+                          {"country_code":country,"email_changed":email_changed})
             connection.commit()
             return jsonify({"data":{"reference":reference,"status":"draft","updated":True}})
         finally:
@@ -481,6 +496,11 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             _record_event(connection,row["id"],school_id,None,"application.submitted",
                           {"country_code":checked["country_code"],"region_label":region_label,
                            "requested_services":checked["requested_services"]})
+            connection.execute(
+                """INSERT INTO school_network_audit(actor_user_id,action,target_school_id,details)
+                   VALUES (NULL,'school.registration_submitted',?,?)""",
+                (school_id,json.dumps({"application_reference":reference,"country_code":checked["country_code"]})),
+            )
             _queue_email(connection,row["applicant_email"],"School registration submitted",
                          "Your institution application "+reference+" has been submitted and is awaiting verification. No school workspace is active yet.")
             connection.commit()
@@ -524,6 +544,9 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
                 (code,name,region_label,1 if payload.get("region_required") else 0,
                  1 if payload.get("registration_number_required") else 0,json.dumps(requirements,sort_keys=True)),
             )
+            _record_event(connection,None,None,int(current_user.id),"country.requirements_updated",
+                          {"country_code":code,"region_required":bool(payload.get("region_required")),
+                           "registration_number_required":bool(payload.get("registration_number_required"))})
             connection.commit()
             return jsonify({"data":{"country_code":code,"country_name":name,"version":"updated"}})
         finally:
@@ -628,6 +651,13 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             ).fetchone()
             if existing:
                 return _json_error("account_exists","An account with this email/username already exists. Use the existing account invitation workflow.",409)
+            pending = connection.execute(
+                """SELECT 1 FROM school_admin_invitations
+                   WHERE school_id=? AND lower(email)=lower(?) AND accepted_at IS NULL AND expires_at>? LIMIT 1""",
+                (school_id,email,_stamp()),
+            ).fetchone()
+            if pending:
+                return _json_error("invitation_exists","A valid invitation already exists for this administrator.",409)
             token = secrets.token_urlsafe(40)
             expires = _stamp(_now()+timedelta(hours=72))
             connection.execute(
@@ -639,6 +669,8 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
             _queue_email(connection,email,"Invitation to administer "+school["name"],
                          "You have been invited to administer "+school["name"]+".\nInvitation token: "+token+
                          "\nAccept endpoint: "+accept_url+"\nThis invitation expires in 72 hours.")
+            _record_event(connection,None,school_id,int(current_user.id),"administrator.invitation_issued",
+                          {"email":email,"expires_at":expires})
             connection.commit()
             return jsonify({"data":{"school_id":school_id,"email":email,"expires_at":expires,
                                     "notification_queued":True}}),202
