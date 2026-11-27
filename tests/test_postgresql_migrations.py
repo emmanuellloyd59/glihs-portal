@@ -116,6 +116,60 @@ class PostgreSQLMigrationTests(unittest.TestCase):
             )
         self.connection.rollback()
 
+    def test_student_with_records_cannot_be_moved_to_another_school(self):
+        school_a, school_b, _, teacher_id, student_id = self._seed_two_schools()
+        # Attach a school-A grade to a valid school-A student, then verify the
+        # school-B student cannot be reassigned while it has a school-scoped link.
+        school_a_student = self.connection.execute(
+            """INSERT INTO students (admission_number,full_name,class_level,school_id)
+               VALUES (%s,%s,%s,%s) RETURNING id""",
+            ("A-REASSIGN", "Protected Student", "Grade 7", school_a),
+        ).fetchone()["id"]
+        self.connection.execute(
+            """INSERT INTO grades
+               (student_id,subject,assessment,score,max_score,recorded_by,school_id)
+               VALUES (%s,'English','Quiz 1',75,100,%s,%s)""",
+            (school_a_student, teacher_id, school_a),
+        )
+        # Link a finance row to the school-B student so moving it is rejected.
+        school_b_teacher = self.connection.execute(
+            """INSERT INTO users (username,password_hash,role,school_id)
+               VALUES (%s,%s,'teacher',%s) RETURNING id""",
+            ("teacher_b_" + self.schema[-8:], "hash", school_b),
+        ).fetchone()["id"]
+        self.connection.execute(
+            """INSERT INTO student_finances
+               (student_id,academic_year,total_fee,updated_by,school_id)
+               VALUES (%s,'2026/2027',500,%s,%s)""",
+            (student_id, school_b_teacher, school_b),
+        )
+        with self.assertRaises(Exception):
+            self.connection.execute(
+                "UPDATE students SET school_id=%s WHERE id=%s",
+                (school_a, student_id),
+            )
+        self.connection.rollback()
+
+    def test_user_with_student_account_link_cannot_change_school(self):
+        school_a, school_b, _, _, _ = self._seed_two_schools()
+        student_user_id = self.connection.execute(
+            """INSERT INTO users (username,password_hash,role,school_id)
+               VALUES (%s,%s,'student',%s) RETURNING id""",
+            ("student_user_" + self.schema[-8:], "hash", school_a),
+        ).fetchone()["id"]
+        self.connection.execute(
+            """INSERT INTO students
+               (admission_number,full_name,class_level,account_user_id,school_id)
+               VALUES (%s,%s,%s,%s,%s)""",
+            ("A-ACCOUNT", "Account Student", "Grade 7", student_user_id, school_a),
+        )
+        with self.assertRaises(Exception):
+            self.connection.execute(
+                "UPDATE users SET school_id=%s WHERE id=%s",
+                (school_b, student_user_id),
+            )
+        self.connection.rollback()
+
     def test_super_admin_can_be_a_school_scoped_finance_actor(self):
         school_a, _, _, _, _ = self._seed_two_schools()
         admin_id = self.connection.execute(
