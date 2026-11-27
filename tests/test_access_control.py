@@ -1488,10 +1488,13 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
                 for path in protected_get_routes:
                     with self.subTest(path=path):
                         response = self.client.get(path)
+                        expected_status = 302 if path == "/students" else 403
                         self.assertEqual(
-                            response.status_code, 403,
+                            response.status_code, expected_status,
                             msg=f"{username} unexpectedly accessed {path}",
                         )
+                        if path == "/students":
+                            self.assertIn("/dashboard", response.headers.get("Location", ""))
                 response = self.client.post("/announcements", data={
                     "title": "Unauthorized specialist notice",
                     "body": "This must not be published.",
@@ -1514,7 +1517,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
     def test_librarian_can_open_learning_resources_without_finance_or_student_record_access(self):
         self.login_as("librarian_route_test")
         self.assertEqual(self.client.get("/learning-materials").status_code, 200)
-        self.assertEqual(self.client.get("/students").status_code, 403)
+        self.assertEqual(self.client.get("/students").status_code, 302)
         self.assertEqual(self.client.get("/student-finances").status_code, 403)
         self.assertEqual(self.client.get("/finance/payments").status_code, 403)
 
