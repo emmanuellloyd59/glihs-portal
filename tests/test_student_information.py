@@ -203,6 +203,8 @@ class StudentInformationTests(PortalTestSupport, unittest.TestCase):
             "effective_date":"2026-11-27","reason_code":"family_relocation"
         })
         self.assertEqual(response.status_code,200)
+        withdrawals=self.client.get(f"/api/v1/students/{student_id}/withdrawals")
+        self.assertEqual(len(withdrawals.get_json()["items"]),1)
         db=portal.get_db_connection()
         try:
             row=db.execute("SELECT status FROM students WHERE id=? AND school_id=1",(student_id,)).fetchone()
@@ -278,6 +280,9 @@ class StudentInformationTests(PortalTestSupport, unittest.TestCase):
         transfer_id=created.get_json()["transfer_id"]
         completed=self.client.post(f"/api/v1/student-transfers/{transfer_id}/review",json={"status":"completed"})
         self.assertEqual(completed.status_code,200)
+        history=self.client.get(f"/api/v1/students/{student_id}/transfers")
+        self.assertEqual(history.status_code,200)
+        self.assertEqual(history.get_json()["items"][0]["status"],"completed")
         db=portal.get_db_connection()
         try:
             row=db.execute("SELECT status FROM students WHERE id=? AND school_id=1",(student_id,)).fetchone()
