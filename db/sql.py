@@ -66,15 +66,17 @@ def qmark_to_format(sql, parameter_count):
         if ch == '"':
             start = i
             i += 1
+            closed = False
             while i < length:
                 if sql[i] == '"':
                     if i + 1 < length and sql[i + 1] == '"':
                         i += 2
                         continue
                     i += 1
+                    closed = True
                     break
                 i += 1
-            if i == length and (not sql or sql[-1] != '"'):
+            if not closed:
                 raise SQLPlaceholderError("unterminated quoted SQL identifier")
             out.append(sql[start:i])
             continue
