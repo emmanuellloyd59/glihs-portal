@@ -54,7 +54,8 @@ def _defaults(school):
             "address_line1": school["address_line1"] or "",
             "address_line2": school["address_line2"] or "",
             "city": school["city"] or "",
-            "region": school["region"] or school["county"] or "",
+            "region": school["region"] or "",
+            "county": school["county"] or "",
             "postal_code": school["postal_code"] or "",
             "country_code": (school["country_code"] or "").upper(),
         },
@@ -113,7 +114,7 @@ def _validate_config(config, campus=False):
     allowed_fields = {
         "branding": {"display_name", "logo_url", "primary_color", "secondary_color"},
         "contact": {"email", "phone", "website_url", "address_line1", "address_line2",
-                    "city", "region", "postal_code", "country_code"},
+                    "city", "region", "county", "postal_code", "country_code"},
         "academic_calendar": {"academic_year_label", "year_start", "year_end",
                               "week_starts_on", "terms"},
         "grading_system": {"name", "passing_score", "grades"},
@@ -157,7 +158,7 @@ def _validate_config(config, campus=False):
             r"https://[^\s]+", str(contact["website_url"]), re.I
         ):
             errors.append("Institution website must use HTTPS.")
-        for key in ("phone", "address_line1", "address_line2", "city", "region", "postal_code"):
+        for key in ("phone", "address_line1", "address_line2", "city", "region", "county", "postal_code"):
             if key in contact and (not isinstance(contact[key], str) or len(contact[key]) > 255):
                 errors.append("Invalid contact field: " + key)
         if "country_code" in contact and contact["country_code"] and not re.fullmatch(
@@ -554,6 +555,7 @@ def create_school_configuration_blueprint(connection_factory):
                 "address_line2": request.form.get("address_line2", current["contact"]["address_line2"]),
                 "city": request.form.get("city", current["contact"]["city"]),
                 "region": request.form.get("region", current["contact"]["region"]),
+                "county": request.form.get("county", current["contact"].get("county", "")),
                 "postal_code": request.form.get("postal_code", current["contact"]["postal_code"]),
                 "country_code": request.form.get("country_code", current["contact"]["country_code"]).upper(),
             },
@@ -731,7 +733,7 @@ def create_school_configuration_blueprint(connection_factory):
                        region=?, postal_code=?, country_code=?, contact_email=?, contact_phone=?,
                        updated_at=CURRENT_TIMESTAMP WHERE id=? AND school_id=?""",
                     (contact.get("address_line1", ""), contact.get("address_line2", ""),
-                     contact.get("city", ""), contact.get("region", ""), contact.get("region", ""),
+                     contact.get("city", ""), contact.get("county", ""), contact.get("region", ""),
                      contact.get("postal_code", ""), contact.get("country_code", ""),
                      contact.get("email", ""), contact.get("phone", ""), campus_id, school_id),
                 )
@@ -816,12 +818,12 @@ def _save_school_config(connection_factory, school_id, patch, actor_id, expected
         regional = merged["regional"]
         connection.execute(
             """UPDATE schools SET name=?, contact_email=?, contact_phone=?, website_url=?,
-               address_line1=?, address_line2=?, city=?, region=?, postal_code=?,
+               address_line1=?, address_line2=?, city=?, county=?, region=?, postal_code=?,
                country_code=?, timezone=?, updated_at=CURRENT_TIMESTAMP WHERE id=?""",
             (branding["display_name"], contact.get("email", ""), contact.get("phone", ""),
              contact.get("website_url", ""), contact.get("address_line1", ""),
              contact.get("address_line2", ""), contact.get("city", ""),
-             contact.get("region", ""), contact.get("postal_code", ""),
+             contact.get("county", ""), contact.get("region", ""), contact.get("postal_code", ""),
              contact.get("country_code", ""), regional["timezone"], school_id),
         )
         changed_sections = [key for key in merged if current.get(key) != merged.get(key)]
