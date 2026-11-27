@@ -46,7 +46,7 @@ A user must have a valid active school membership for tenant operations. A schoo
 
 Additional operational roles such as admissions officer, academic administrator, attendance officer, librarian and counselor remain supported with narrow baselines.
 
-The school owner, finance officer and external service provider are membership roles. The legacy `users.role` CHECK constraint remains unchanged: new memberships map those roles to a compatible legacy account role while the authenticated school role is always resolved from the active membership. Existing user IDs, password hashes and account status are preserved.
+The school owner, finance officer and external service provider are membership roles. Platform administrators can bootstrap the first school-owner membership after explicitly selecting the school; school owners can invite subsequent school administrators and principals, while school administrators cannot promote invitees to owner/administrator. The legacy `users.role` CHECK constraint remains unchanged: new memberships map those roles to a compatible legacy account role while the authenticated school role is always resolved from the active membership. Existing user IDs, password hashes and account status are preserved.
 
 ## Permission catalog
 
