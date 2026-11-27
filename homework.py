@@ -187,7 +187,7 @@ def register_homework_routes(ns):
                 params = [school_id] + ([int(current_user.id)] if role == "teacher" else [])
                 assignment_rows = connection.execute("""SELECT a.*,u.full_name AS teacher_name,
                     u.username AS teacher_username FROM homework_assignments a
-                    JOIN users u ON u.id=a.created_by AND u.school_id=a.school_id
+                    JOIN users u ON u.id=a.created_by
                     WHERE a.school_id=? AND a.status='published'""" + own +
                     " ORDER BY a.due_date,a.created_at DESC",params).fetchall()
                 own_submission = """ AND a.created_by=? AND EXISTS (
