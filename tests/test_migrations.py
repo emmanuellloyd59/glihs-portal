@@ -493,9 +493,9 @@ class DatabaseMigrationTests(unittest.TestCase):
 
                     self.assertTrue(connection.in_transaction)
                     self.assertEqual(
-                        connection.execute(
+                        tuple(connection.execute(
                             "SELECT student_id,received_by FROM finance_payments WHERE id=77"
-                        ).fetchone(),
+                        ).fetchone()),
                         (404, 405),
                     )
                     tables = {
