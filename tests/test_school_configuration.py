@@ -98,7 +98,7 @@ class SchoolConfigurationTests(unittest.TestCase):
             row = connection.execute(
                 "SELECT version,config_json FROM school_configurations WHERE school_id=1"
             ).fetchone()
-            self.assertEqual(before["name"], "CMHS Digital Campus")
+            self.assertEqual(before["name"], "CMHS")
             self.assertEqual(row["version"], 1)
             import json
             config = json.loads(row["config_json"])
