@@ -554,11 +554,12 @@ def create_student_information_blueprint(connection_factory, instance_path, scho
             identifier = allocate_student_identifier(db, school_id)
             cur = db.execute("""
               INSERT INTO students(admission_number,full_name,class_level,date_of_birth,
-                guardian_name,guardian_phone,previous_school,school_id,status)
-              VALUES(?,?,?,?,?,?,?,?, 'active')
+                guardian_name,guardian_phone,previous_school,enrollment_date,school_id,status)
+              VALUES(?,?,?,?,?,?,?,?,?, 'active')
             """, (admission_number, admission["applicant_name"], class_level,
                   admission["date_of_birth"], admission["guardian_name"],
-                  admission["guardian_phone"], admission["previous_school"], school_id))
+                  admission["guardian_phone"], admission["previous_school"],
+                  date.today().isoformat(), school_id))
             db.execute("UPDATE students SET student_id_number=? WHERE id=? AND school_id=?",
                        (identifier, cur.lastrowid, school_id))
             db.execute("UPDATE student_admissions SET student_id=?,status='converted',updated_at=CURRENT_TIMESTAMP WHERE id=? AND school_id=?",
