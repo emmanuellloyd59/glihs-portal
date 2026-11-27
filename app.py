@@ -2052,7 +2052,8 @@ def register_student():
                  previous_school or None, emergency_contact_name or None,
                  emergency_contact_phone or None, record_notes or None, require_school_context()),
             )
-            student_id_number = f"CMHS-{datetime.now().year}-{cursor.lastrowid:05d}"
+            from student_information import allocate_student_identifier
+            student_id_number = allocate_student_identifier(connection, school_id)
             connection.execute(
                 "UPDATE students SET student_id_number = ? WHERE id = ? AND school_id = ?",
                 (student_id_number, cursor.lastrowid, require_school_context()),
