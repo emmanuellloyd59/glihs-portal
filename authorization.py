@@ -23,6 +23,7 @@ PERMISSIONS = {
     "organization.view_analytics": "organization",
     "school.view_dashboard": "school",
     "school.manage_profile": "school",
+    "school.view_configuration": "school",
     "school.manage_configuration": "school",
     "school.manage_campuses": "school",
     "school.manage_memberships": "school",
@@ -59,7 +60,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     "platform_admin": set(PERMISSIONS),
     "super_admin": set(PERMISSIONS),
     "school_owner": {
-        "school.view_dashboard", "school.manage_profile", "school.manage_configuration",
+        "school.view_dashboard", "school.manage_profile", "school.view_configuration", "school.manage_configuration",
         "school.manage_campuses", "school.manage_memberships", "school.manage_roles",
         "school.view_staff", "school.manage_staff", "school.manage_academic_calendar",
         "school.manage_grading", "academic.view_records", "academic.manage_records",
@@ -79,7 +80,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "learning.manage_courses", "communication.view", "communication.manage", "audit.view",
     },
     "principal": {
-        "school.view_dashboard", "school.view_staff", "school.manage_staff",
+        "school.view_dashboard", "school.view_configuration", "school.view_staff", "school.manage_staff",
         "school.manage_academic_calendar", "school.manage_grading", "academic.view_records",
         "academic.manage_records", "academic.manage_attendance", "academic.publish_results",
         "academic.manage_classes", "finance.view", "finance.manage_fees",
@@ -194,8 +195,8 @@ def initialize_authorization_schema(connection_factory):
         );
         """)
         for role, permissions in DEFAULT_ROLE_PERMISSIONS.items():
-            scope = "platform" if role in {"super_admin", "platform_admin"} else "campus" if role in {"teacher", "student", "parent", "external_service_provider"} else "school"
             for permission in permissions:
+                scope = PERMISSIONS[permission]
                 connection.execute("""
                     INSERT OR IGNORE INTO authorization_role_permissions
                     (role,permission,scope_type,effect) VALUES(?,?,?,'allow')
@@ -253,8 +254,12 @@ def has_permission(connection, permission, school_id=None, campus_id=None,
         actor_school = None
         actor_campus = None
         role = "super_admin"
-        # Platform identities still require explicit target selection for tenant work.
+        # Platform identities still require explicit school selection for tenant work.
+        from flask import session
+        selected_school = session.get("active_school_id")
         if school_id is None and PERMISSIONS[permission] != "platform":
+            return False
+        if selected_school is not None and school_id is not None and int(selected_school) != int(school_id):
             return False
     else:
         actor_school = getattr(current_user, "school_id", None)
@@ -384,6 +389,8 @@ def create_authorization_blueprint(connection_factory):
             return jsonify({"error": "Unknown role or permission."}), 400
         if scope_type not in SCOPE_TYPES or effect not in EFFECTS:
             return jsonify({"error": "Invalid scope or effect."}), 400
+        if PERMISSIONS[permission] == "platform" and scope_type != "platform":
+            return jsonify({"error": "Platform permissions cannot be assigned below platform scope."}), 403
         if scope_type == "platform" and role not in {"super_admin", "platform_admin"}:
             return jsonify({"error": "Only platform roles may receive platform-scope permissions."}), 403
         connection = connection_factory()
@@ -421,22 +428,47 @@ def create_authorization_blueprint(connection_factory):
             return jsonify({"error": "A user or role subject is required."}), 400
         if scope_type == "platform":
             if not (getattr(current_user, "is_super_admin", False)
-                    and getattr(current_user, "role", None) == "super_admin"):
+                    and getattr(current_user, "role", None) == "super_admin"
+                    and getattr(current_user, "school_id", None) is None):
                 abort(403)
+            if PERMISSIONS[permission] != "platform":
+                return jsonify({"error": "Platform grants are reserved for platform-scope permissions."}), 403
         else:
             school_id = payload.get("school_id")
+            if not isinstance(school_id, int) or isinstance(school_id, bool):
+                return jsonify({"error": "An authorized school_id is required."}), 400
             require_permission("school.manage_roles", connection_factory, school_id=school_id)
-            if scope_type == "school" and (not isinstance(scope_id, int) or scope_id != school_id):
-                return jsonify({"error": "Grant scope must match the authorized school."}), 403
-            if scope_type == "campus":
-                connection = connection_factory()
-                try:
+            scope_rank = {"platform": 0, "organization": 1, "school": 2, "campus": 3}
+            if scope_rank[scope_type] < scope_rank[PERMISSIONS[permission]]:
+                return jsonify({"error": "The grant scope is broader than this permission's permitted scope."}), 403
+            connection = connection_factory()
+            try:
+                school = connection.execute("SELECT id FROM schools WHERE id=?", (school_id,)).fetchone()
+                if not school:
+                    abort(404)
+                if scope_type == "school" and (not isinstance(scope_id, int) or scope_id != school_id):
+                    return jsonify({"error": "Grant scope must match the authorized school."}), 403
+                if scope_type == "organization":
+                    valid = connection.execute(
+                        "SELECT 1 FROM school_group_memberships WHERE group_id=? AND school_id=?",
+                        (scope_id, school_id),
+                    ).fetchone()
+                    if not valid:
+                        abort(404)
+                if scope_type == "campus":
                     valid = connection.execute("SELECT 1 FROM campuses WHERE id=? AND school_id=?",
                                                (scope_id, school_id)).fetchone()
-                finally:
-                    connection.close()
-                if not valid:
-                    abort(404)
+                    if not valid:
+                        abort(404)
+                if subject_type == "user":
+                    valid_subject = connection.execute(
+                        "SELECT 1 FROM school_memberships WHERE user_id=? AND school_id=? AND status='active'",
+                        (int(subject_id), school_id),
+                    ).fetchone()
+                    if not valid_subject:
+                        return jsonify({"error": "User subject must have an active membership in this school."}), 404
+            finally:
+                connection.close()
         conditions = payload.get("conditions", {})
         if not isinstance(conditions, dict) or len(json.dumps(conditions)) > 4000:
             return jsonify({"error": "Invalid grant conditions."}), 400
