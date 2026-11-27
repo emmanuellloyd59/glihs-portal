@@ -21,6 +21,7 @@ from flask_login import (
 )
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import check_password_hash, generate_password_hash
+from database import connect_sqlite
 
 
 # --------------------------------------------------
@@ -117,11 +118,12 @@ STUDENT_RECORD_ROLES = {
 # --------------------------------------------------
 
 def get_db_connection():
-    """Open a row-aware SQLite connection with referential integrity enabled."""
-    connection = sqlite3.connect(DATABASE, timeout=10)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    """Open the configured database backend connection.
+
+    SQLite connection setup is isolated in database.py. PostgreSQL remains
+    deliberately unsupported until its complete query and migration port lands.
+    """
+    return connect_sqlite(DATABASE)
 
 
 def migrate_users_table(connection):
