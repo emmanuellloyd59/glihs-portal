@@ -50,8 +50,12 @@
     <div class="col-12 col-md-6"><label class="form-label" for="website_url">Official website</label><input class="form-control" id="website_url" type="url" maxlength="255" placeholder="https://"></div>
     <div class="col-12"><label class="form-label" for="description">Institution profile</label><textarea class="form-control" id="description" rows="3" maxlength="2000"></textarea></div>
     <div class="col-12"><h2 class="h5">Requested services</h2><p class="text-secondary small">Select the systems your institution wants to use. You can configure them after activation.</p><div id="service-options" class="row g-2"></div></div>
+    <div class="col-12"><h2 class="h5">Resume a saved application</h2></div>
+    <div class="col-12 col-md-5"><label class="form-label" for="resume-reference">Application reference</label><input class="form-control" id="resume-reference" placeholder="ONB-…"></div>
+    <div class="col-12 col-md-5"><label class="form-label" for="resume-token">Resume token</label><input class="form-control" id="resume-token" placeholder="Paste your private resume token"></div>
+    <div class="col-12 col-md-2 d-flex align-items-end"><button class="btn btn-outline-secondary w-100" type="button" id="load-draft">Load draft</button></div>
     <div class="col-12"><label class="form-label" for="verification-token">Email verification code</label><input class="form-control" id="verification-token" autocomplete="one-time-code" placeholder="Paste the one-time token from your email"><div class="form-text">Save your draft first. A verification token will be sent to the application email.</div></div>
-    <div class="col-12"><label class="form-label" for="resume-token">Resume token (keep this private)</label><input class="form-control" id="resume-token" readonly><div class="form-text">Copy and store this token securely. It is needed to reopen your draft.</div></div>
+    <div class="col-12"><div class="form-text">When a draft is first saved, copy the resume token and keep it private. You need both the application reference and token to reopen it.</div></div>
     <div class="col-12 d-flex flex-wrap gap-2">
       <button class="btn btn-outline-primary" type="button" id="save-draft">Save draft</button>
       <button class="btn btn-outline-secondary" type="button" id="verify-email">Verify email</button>
@@ -114,11 +118,30 @@
         const created = await request("/api/v1/onboarding/applications","POST",data);
         reference = created.reference; resumeToken = created.resume_token;
         $("resume-token").value = resumeToken;
+      $("resume-reference").value = reference;
       } else {
         await request("/api/v1/onboarding/applications/" + reference,"PUT",{...data,resume_token:resumeToken});
       }
       $("application-reference").textContent = "Application reference: " + reference;
+      $("resume-reference").value = reference;
       show("Draft saved. Check your email for the one-time verification token.","success");
+    } catch (error) { show(error.message,"danger"); }
+  });
+  $("load-draft").addEventListener("click", async () => {
+    try {
+      reference = $("resume-reference").value.trim();
+      resumeToken = $("resume-token").value.trim();
+      if (!reference || !resumeToken) throw new Error("Enter both the application reference and resume token.");
+      const saved = await request("/api/v1/onboarding/applications/" + reference,"GET",null,resumeToken);
+      const data = saved.application || {};
+      fields.forEach(key => { if (data[key] !== undefined && $(key)) $(key).value = data[key] || ""; });
+      $("country_code").value = saved.country_code;
+      $("country_code").dispatchEvent(new Event("change"));
+      document.querySelectorAll("[name='requested_services']").forEach(box => {
+        box.checked = Array.isArray(data.requested_services) && data.requested_services.includes(box.value);
+      });
+      $("application-reference").textContent = "Application reference: " + reference;
+      show("Draft loaded. Continue editing, verify your email if needed, then submit.","success");
     } catch (error) { show(error.message,"danger"); }
   });
   $("verify-email").addEventListener("click", async () => {
