@@ -2750,6 +2750,14 @@ app.register_blueprint(
     create_school_onboarding_blueprint(get_db_connection, _is_platform_owner)
 )
 
+# Centralized tenant-owned configuration with additive legacy-settings backfill.
+from school_configuration import (
+    create_school_configuration_blueprint,
+    initialize_configuration_schema,
+)
+initialize_configuration_schema(get_db_connection)
+app.register_blueprint(create_school_configuration_blueprint(get_db_connection))
+
 
 if __name__ == "__main__":
     app.run(port=5000, debug=False)
