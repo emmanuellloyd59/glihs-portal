@@ -341,8 +341,8 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
     @bp.get("/api/v1/onboarding/applications")
     @login_required
     def list_applications():
-        if not platform_owner_check():
-            abort(403)
+        from authorization import require_permission
+        require_permission("platform.manage_schools", connection_factory)
         status = _clean(request.args.get("status"),24)
         connection = connection_factory()
         try:
