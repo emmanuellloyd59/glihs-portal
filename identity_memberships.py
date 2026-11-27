@@ -199,29 +199,38 @@ def resolve_membership(connection, user_id, session_data):
         ORDER BY m.is_primary DESC, m.id LIMIT 1
     """, (user_id,)).fetchone()
     if row is None:
-        # Compatibility bridge for legacy account-creation routes that still
-        # write users.school_id/role. The first authenticated request materializes
-        # the equivalent membership without changing the legacy account record.
-        legacy = connection.execute(
-            "SELECT school_id,role FROM users WHERE id=? AND is_super_admin=0",
-            (user_id,),
-        ).fetchone()
-        if legacy and legacy["school_id"] is not None and legacy["role"] in SCHOOL_ROLES:
-            connection.execute("""
-                INSERT OR IGNORE INTO school_memberships
-                    (user_id,school_id,role,status,is_primary,accepted_at)
-                SELECT ?,?,?,'active',1,CURRENT_TIMESTAMP
-                WHERE EXISTS (SELECT 1 FROM schools WHERE id=? AND status='active' AND lifecycle_status='active')
-            """, (user_id, legacy["school_id"], legacy["role"], legacy["school_id"]))
-            connection.commit()
-            row = connection.execute("""
-                SELECT m.id AS membership_id,m.school_id,m.campus_id,m.role,
-                       m.status AS membership_status
-                FROM school_memberships m JOIN schools s
-                  ON s.id=m.school_id AND s.status='active' AND s.lifecycle_status='active'
-                WHERE m.user_id=? AND m.status='active'
-                ORDER BY m.is_primary DESC,m.id LIMIT 1
-            """, (user_id,)).fetchone()
+        # Compatibility bridge for legacy account-creation routes. Materialize
+        # missing school-level memberships for legacy users without changing
+        # credentials or reviving memberships that were explicitly suspended
+        # or revoked (the unique scope index preserves those lifecycle records).
+        connection.execute("""
+            INSERT OR IGNORE INTO school_memberships
+                (user_id,school_id,role,status,is_primary,accepted_at)
+            SELECT u.id,u.school_id,u.role,'active',1,COALESCE(u.approved_at,u.created_at)
+            FROM users u
+            JOIN schools s ON s.id=u.school_id
+              AND s.status='active' AND s.lifecycle_status='active'
+            WHERE u.school_id IS NOT NULL AND u.is_super_admin=0
+              AND u.status='active'
+              AND u.role IN (
+                'school_admin','teacher','registrar','principal','vice_principal',
+                'student','parent','admissions_officer','academic_admin',
+                'attendance_officer','finance_admin','librarian','counselor'
+              )
+        """)
+        connection.commit()
+        row = connection.execute("""
+            SELECT m.id AS membership_id,m.school_id,m.campus_id,m.role,
+                   m.status AS membership_status
+            FROM school_memberships m JOIN schools s
+              ON s.id=m.school_id AND s.status='active' AND s.lifecycle_status='active'
+            WHERE m.user_id=? AND m.status='active'
+              AND (m.campus_id IS NULL OR EXISTS (
+                SELECT 1 FROM campuses c WHERE c.id=m.campus_id
+                  AND c.school_id=m.school_id AND c.status='active'
+              ))
+            ORDER BY m.is_primary DESC,m.id LIMIT 1
+        """, (user_id,)).fetchone()
     if row is not None:
         session_data["active_membership_id"] = int(row["membership_id"])
     return row
