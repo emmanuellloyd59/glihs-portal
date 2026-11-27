@@ -25,6 +25,7 @@ class DemoStaffProvisioningTests(unittest.TestCase):
 
     def setUp(self):
         db = portal.get_db_connection()
+        db.execute("PRAGMA foreign_keys = OFF")
         db.execute(
             "UPDATE schools SET status='active', lifecycle_status='active' WHERE id=1"
         )
@@ -47,6 +48,8 @@ class DemoStaffProvisioningTests(unittest.TestCase):
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='student_identifier_config'").fetchone():
             db.execute("DELETE FROM student_identifier_config WHERE school_id <> 1")
         db.execute("DELETE FROM schools WHERE id <> 1")
+        db.commit()
+        db.execute("PRAGMA foreign_keys = ON")
         db.execute(
             """INSERT INTO users (username,password_hash,role,status,is_super_admin,school_id)
                VALUES (?,?, 'super_admin','active',1,NULL)""",
