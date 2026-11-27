@@ -424,14 +424,36 @@ def create_school_configuration_blueprint(connection_factory):
                 "primary_color": request.form.get("primary_color", current["branding"]["primary_color"]),
                 "secondary_color": request.form.get("secondary_color", current["branding"]["secondary_color"]),
             },
+            "contact": {
+                "email": request.form.get("contact_email", current["contact"]["email"]),
+                "phone": request.form.get("contact_phone", current["contact"]["phone"]),
+                "website_url": request.form.get("website_url", current["contact"]["website_url"]),
+                "address_line1": request.form.get("address_line1", current["contact"]["address_line1"]),
+                "address_line2": request.form.get("address_line2", current["contact"]["address_line2"]),
+                "city": request.form.get("city", current["contact"]["city"]),
+                "region": request.form.get("region", current["contact"]["region"]),
+                "postal_code": request.form.get("postal_code", current["contact"]["postal_code"]),
+                "country_code": request.form.get("country_code", current["contact"]["country_code"]).upper(),
+            },
             "regional": {
                 "currency": request.form.get("currency", current["regional"]["currency"]).upper(),
                 "timezone": request.form.get("timezone", current["regional"]["timezone"]),
                 "default_language": request.form.get("default_language", current["regional"]["default_language"]),
                 "supported_languages": [v.strip() for v in request.form.get("supported_languages", "").split(",") if v.strip()],
             },
+            "modules": {"enabled": request.form.getlist("enabled_modules")},
         }
-        patch["modules"] = {"enabled": request.form.getlist("enabled_modules")}
+        for field, section in (
+            ("academic_calendar_json", "academic_calendar"),
+            ("grading_system_json", "grading_system"),
+            ("operational_policies_json", "operational_policies"),
+        ):
+            try:
+                patch[section] = json.loads(request.form.get(field, "{}"))
+            except (TypeError, ValueError):
+                flash(section.replace("_", " ").title() + " must be valid JSON.", "danger")
+                suffix = "?school_id=" + str(school_id) if access == "platform" else ""
+                return redirect(url_for("school_configuration.configuration_centre") + suffix)
         result = _save_school_config(connection_factory, school_id, patch, current_user.id)
         if not result[0]:
             for error in result[1]:
