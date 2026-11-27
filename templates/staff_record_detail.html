@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Staff Record | {{ member.full_name or member.username }}{% endblock %}
+{% block content %}
+<section class="rounded-4 p-4 p-md-5 mb-4 text-white" style="background:linear-gradient(120deg,#102a43,#164e78 65%,#1769aa);">
+  <p class="eyebrow mb-2" style="color:#8ce7df;">{{ school.name }} · STAFF RECORD</p>
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+    <div><h1 class="display-6 fw-bold mb-1">{{ member.preferred_name or member.full_name or member.username }}</h1>
+      <p class="mb-1" style="color:#e1edf7;">{{ member.job_title or member.role.replace('_',' ').title() }} · @{{ member.username }}</p>
+      <p class="small mb-0" style="color:#c6d8e9;">Employee no. {{ member.employee_number or "Not assigned" }}</p>
+    </div>
+    <span class="badge {% if member.membership_status == 'active' %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ member.membership_status|title }} membership</span>
+  </div>
+</section>
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-md-4"><div class="surface-card p-3 h-100"><div class="small text-secondary">Employment status</div><strong>{{ member.employment_status|replace('_',' ')|title }}</strong></div></div>
+  <div class="col-12 col-md-4"><div class="surface-card p-3 h-100"><div class="small text-secondary">Department</div><strong>{% if member.department_id %}Assigned department{% else %}Not assigned{% endif %}</strong></div></div>
+  <div class="col-12 col-md-4"><div class="surface-card p-3 h-100"><div class="small text-secondary">School account</div><strong>{{ member.account_status|title }}</strong></div></div>
+</div>
+
+<section class="surface-card p-4 mb-4">
+  <div class="d-flex justify-content-between flex-wrap gap-2 mb-3"><div><p class="eyebrow text-primary mb-1">Personal and contact information</p><h2 class="h4 fw-bold mb-0">Staff profile</h2></div></div>
+  <form method="post" class="row g-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="update_profile">
+    <div class="col-md-4"><label class="form-label">Employee number</label><input class="form-control" name="employee_number" maxlength="40" value="{{ member.employee_number or '' }}"></div>
+    <div class="col-md-4"><label class="form-label">Preferred name</label><input class="form-control" name="preferred_name" maxlength="120" value="{{ member.preferred_name or '' }}"></div>
+    <div class="col-md-4"><label class="form-label">Phone</label><input class="form-control" name="phone" maxlength="40" value="{{ member.phone or '' }}"></div>
+    <div class="col-md-6"><label class="form-label">Email</label><input class="form-control" type="email" name="email" maxlength="254" value="{{ member.email or '' }}"></div>
+    <div class="col-md-6"><label class="form-label">Address</label><input class="form-control" name="address" maxlength="500" value="{{ member.address or '' }}"></div>
+    <div class="col-md-4"><label class="form-label">Emergency contact</label><input class="form-control" name="emergency_contact_name" maxlength="120" value="{{ member.emergency_contact_name or '' }}"></div>
+    <div class="col-md-4"><label class="form-label">Emergency phone</label><input class="form-control" name="emergency_contact_phone" maxlength="40" value="{{ member.emergency_contact_phone or '' }}"></div>
+    <div class="col-md-2"><label class="form-label">Date of birth</label><input class="form-control" type="date" name="date_of_birth" value="{{ member.date_of_birth or '' }}"></div>
+    <div class="col-md-2"><label class="form-label">Gender (optional)</label><select class="form-select" name="gender"><option value="">Not specified</option>{% for value,label in [('female','Female'),('male','Male'),('non_binary','Non-binary'),('prefer_not_to_say','Prefer not to say')] %}<option value="{{ value }}" {% if member.gender == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="col-12"><label class="form-label">Private profile notes</label><textarea class="form-control" name="profile_notes" rows="2" maxlength="2000">{{ member.profile_notes or '' }}</textarea></div>
+    <div class="col-12"><button class="btn btn-primary">Save profile</button></div>
+  </form>
+</section>
+
+<section class="surface-card p-4 mb-4">
+  <p class="eyebrow text-primary mb-1">Employment and organizational placement</p><h2 class="h4 fw-bold mb-3">Employment information</h2>
+  <form method="post" class="row g-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="update_employment">
+    <div class="col-md-4"><label class="form-label">Job title / responsibility</label><input class="form-control" name="job_title" maxlength="120" value="{{ member.job_title or '' }}" required></div>
+    <div class="col-md-4"><label class="form-label">Department</label><select class="form-select" name="department_id"><option value="">No department</option>{% for d in departments %}<option value="{{ d.id }}" {% if member.department_id == d.id %}selected{% endif %}>{{ d.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-4"><label class="form-label">Supervisor</label><select class="form-select" name="supervisor_membership_id"><option value="">No supervisor</option>{% for p in supervisors %}<option value="{{ p.id }}" {% if member.supervisor_membership_id == p.id %}selected{% endif %}>{{ p.full_name or p.username }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><label class="form-label">Employment type</label><select class="form-select" name="employment_type">{% for value,label in [('full_time','Full-time'),('part_time','Part-time'),('contract','Contract'),('temporary','Temporary'),('volunteer','Volunteer'),('intern','Intern'),('other','Other')] %}<option value="{{ value }}" {% if member.employment_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><label class="form-label">Employment status</label><select class="form-select" name="employment_status">{% for value,label in [('draft','Draft'),('active','Active'),('on_leave','On leave'),('suspended','Suspended'),('retired','Retired')] %}<option value="{{ value }}" {% if member.employment_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><div class="form-text">Use Offboard below for termination and access revocation.</div></div>
+    <div class="col-md-3"><label class="form-label">Start date</label><input class="form-control" type="date" name="start_date" value="{{ member.start_date or '' }}"></div>
+    <div class="col-md-3"><label class="form-label">End date</label><input class="form-control" type="date" name="end_date" value="{{ member.end_date or '' }}"></div>
+    <div class="col-md-4"><label class="form-label">Work location / campus</label><input class="form-control" name="work_location" maxlength="160" value="{{ member.work_location or '' }}"></div>
+    <div class="col-md-8"><label class="form-label">Responsibilities summary</label><input class="form-control" name="responsibilities_summary" maxlength="2000" value="{{ member.responsibilities_summary or '' }}"></div>
+    <div class="col-12"><button class="btn btn-primary">Save employment details</button></div>
+  </form>
+</section>
+
+<section class="surface-card p-4 mb-4">
+  <p class="eyebrow text-primary mb-1">Qualifications and credentials</p><h2 class="h4 fw-bold mb-3">Qualifications</h2>
+  <form method="post" class="row g-3 mb-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="add_qualification">
+    <div class="col-md-4"><label class="form-label">Qualification</label><input class="form-control" name="qualification" maxlength="180" required placeholder="B.Ed., Diploma, Certificate"></div>
+    <div class="col-md-3"><label class="form-label">Institution</label><input class="form-control" name="institution" maxlength="180"></div>
+    <div class="col-md-3"><label class="form-label">Field of study</label><input class="form-control" name="field_of_study" maxlength="120"></div>
+    <div class="col-md-2"><label class="form-label">Award date</label><input class="form-control" type="date" name="award_date"></div>
+    <div class="col-12"><label class="form-label">Notes</label><input class="form-control" name="notes" maxlength="1000"></div>
+    <div class="col-12"><button class="btn btn-outline-primary">Add qualification</button></div>
+  </form>
+  {% if qualifications %}<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Qualification</th><th>Institution / field</th><th>Awarded</th><th>Verification</th></tr></thead><tbody>{% for q in qualifications %}<tr><td>{{ q.qualification }}</td><td>{{ q.institution }}<div class="small text-secondary">{{ q.field_of_study }}</div></td><td>{{ q.award_date or '—' }}</td><td>{{ q.verification_status|title }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="text-secondary">No qualifications recorded.</p>{% endif %}
+</section>
+
+<section class="surface-card p-4 mb-4">
+  <p class="eyebrow text-primary mb-1">Classes, subjects and responsibilities</p><h2 class="h4 fw-bold mb-3">Assigned responsibilities</h2>
+  <form method="post" class="row g-3 mb-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="add_responsibility">
+    <div class="col-md-3"><label class="form-label">Type</label><select class="form-select" name="responsibility_type">{% for value,label in [('class','Class'),('subject','Subject'),('department','Department'),('leadership','Leadership'),('administrative','Administrative'),('other','Other')] %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
+    <div class="col-md-4"><label class="form-label">Title</label><input class="form-control" name="title" maxlength="160" required></div>
+    <div class="col-md-2"><label class="form-label">Class / grade</label><input class="form-control" name="class_label" maxlength="100"></div>
+    <div class="col-md-3"><label class="form-label">Subject</label><select class="form-select" name="subject_id"><option value="">Not applicable</option>{% for s in subjects %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select></div>
+    <div class="col-12"><label class="form-label">Description</label><input class="form-control" name="description" maxlength="1000"></div>
+    <div class="col-12"><button class="btn btn-outline-primary">Add responsibility</button></div>
+  </form>
+  {% if responsibilities %}<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Responsibility</th><th>Class</th><th>Subject</th><th>Type</th></tr></thead><tbody>{% for r in responsibilities %}<tr><td>{{ r.title }}<div class="small text-secondary">{{ r.description }}</div></td><td>{{ r.class_label or '—' }}</td><td>{{ r.subject_name or '—' }}</td><td>{{ r.responsibility_type|title }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="text-secondary">No additional responsibilities recorded.</p>{% endif %}
+</section>
+
+<section class="surface-card p-4 mb-4">
+  <p class="eyebrow text-primary mb-1">School-owned records</p><h2 class="h4 fw-bold mb-3">Departments</h2>
+  <form method="post" class="row g-2 mb-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="create_department">
+    <div class="col-md-4"><input class="form-control" name="department_name" maxlength="100" required placeholder="Department name"></div>
+    <div class="col-md-6"><input class="form-control" name="department_description" maxlength="500" placeholder="Description"></div>
+    <div class="col-md-2"><button class="btn btn-outline-primary w-100">Add</button></div>
+  </form>
+  <p class="small text-secondary mb-0">{% if departments %}{% for d in departments %}<span class="badge text-bg-light border me-1">{{ d.name }}</span>{% endfor %}{% else %}No departments configured yet.{% endif %}</p>
+</section>
+
+<section class="surface-card p-4 mb-4">
+  <p class="eyebrow text-primary mb-1">Private employee documents</p><h2 class="h4 fw-bold mb-3">Documents</h2>
+  <form method="post" enctype="multipart/form-data" class="row g-3 mb-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="upload_document">
+    <div class="col-md-4"><label class="form-label">Document category</label><input class="form-control" name="document_type" maxlength="80" required placeholder="Qualification, contract, ID"></div>
+    <div class="col-md-6"><label class="form-label">File (PDF, PNG, JPG; max 5 MB)</label><input class="form-control" type="file" name="document" accept=".pdf,.png,.jpg,.jpeg" required></div>
+    <div class="col-md-2 d-flex align-items-end"><button class="btn btn-primary w-100">Upload</button></div>
+  </form>
+  {% if documents %}<ul class="list-group list-group-flush">{% for d in documents %}<li class="list-group-item d-flex justify-content-between align-items-center gap-2"><div><strong>{{ d.document_type }}</strong><div class="small text-secondary">{{ d.original_filename }} · {{ (d.file_size / 1024)|round|int }} KB</div></div><a class="btn btn-sm btn-outline-primary" href="{{ url_for('download_staff_document',user_id=member.user_id,document_id=d.id) }}">Download</a></li>{% endfor %}</ul>{% else %}<p class="text-secondary mb-0">No documents uploaded.</p>{% endif %}
+</section>
+
+<section class="surface-card p-4 mb-4">
+  <p class="eyebrow text-primary mb-1">Employment lifecycle</p><h2 class="h4 fw-bold mb-3">Onboarding and offboarding</h2>
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    {% if member.membership_status != 'active' or member.employment_status != 'active' %}
+    <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="onboard"><button class="btn btn-success">Onboard / Reactivate</button></form>
+    {% endif %}
+    {% if member.membership_status == 'active' %}
+    <form method="post" class="d-flex flex-wrap gap-2" onsubmit="return confirm('Offboard this employee and revoke their school login access?');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="offboard">
+      <input class="form-control" name="notes" maxlength="1000" placeholder="Offboarding reason / handover notes">
+      <button class="btn btn-outline-danger">Offboard and revoke access</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if lifecycle %}<h3 class="h6 fw-bold">Lifecycle history</h3><ul class="list-group list-group-flush">{% for event in lifecycle %}<li class="list-group-item"><strong>{{ event.event_type|replace('_',' ')|title }}</strong> · {{ event.event_date }}{% if event.notes %}<div class="small text-secondary">{{ event.notes }}</div>{% endif %}</li>{% endfor %}</ul>{% endif %}
+</section>
+<a class="btn btn-outline-secondary" href="{{ url_for('staff_management') }}">Back to staff directory</a>
+{% endblock %}
