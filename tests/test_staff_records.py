@@ -329,17 +329,46 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         denied=self.client.get(f"/staff-records/{self.teacher_id}")
         self.assertEqual(denied.status_code,403)
 
-    def test_tenant_triggers_reject_cross_school_staff_membership_and_subjects(self):
+    def test_tenant_triggers_reject_mismatched_links_and_allow_multiple_school_memberships(self):
         db=portal.get_db_connection()
         try:
             school_id=db.execute(
                 "INSERT INTO schools(name,slug,status) VALUES('Other School','other-school-trigger','active')"
             ).lastrowid
+            db.commit()
+            original_membership=db.execute(
+                "SELECT id FROM school_memberships WHERE school_id=1 AND user_id=? AND status='active'",
+                (self.teacher_id,),
+            ).fetchone()["id"]
+            # A staff extension cannot point at a membership from a different school.
             with self.assertRaises(Exception):
-                db.execute("INSERT INTO staff_memberships(school_id,user_id) VALUES(?,?)",(school_id,self.teacher_id))
+                db.execute(
+                    """INSERT INTO staff_memberships
+                       (school_id,user_id,school_membership_id,membership_status)
+                       VALUES(?,?,?,'active')""",
+                    (school_id,self.teacher_id,original_membership),
+                )
             db.rollback()
+            # The same global identity may legitimately hold another school's
+            # membership without changing users.school_id or its password hash.
+            new_membership_id=db.execute(
+                """INSERT INTO school_memberships
+                   (user_id,school_id,role,status,is_primary,accepted_at)
+                   VALUES(?,?,'teacher','active',0,CURRENT_TIMESTAMP)""",
+                (self.teacher_id,school_id),
+            ).lastrowid
+            db.commit()
+            staff=db.execute(
+                """SELECT school_membership_id FROM staff_memberships
+                   WHERE school_id=? AND user_id=?""",
+                (school_id,self.teacher_id),
+            ).fetchone()
+            user=db.execute("SELECT school_id FROM users WHERE id=?",(self.teacher_id,)).fetchone()
+            self.assertEqual(staff["school_membership_id"],new_membership_id)
+            self.assertEqual(user["school_id"],1)
         finally:
             db.close()
+
 
 
 if __name__ == "__main__":
