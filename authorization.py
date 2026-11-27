@@ -457,10 +457,7 @@ def create_authorization_blueprint(connection_factory):
     @bp.put("/api/v1/authorization/roles/<role>/permissions")
     @login_required
     def update_role_permissions(role):
-        if not (getattr(current_user, "is_super_admin", False)
-                and getattr(current_user, "role", None) == "super_admin"
-                and getattr(current_user, "school_id", None) is None):
-            abort(403)
+        require_permission("platform.manage_global_policies", connection_factory)
         payload = request.get_json(silent=True) or {}
         permission = payload.get("permission")
         scope_type = payload.get("scope_type", "school")
@@ -471,6 +468,10 @@ def create_authorization_blueprint(connection_factory):
             return jsonify({"error": "Invalid scope or effect."}), 400
         if PERMISSIONS[permission] == "platform" and scope_type != "platform":
             return jsonify({"error": "Platform permissions cannot be assigned below platform scope."}), 403
+        if PERMISSIONS[permission] == "organization" and scope_type != "organization":
+            return jsonify({"error": "Organization permissions must be assigned at organization scope."}), 403
+        if PERMISSIONS[permission] == "campus" and scope_type != "campus":
+            return jsonify({"error": "Campus permissions must be assigned at campus scope."}), 403
         if scope_type == "platform" and role not in {"super_admin", "platform_admin"}:
             return jsonify({"error": "Only platform roles may receive platform-scope permissions."}), 403
         connection = connection_factory()
