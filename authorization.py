@@ -261,8 +261,15 @@ def has_permission(connection, permission, school_id=None, campus_id=None,
         selected_school = session.get("active_school_id")
         if school_id is None and PERMISSIONS[permission] != "platform":
             return False
-        if selected_school is not None and school_id is not None and int(selected_school) != int(school_id):
-            return False
+        if PERMISSIONS[permission] != "platform":
+            if selected_school is None or int(selected_school) != int(school_id):
+                return False
+            active_target = connection.execute(
+                "SELECT 1 FROM schools WHERE id=? AND status='active' AND lifecycle_status='active'",
+                (school_id,),
+            ).fetchone()
+            if not active_target:
+                return False
     else:
         actor_school = getattr(current_user, "school_id", None)
         actor_campus = getattr(current_user, "campus_id", None)
@@ -308,7 +315,9 @@ def has_permission(connection, permission, school_id=None, campus_id=None,
             """, (inherited_role, permission, scope_type)).fetchone()
             if row:
                 matches.append((scope_type, scope_id, row["effect"]))
-        for subject_type, subject_id in (("user", str(actor_id)), ("role", role)):
+        grant_subjects = [("user", str(actor_id))]
+        grant_subjects.extend(("role", inherited_role) for inherited_role in roles)
+        for subject_type, subject_id in grant_subjects:
             grants = connection.execute("""
                 SELECT effect,conditions_json FROM authorization_grants
                 WHERE subject_type=? AND subject_id=? AND permission=? AND scope_type=?
