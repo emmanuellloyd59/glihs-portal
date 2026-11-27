@@ -224,6 +224,70 @@ def initialize_attendance_scheduling(dbopen):
         WHEN NEW.campus_id IS NOT NULL AND NOT EXISTS
           (SELECT 1 FROM campuses c WHERE c.id=NEW.campus_id AND c.school_id=NEW.school_id)
         BEGIN SELECT RAISE(ABORT,'schedule campus tenant mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_staff_attendance_member_insert
+        BEFORE INSERT ON staff_attendance_records
+        WHEN NOT EXISTS (SELECT 1 FROM school_memberships m
+          WHERE m.school_id=NEW.school_id AND m.user_id=NEW.user_id
+            AND m.status='active' AND m.role NOT IN ('student','parent'))
+        BEGIN SELECT RAISE(ABORT,'staff attendance membership tenant mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_teacher_availability_member_insert
+        BEFORE INSERT ON teacher_availability
+        WHEN NOT EXISTS (SELECT 1 FROM school_memberships m
+          WHERE m.school_id=NEW.school_id AND m.user_id=NEW.teacher_id
+            AND m.status='active' AND m.role='teacher')
+        BEGIN SELECT RAISE(ABORT,'teacher availability membership tenant mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_schedule_teacher_member_insert
+        BEFORE INSERT ON schedule_slots
+        WHEN NOT EXISTS (SELECT 1 FROM school_memberships m
+          WHERE m.school_id=NEW.school_id AND m.user_id=NEW.teacher_id
+            AND m.status='active' AND m.role='teacher')
+        BEGIN SELECT RAISE(ABORT,'schedule teacher membership tenant mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_correction_target_insert
+        BEFORE INSERT ON attendance_correction_requests
+        WHEN (NEW.record_type='student' AND NOT EXISTS
+              (SELECT 1 FROM student_attendance_records r WHERE r.id=NEW.record_id
+                AND r.school_id=NEW.school_id AND r.status=NEW.old_status))
+          OR (NEW.record_type='staff' AND NOT EXISTS
+              (SELECT 1 FROM staff_attendance_records r WHERE r.id=NEW.record_id
+                AND r.school_id=NEW.school_id AND r.status=NEW.old_status))
+        BEGIN SELECT RAISE(ABORT,'attendance correction target mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_correction_decision_guard
+        BEFORE UPDATE ON attendance_correction_requests
+        WHEN OLD.decision<>'pending' OR NEW.decision NOT IN ('approved','rejected')
+          OR NEW.school_id<>OLD.school_id OR NEW.record_type<>OLD.record_type
+          OR NEW.record_id<>OLD.record_id OR NEW.old_status<>OLD.old_status
+          OR NEW.new_status<>OLD.new_status OR NEW.reason<>OLD.reason
+          OR NEW.requested_by<>OLD.requested_by OR NEW.decided_by=NEW.requested_by
+        BEGIN SELECT RAISE(ABORT,'invalid or self-approved attendance correction'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_student_attendance_update_guard
+        BEFORE UPDATE ON student_attendance_records
+        WHEN NEW.school_id<>OLD.school_id OR COALESCE(NEW.campus_id,0)<>COALESCE(OLD.campus_id,0)
+          OR NEW.session_id<>OLD.session_id OR NEW.student_id<>OLD.student_id
+          OR NEW.note IS NOT OLD.note OR NEW.recorded_by<>OLD.recorded_by
+          OR (NEW.status<>OLD.status AND NOT EXISTS
+              (SELECT 1 FROM attendance_correction_requests q
+               WHERE q.school_id=OLD.school_id AND q.record_type='student'
+                 AND q.record_id=OLD.id AND q.old_status=OLD.status
+                 AND q.new_status=NEW.status AND q.decision='approved'))
+        BEGIN SELECT RAISE(ABORT,'student attendance requires an approved correction'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_staff_attendance_update_guard
+        BEFORE UPDATE ON staff_attendance_records
+        WHEN NEW.school_id<>OLD.school_id OR COALESCE(NEW.campus_id,0)<>COALESCE(OLD.campus_id,0)
+          OR NEW.user_id<>OLD.user_id OR NEW.attendance_date<>OLD.attendance_date
+          OR NEW.session_code<>OLD.session_code OR NEW.note IS NOT OLD.note
+          OR NEW.recorded_by<>OLD.recorded_by
+          OR (NEW.status<>OLD.status AND NOT EXISTS
+              (SELECT 1 FROM attendance_correction_requests q
+               WHERE q.school_id=OLD.school_id AND q.record_type='staff'
+                 AND q.record_id=OLD.id AND q.old_status=OLD.status
+                 AND q.new_status=NEW.status AND q.decision='approved'))
+        BEGIN SELECT RAISE(ABORT,'staff attendance requires an approved correction'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_student_attendance_no_delete
+        BEFORE DELETE ON student_attendance_records
+        BEGIN SELECT RAISE(ABORT,'attendance records cannot be deleted'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_staff_attendance_no_delete
+        BEFORE DELETE ON staff_attendance_records
+        BEGIN SELECT RAISE(ABORT,'attendance records cannot be deleted'); END;
         CREATE TRIGGER IF NOT EXISTS trg_student_attendance_tenant_insert
         BEFORE INSERT ON student_attendance_records
         WHEN NOT EXISTS (
@@ -508,12 +572,12 @@ def register_attendance_scheduling_routes(ns):
                 abort(404)
             if int(row["requested_by"]) == int(current_user.id):
                 abort(403,description="A correction requester cannot approve their own request.")
+            db.execute("UPDATE attendance_correction_requests SET decision=?,decided_by=?,decision_note=?,decided_at=CURRENT_TIMESTAMP WHERE id=? AND school_id=? AND decision='pending'",(decision,int(current_user.id),str(data.get("note",""))[:500],request_id,school_id))
             if decision == "approved":
                 table = "student_attendance_records" if row["record_type"]=="student" else "staff_attendance_records"
                 cur = db.execute(f"UPDATE {table} SET status=? WHERE id=? AND school_id=? AND status=?",(row["new_status"],row["record_id"],school_id,row["old_status"]))
                 if cur.rowcount != 1:
                     abort(409,description="The attendance record changed after this correction was requested.")
-            db.execute("UPDATE attendance_correction_requests SET decision=?,decided_by=?,decision_note=?,decided_at=CURRENT_TIMESTAMP WHERE id=? AND school_id=? AND decision='pending'",(decision,int(current_user.id),str(data.get("note",""))[:500],request_id,school_id))
             db.execute("INSERT INTO attendance_correction_events(school_id,request_id,actor_user_id,event_type,details) VALUES(?,?,?,?,?)",(school_id,request_id,int(current_user.id),decision,str(data.get("note",""))[:500]))
             audit(db,school_id,"attendance.correction_"+decision,f"request_id={request_id}")
             db.commit()
