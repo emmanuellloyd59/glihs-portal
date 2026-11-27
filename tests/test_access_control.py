@@ -78,6 +78,11 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
                  1 if role == "super_admin" else 0,
                  None if role == "super_admin" else 1),
             )
+        # These users are inserted after startup's legacy-membership backfill.
+        connection.execute(
+            """INSERT INTO school_memberships (user_id, school_id, role, status, is_primary)
+               SELECT id, school_id, role, 'active', 1 FROM users WHERE school_id IS NOT NULL"""
+        )
         connection.commit()
         connection.close()
         with self.client.session_transaction() as session:
@@ -327,7 +332,7 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         self.login_as("principal_route_test")
         response = self.client.post("/staff", data={
             "action": "change_role", "user_id": str(teacher_id),
-            "role": "attendance_officer",
+            "new_role": "attendance_officer",
         }, follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         connection = portal.get_db_connection()
