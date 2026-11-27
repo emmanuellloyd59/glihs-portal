@@ -450,6 +450,17 @@ def register_staff_records_routes(ns):
                     audit(connection,school_id,"staff_offboarded",member["username"],"School access revoked")
                     connection.commit()
                     flash("Staff member offboarded. Login and active teaching assignments have been revoked.","success")
+                elif action=="update_qualification_status":
+                    item=request.form.get("item_id","")
+                    status=request.form.get("verification_status","").strip()
+                    if not item.isdigit() or status not in {"unverified","pending","verified","rejected"}: abort(400)
+                    cursor=connection.execute(
+                        "UPDATE staff_qualifications SET verification_status=? WHERE id=? AND school_id=? AND membership_id=? AND active=1",
+                        (status,int(item),school_id,member["membership_id"]))
+                    if not cursor.rowcount: abort(404)
+                    audit(connection,school_id,"staff_qualification_status_changed",member["username"],"qualification_id="+item+"; status="+status)
+                    connection.commit()
+                    flash("Qualification verification status updated.","success")
                 elif action=="archive_qualification":
                     item=request.form.get("item_id","")
                     if not item.isdigit(): abort(400)
