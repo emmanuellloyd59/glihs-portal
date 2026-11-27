@@ -29,6 +29,10 @@ class InternationalOnboardingTests(unittest.TestCase):
         portal.DATABASE = Path(self.temp_dir.name) / "international_onboarding.sqlite3"
         portal.initialize_database()
         initialize_school_network_schema(portal.get_db_connection)
+        from identity_memberships import initialize_membership_schema
+        from authorization import initialize_authorization_schema
+        initialize_membership_schema(portal.get_db_connection)
+        initialize_authorization_schema(portal.get_db_connection)
         initialize_onboarding_schema(portal.get_db_connection)
         self.client = portal.app.test_client()
         connection = portal.get_db_connection()
