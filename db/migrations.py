@@ -220,7 +220,7 @@ POSTGRESQL_MIGRATIONS = (
         (
             """CREATE FUNCTION cmhs_assert_user_school(
                 p_user_id BIGINT, p_school_id BIGINT, p_allow_super_admin BOOLEAN
-            ) RETURNS VOID LANGUAGE plpgsql AS $
+            ) RETURNS VOID LANGUAGE plpgsql AS $cmhs$
             DECLARE v_school_id BIGINT; v_is_super_admin SMALLINT;
             BEGIN
                 IF p_user_id IS NULL THEN RETURN; END IF;
@@ -235,10 +235,10 @@ POSTGRESQL_MIGRATIONS = (
                         USING ERRCODE = '23514';
                 END IF;
             END;
-            $""",
+            $cmhs$""",
             """CREATE FUNCTION cmhs_assert_student_school(
                 p_student_id BIGINT, p_school_id BIGINT
-            ) RETURNS VOID LANGUAGE plpgsql AS $
+            ) RETURNS VOID LANGUAGE plpgsql AS $cmhs$
             DECLARE v_school_id BIGINT;
             BEGIN
                 SELECT school_id INTO v_school_id FROM students WHERE id = p_student_id;
@@ -247,10 +247,10 @@ POSTGRESQL_MIGRATIONS = (
                         USING ERRCODE = '23514';
                 END IF;
             END;
-            $""",
+            $cmhs$""",
             """CREATE FUNCTION cmhs_assert_homework_school(
                 p_assignment_id BIGINT, p_school_id BIGINT
-            ) RETURNS VOID LANGUAGE plpgsql AS $
+            ) RETURNS VOID LANGUAGE plpgsql AS $cmhs$
             DECLARE v_school_id BIGINT;
             BEGIN
                 SELECT school_id INTO v_school_id
@@ -260,9 +260,9 @@ POSTGRESQL_MIGRATIONS = (
                         USING ERRCODE = '23514';
                 END IF;
             END;
-            $""",
+            $cmhs$""",
             """CREATE FUNCTION cmhs_school_ownership_guard()
-            RETURNS TRIGGER LANGUAGE plpgsql AS $
+            RETURNS TRIGGER LANGUAGE plpgsql AS $cmhs$
             DECLARE v_school_id BIGINT := (to_jsonb(NEW)->>'school_id')::BIGINT;
             BEGIN
                 CASE TG_TABLE_NAME
@@ -301,7 +301,7 @@ POSTGRESQL_MIGRATIONS = (
                 END CASE;
                 RETURN NEW;
             END;
-            $""",
+            $cmhs$""",
             "CREATE TRIGGER trg_students_school_guard BEFORE INSERT OR UPDATE ON students FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
             "CREATE TRIGGER trg_parent_student_links_school_guard BEFORE INSERT OR UPDATE ON parent_student_links FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
             "CREATE TRIGGER trg_student_finances_school_guard BEFORE INSERT OR UPDATE ON student_finances FOR EACH ROW EXECUTE FUNCTION cmhs_school_ownership_guard()",
