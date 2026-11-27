@@ -240,6 +240,7 @@ def register_academic_structure_routes(ns):
     request=ns["request"]; render_template=ns["render_template"]; redirect=ns["redirect"]
     url_for=ns["url_for"]; flash=ns["flash"]; abort=ns["abort"]
     dbopen=ns["get_db_connection"]; school_context=ns["require_school_context"]
+    get_school_subjects=ns["get_school_subjects"]
     roles=MANAGER_ROLES
     initialize_academic_structure(dbopen)
 
@@ -338,7 +339,7 @@ def register_academic_structure_routes(ns):
             years=rows("academic_years","id DESC")
             periods=db.execute("SELECT p.*,y.label AS year_label FROM academic_periods p JOIN academic_years y ON y.id=p.academic_year_id AND y.school_id=p.school_id WHERE p.school_id=? ORDER BY y.id DESC,p.sequence_no",(school_id,)).fetchall()
             levels=rows("grade_levels","sequence_no,name")
-            subjects=rows("subjects","name")
+            subjects=get_school_subjects(db,school_id)
             classes=db.execute("SELECT c.*,g.name AS grade_name,y.label AS year_label FROM academic_classes c JOIN grade_levels g ON g.id=c.grade_level_id AND g.school_id=c.school_id JOIN academic_years y ON y.id=c.academic_year_id AND y.school_id=c.school_id WHERE c.school_id=? ORDER BY c.id DESC",(school_id,)).fetchall()
             sections=db.execute("SELECT s.*,c.name AS class_name FROM class_sections s JOIN academic_classes c ON c.id=s.class_id AND c.school_id=s.school_id WHERE s.school_id=? ORDER BY s.id DESC",(school_id,)).fetchall()
             curricula=db.execute("SELECT cs.*,g.name AS grade_name,s.name AS subject_name FROM curriculum_subjects cs JOIN grade_levels g ON g.id=cs.grade_level_id AND g.school_id=cs.school_id JOIN subjects s ON s.id=cs.subject_id AND s.school_id=cs.school_id WHERE cs.school_id=? ORDER BY cs.curriculum_name,g.sequence_no,s.name",(school_id,)).fetchall()
