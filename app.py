@@ -669,6 +669,9 @@ def initialize_database():
     academic_initializer = globals().get("initialize_academic_structure")
     if academic_initializer is not None:
         academic_initializer(get_db_connection)
+    staff_initializer = globals().get("initialize_staff_records")
+    if staff_initializer is not None:
+        staff_initializer(get_db_connection)
 
 initialize_database()
 
@@ -1727,6 +1730,16 @@ def academics():
                ORDER BY y.id DESC,p.sequence_no""",(school_id,)
         ).fetchall()
         subjects = get_school_subjects(connection, school_id)
+        if current_user.role == "teacher":
+            # Teachers may select only subjects assigned within this school.
+            subjects = connection.execute(
+                """SELECT DISTINCT s.id, s.name FROM subjects s
+                   JOIN teacher_class_assignments t ON t.school_id=s.school_id
+                    AND lower(trim(t.subject))=lower(trim(s.name))
+                   WHERE s.school_id=? AND s.active=1 AND t.teacher_id=? AND t.active=1
+                   ORDER BY s.name COLLATE NOCASE""",
+                (school_id, int(current_user.id)),
+            ).fetchall()
         if current_user.role == "teacher":
             # A school-wide catalogue is appropriate for administrators, but a
             # teacher's form must expose only subjects assigned to that teacher.
@@ -3112,6 +3125,9 @@ app.register_blueprint(create_student_information_blueprint(get_db_connection, I
 # Configurable tenant-owned academic structure, initialized additively.
 from academic_structure import initialize_academic_structure, register_academic_structure_routes
 register_academic_structure_routes(globals())
+from staff_records import initialize_staff_records, register_staff_records_routes
+initialize_staff_records(get_db_connection)
+register_staff_records_routes(globals())
 
 if __name__ == "__main__":
     app.run(port=5000, debug=False)

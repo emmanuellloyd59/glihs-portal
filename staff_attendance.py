@@ -175,6 +175,22 @@ def register_staff_attendance_routes(ns):
                                VALUES(?,?,?,'active',1,CURRENT_TIMESTAMP)""",
                             (created.lastrowid, school_id, role),
                         )
+                        staff_member = connection.execute(
+                            "SELECT id FROM staff_memberships WHERE school_id=? AND user_id=?",
+                            (school_id, created.lastrowid),
+                        ).fetchone()
+                        if staff_member:
+                            connection.execute(
+                                """UPDATE staff_employment SET job_title=?,employment_status='active',updated_at=CURRENT_TIMESTAMP
+                                   WHERE school_id=? AND membership_id=?""",
+                                (staff_roles[role], school_id, staff_member["id"]),
+                            )
+                            connection.execute(
+                                """INSERT INTO staff_lifecycle_events
+                                   (school_id,membership_id,event_type,event_date,actor_user_id)
+                                   VALUES(?,?,'onboarded',date('now'),?)""",
+                                (school_id, staff_member["id"], int(current_user.id)),
+                            )
                         audit_for_school(connection, "staff_account_created", username,
                                          "Role: " + role, school_id)
                         connection.commit()
@@ -220,6 +236,25 @@ def register_staff_attendance_routes(ns):
                             "UPDATE school_memberships SET status = ?, updated_at=CURRENT_TIMESTAMP WHERE user_id = ? AND school_id = ? AND status IN ('active','suspended')",
                             (status, target["id"], school_id),
                         )
+                        staff_member = connection.execute(
+                            "SELECT id FROM staff_memberships WHERE school_id=? AND user_id=?",
+                            (school_id, target["id"]),
+                        ).fetchone()
+                        if staff_member:
+                            employment_status = "suspended" if action == "suspend" else "active"
+                            connection.execute(
+                                """UPDATE staff_employment SET employment_status=?,updated_at=CURRENT_TIMESTAMP
+                                   WHERE school_id=? AND membership_id=?""",
+                                (employment_status, school_id, staff_member["id"]),
+                            )
+                            connection.execute(
+                                """INSERT INTO staff_lifecycle_events
+                                   (school_id,membership_id,event_type,event_date,actor_user_id)
+                                   VALUES(?,?,?,date('now'),?)""",
+                                (school_id, staff_member["id"],
+                                 "account_suspended" if action == "suspend" else "account_reactivated",
+                                 int(current_user.id)),
+                            )
                         if action == "suspend" and target["role"] == "teacher":
                             revoked_count = connection.execute(
                                 """UPDATE teacher_class_assignments
