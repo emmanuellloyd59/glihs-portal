@@ -174,6 +174,10 @@ def initialize_staff_records(get_db_connection):
         WHEN NOT EXISTS (SELECT 1 FROM users u WHERE u.id=NEW.user_id AND u.school_id=NEW.school_id
                          AND u.role NOT IN ('student','parent','super_admin') AND u.is_super_admin=0)
         BEGIN SELECT RAISE(ABORT,'staff identity must belong to the same school'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_staff_user_school_change_guard
+        BEFORE UPDATE OF school_id ON users
+        WHEN EXISTS (SELECT 1 FROM staff_memberships m WHERE m.user_id=OLD.id AND m.school_id<>NEW.school_id)
+        BEGIN SELECT RAISE(ABORT,'cannot move a staff identity across school memberships'); END;
         CREATE TRIGGER IF NOT EXISTS trg_staff_responsibility_subject_tenant
         BEFORE INSERT ON staff_responsibilities
         WHEN NEW.subject_id IS NOT NULL AND NOT EXISTS
@@ -223,7 +227,7 @@ def register_staff_records_routes(ns):
     generate_password_hash = ns["generate_password_hash"]
     base_dir = Path(ns["BASE_DIR"])
     staff_admin_roles = {"super_admin","school_admin","principal","vice_principal"}
-    allowed_extensions = {"pdf","png","jpg","jpeg","doc","docx"}
+    allowed_extensions = {"pdf","png","jpg","jpeg"}
 
     def actor_school():
         if current_user.role not in staff_admin_roles:
@@ -269,6 +273,11 @@ def register_staff_records_routes(ns):
                     fields={key:request.form.get(key,"").strip() for key in (
                         "employee_number","preferred_name","phone","email","address",
                         "emergency_contact_name","emergency_contact_phone","date_of_birth","gender","profile_notes")}
+                    if fields["date_of_birth"]:
+                        try:
+                            if date.fromisoformat(fields["date_of_birth"]).isoformat()!=fields["date_of_birth"]: raise ValueError
+                        except ValueError: abort(400)
+                    if any(ch not in "0123456789+()- ." for ch in fields["phone"]+fields["emergency_contact_phone"]): abort(400)
                     if (len(fields["employee_number"])>40 or len(fields["preferred_name"])>120
                         or len(fields["phone"])>40 or len(fields["email"])>254
                         or len(fields["address"])>500 or len(fields["emergency_contact_name"])>120
@@ -294,7 +303,7 @@ def register_staff_records_routes(ns):
                     if (len(fields["job_title"])>120 or len(fields["work_location"])>160
                         or len(fields["responsibilities_summary"])>2000
                         or fields["employment_type"] not in {"full_time","part_time","contract","temporary","volunteer","intern","other"}
-                        or fields["employment_status"] not in {"draft","active","on_leave","suspended","terminated","retired"}):
+                        or fields["employment_status"] not in {"draft","active","on_leave","suspended","retired"}):
                         abort(400)
                     for key in ("start_date","end_date"):
                         if fields[key]:
@@ -425,6 +434,16 @@ def register_staff_records_routes(ns):
                                        (int(item),school_id,member["membership_id"]))
                     connection.commit()
                     flash("Responsibility archived.","success")
+                elif action=="archive_document":
+                    item=request.form.get("item_id","")
+                    if not item.isdigit(): abort(400)
+                    cursor=connection.execute(
+                        "UPDATE staff_documents SET archived_at=CURRENT_TIMESTAMP WHERE id=? AND school_id=? AND membership_id=? AND archived_at IS NULL",
+                        (int(item),school_id,member["membership_id"]))
+                    if not cursor.rowcount: abort(404)
+                    audit(connection,school_id,"staff_document_archived",member["username"],"document_id="+item)
+                    connection.commit()
+                    flash("Document archived. The original file remains in private storage for retention.","success")
                 elif action=="upload_document":
                     document_type=request.form.get("document_type","").strip()
                     uploaded=request.files.get("document")
@@ -434,6 +453,9 @@ def register_staff_records_routes(ns):
                     if not original or extension not in allowed_extensions: abort(400)
                     content=uploaded.stream.read(5242881)
                     if not content or len(content)>5242880: abort(400)
+                    signatures={"pdf":content.startswith(b"%PDF-"),"png":content.startswith(b"\\x89PNG\\r\\n\\x1a\\n"),
+                                "jpg":content.startswith(b"\\xff\\xd8\\xff"),"jpeg":content.startswith(b"\\xff\\xd8\\xff")}
+                    if not signatures.get(extension,False): abort(400)
                     digest=hashlib.sha256(content).hexdigest()
                     key=str(uuid.uuid4())+"."+extension
                     storage_root=Path(ns["INSTANCE_DIR"])/"private_staff_documents"/str(school_id)
