@@ -234,6 +234,14 @@ class SchoolConfigurationTests(unittest.TestCase):
         data = effective.get_json()
         self.assertEqual(data["effective_configuration"]["branding"]["display_name"], "School A West Campus")
         self.assertEqual(data["effective_configuration"]["regional"]["timezone"], "Africa/Monrovia")
+        connection = portal.get_db_connection()
+        try:
+            legacy_name = connection.execute(
+                "SELECT name FROM campuses WHERE id=? AND school_id=1", (self.campus_a,)
+            ).fetchone()["name"]
+            self.assertEqual(legacy_name, "School A West Campus")
+        finally:
+            connection.close()
         cross = self.client.get(
             f"/api/v1/schools/1/campuses/{self.campus_b}/configuration"
         )
