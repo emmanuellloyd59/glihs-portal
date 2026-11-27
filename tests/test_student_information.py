@@ -95,6 +95,30 @@ class StudentInformationTests(PortalTestSupport, unittest.TestCase):
         self.assertNotIn("guardian_name",record)
         self.assertNotIn("guardian_phone",record)
 
+    def test_teacher_student_search_and_profiles_are_class_scoped(self):
+        in_scope=self.create_student(1,"TEACHER-G7","TEACHER-G7-ID","Class Seven Student")
+        out_scope=self.create_student(1,"TEACHER-G8","TEACHER-G8-ID","Class Eight Student")
+        db=portal.get_db_connection()
+        try:
+            teacher=db.execute("SELECT id FROM users WHERE username='teacher_demo'").fetchone()["id"]
+            db.execute("""INSERT INTO teacher_class_assignments
+              (school_id,teacher_id,class_level,subject,created_by)
+              VALUES(1,?,'Grade 7','Mathematics',?)""",(teacher,teacher))
+            db.commit()
+        finally: db.close()
+        self.login_as("teacher_demo","test-teacher-password")
+        response=self.client.get("/api/v1/students")
+        self.assertEqual(response.status_code,200)
+        ids=[row["id"] for row in response.get_json()["items"]]
+        self.assertIn(in_scope,ids)
+        self.assertNotIn(out_scope,ids)
+        self.assertEqual(self.client.get(f"/api/v1/students/{out_scope}").status_code,404)
+
+    def test_teacher_cannot_view_schoolwide_student_summary_or_admissions(self):
+        self.login_as("teacher_demo","test-teacher-password")
+        self.assertEqual(self.client.get("/api/v1/students/report/summary").status_code,403)
+        self.assertEqual(self.client.get("/api/v1/admissions").status_code,403)
+
     def test_teacher_cannot_read_guardians_or_disciplinary_records(self):
         student_id = self.create_student()
         self.login_as("teacher_demo","test-teacher-password")
