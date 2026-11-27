@@ -1,7 +1,10 @@
 """Regression tests for global identities and tenant-scoped school memberships."""
+import hashlib
 import os
+import re
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 os.environ.setdefault("SECRET_KEY", "identity-membership-tests-only-secret")
@@ -166,6 +169,66 @@ class MultiSchoolIdentityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.context(self.client)["school_id"], self.school_b)
         self.assertEqual(self.context(self.client_two)["school_id"], 1)
+
+    def test_invitation_acceptance_creates_verified_membership_and_identity(self):
+        self.login(self.client)
+        sent = {}
+        def capture_email(recipient, subject, body):
+            sent["recipient"] = recipient
+            sent["body"] = body
+            return True
+        with patch("identity_memberships._send_security_email", side_effect=capture_email):
+            created = self.client.post("/api/v1/identity/invitations", json={
+                "email": "new.teacher@example.test",
+                "role": "teacher",
+            })
+        self.assertEqual(created.status_code, 201)
+        token_match = re.search(r"token=([A-Za-z0-9_-]+)", sent["body"])
+        self.assertIsNotNone(token_match)
+        invitee = portal.app.test_client()
+        accepted = invitee.post("/identity/invitations/accept", json={
+            "token": token_match.group(1),
+            "username": "invited_teacher",
+            "full_name": "Invited Teacher",
+            "password": "a-long-invitation-password",
+        })
+        self.assertEqual(accepted.status_code, 200)
+        self.assertEqual(accepted.get_json()["status"], "accepted")
+        self.assertEqual(invitee.post("/login", data={
+            "username": "invited_teacher",
+            "password": "a-long-invitation-password",
+        }).status_code, 302)
+        context = self.context(invitee)
+        self.assertEqual(context["school_id"], 1)
+        self.assertEqual(context["role"], "teacher")
+
+    def test_password_recovery_invalidates_previously_authenticated_sessions(self):
+        self.login(self.client)
+        token = "recovery-token-value-that-is-long-enough-123456"
+        connection = portal.get_db_connection()
+        try:
+            connection.execute(
+                "INSERT INTO identity_recovery_tokens(user_id,token_hash,expires_at) VALUES(?,?,?)",
+                (self.user_a, hashlib.sha256(token.encode()).hexdigest(),
+                 (portal.datetime.now(portal.timezone.utc) + portal.timedelta(minutes=30)).isoformat()),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        recovery_client = portal.app.test_client()
+        reset = recovery_client.post("/identity/recovery/reset", json={
+            "token": token,
+            "password": "brand-new-recovery-password",
+        })
+        self.assertEqual(reset.status_code, 200)
+        invalidated = self.client.get("/api/v1/identity/context")
+        self.assertEqual(invalidated.status_code, 302)
+        signed_in = self.client.post("/login", data={
+            "username": "multi_identity",
+            "password": "brand-new-recovery-password",
+        })
+        self.assertEqual(signed_in.status_code, 302)
+        self.assertEqual(self.context(self.client)["school_id"], 1)
 
 
 if __name__ == "__main__":
