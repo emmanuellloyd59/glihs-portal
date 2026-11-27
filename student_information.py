@@ -269,12 +269,20 @@ def allocate_student_identifier(connection, school_id):
         (int(school_id),),
     ).fetchone()
     sequence = int(row["next_sequence"])
-    identifier = row["pattern"].format(year=date.today().year, sequence=sequence)
-    connection.execute(
-        "UPDATE student_identifier_config SET next_sequence=?,updated_at=CURRENT_TIMESTAMP WHERE school_id=?",
-        (sequence + 1, int(school_id)),
-    )
-    return identifier
+    for _ in range(10000):
+        identifier = row["pattern"].format(year=date.today().year, sequence=sequence)
+        exists = connection.execute(
+            "SELECT 1 FROM students WHERE school_id=? AND lower(student_id_number)=lower(?)",
+            (int(school_id), identifier),
+        ).fetchone()
+        if not exists:
+            connection.execute(
+                "UPDATE student_identifier_config SET next_sequence=?,updated_at=CURRENT_TIMESTAMP WHERE school_id=?",
+                (sequence + 1, int(school_id)),
+            )
+            return identifier
+        sequence += 1
+    raise RuntimeError("Unable to allocate a unique student identifier for this school.")
 
 
 def create_student_information_blueprint(connection_factory, instance_path, school_context_resolver):
