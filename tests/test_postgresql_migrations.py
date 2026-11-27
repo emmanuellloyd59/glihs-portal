@@ -99,6 +99,25 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         ).fetchone()["relation"]
         self.assertIsNone(table)
 
+    def test_migration_batch_rolls_back_all_pending_versions(self):
+        migrations = (
+            Migration(1, "first-transactional-migration", (
+                "CREATE TABLE first_batch_table (id INTEGER PRIMARY KEY)",
+            )),
+            Migration(2, "second-failing-migration", (
+                "CREATE TABLE second_batch_table (id INTEGER PRIMARY KEY)",
+                "THIS IS NOT VALID SQL",
+            )),
+        )
+        with self.assertRaises(Exception):
+            apply_postgresql_migrations(self.connection, migrations)
+        for table in ("schema_migrations", "first_batch_table", "second_batch_table"):
+            relation = self.connection.execute(
+                "SELECT to_regclass(%s) AS relation",
+                (f"{self.schema}.{table}",),
+            ).fetchone()["relation"]
+            self.assertIsNone(relation, table)
+
     def test_unknown_ledger_version_is_rejected(self):
         apply_postgresql_migrations(self.connection)
         self.connection.execute(
