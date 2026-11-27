@@ -149,6 +149,7 @@ def initialize_school_network_schema(connection_factory):
         connection.execute("CREATE INDEX IF NOT EXISTS idx_campuses_school_status ON campuses(school_id, status)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_school_contacts_school ON school_contacts(school_id, status)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_school_group_memberships_group ON school_group_memberships(group_id, school_id)")
+        connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_campuses_one_main ON campuses(school_id) WHERE is_main=1")
         connection.commit()
     except Exception:
         connection.rollback()
@@ -166,8 +167,8 @@ def _is_platform_owner():
     )
 
 
-def _school_access(school_id):
-    """Authorize by server-side identity; a submitted school ID is never authority."""
+def _school_access(school_id, connection_factory):
+    """Authorize by server-side identity and re-check the tenant lifecycle."""
     if _is_platform_owner():
         return "platform"
     if not current_user.is_authenticated:
@@ -175,6 +176,15 @@ def _school_access(school_id):
     if getattr(current_user, "school_id", None) != school_id:
         abort(404)
     if getattr(current_user, "role", None) not in {"school_admin", "principal"}:
+        abort(403)
+    connection = connection_factory()
+    try:
+        school = connection.execute(
+            "SELECT status, lifecycle_status FROM schools WHERE id=?", (school_id,)
+        ).fetchone()
+    finally:
+        connection.close()
+    if school is None or school["status"] != "active" or school["lifecycle_status"] != "active":
         abort(403)
     return "school"
 
@@ -408,6 +418,33 @@ def create_school_network_blueprint(connection_factory):
         finally:
             connection.close()
 
+    @bp.post("/platform/groups")
+    @login_required
+    def platform_create_group_form():
+        if not _is_platform_owner():
+            abort(403)
+        name = _clean(request.form.get("group_name"), 160)
+        slug = _clean(request.form.get("group_slug") or _slugify(name), 63).lower()
+        owner = _clean(request.form.get("group_owner"), 160)
+        if len(name) < 2 or not SLUG_RE.fullmatch(slug) or slug in RESERVED_SLUGS:
+            flash("Enter a valid group name and unique identity.", "danger")
+            return redirect(url_for("school_network.platform_schools"))
+        connection = connection_factory()
+        try:
+            cursor = connection.execute(
+                "INSERT INTO school_groups (name, slug, legal_name, owner_name) VALUES (?, ?, ?, ?)",
+                (name, slug, name, owner or None),
+            )
+            _audit(connection, "school_group.created", group_id=cursor.lastrowid, details={"slug": slug})
+            connection.commit()
+            flash("School group created. Institutions can now register as group members.", "success")
+        except sqlite3.IntegrityError:
+            connection.rollback()
+            flash("That group identity is already in use.", "danger")
+        finally:
+            connection.close()
+        return redirect(url_for("school_network.platform_schools"))
+
     @bp.get("/api/v1/schools")
     @login_required
     def api_list_schools():
@@ -426,7 +463,7 @@ def create_school_network_blueprint(connection_factory):
     @bp.get("/api/v1/schools/<int:school_id>")
     @login_required
     def api_get_school(school_id):
-        _school_access(school_id)
+        _school_access(school_id, connection_factory)
         connection = connection_factory()
         try:
             row = connection.execute("SELECT * FROM schools WHERE id=?", (school_id,)).fetchone()
@@ -599,6 +636,52 @@ def create_school_network_blueprint(connection_factory):
         finally:
             connection.close()
 
+    @bp.patch("/api/v1/schools/<int:school_id>/campuses/<int:campus_id>")
+    @login_required
+    def api_update_campus(school_id, campus_id):
+        access = _school_access(school_id, connection_factory)
+        payload = request.get_json(silent=True) or {}
+        allowed = {"name", "campus_type", "address_line1", "city", "county",
+                   "country_code", "contact_email", "contact_phone", "status"}
+        changes = {key: payload[key] for key in allowed if key in payload}
+        if not changes:
+            return jsonify({"error": {"code": "no_changes", "message": "No campus fields were supplied."}}), 400
+        if "status" in changes and changes["status"] not in {"active", "suspended", "archived"}:
+            return jsonify({"error": {"code": "validation_error", "message": "Invalid campus status."}}), 422
+        if "name" in changes and len(_clean(changes["name"], 160)) < 2:
+            return jsonify({"error": {"code": "validation_error", "message": "Campus name is required."}}), 422
+        connection = connection_factory()
+        try:
+            campus = connection.execute(
+                "SELECT id FROM campuses WHERE id=? AND school_id=?", (campus_id, school_id)
+            ).fetchone()
+            if campus is None:
+                abort(404)
+            if access != "platform":
+                lifecycle = connection.execute("SELECT lifecycle_status FROM schools WHERE id=?", (school_id,)).fetchone()
+                if lifecycle["lifecycle_status"] != "active":
+                    abort(403)
+            values = []
+            assignments = []
+            for key, value in changes.items():
+                if key == "contact_email":
+                    value = _clean(value, 254).lower() or None
+                elif key == "country_code":
+                    value = _clean(value, 2).upper() or None
+                elif key in {"name", "campus_type", "address_line1", "city", "county", "contact_phone"}:
+                    value = _clean(value, 180) or None
+                assignments.append(key + "=?")
+                values.append(value)
+            connection.execute(
+                "UPDATE campuses SET " + ", ".join(assignments) + ", updated_at=CURRENT_TIMESTAMP WHERE id=? AND school_id=?",
+                (*values, campus_id, school_id),
+            )
+            _audit(connection, "campus.updated", school_id, details={"campus_id": campus_id, "fields": sorted(changes)})
+            connection.commit()
+            return jsonify({"data": {"id": campus_id, "school_id": school_id, "updated": sorted(changes)}})
+        finally:
+            connection.close()
+
     @bp.post("/api/v1/schools/<int:school_id>/contacts")
     @login_required
     def api_create_contact(school_id):
@@ -668,7 +751,7 @@ def create_school_network_blueprint(connection_factory):
             school_id = getattr(current_user, "school_id", None)
             if school_id is None or current_user.role != "school_admin":
                 abort(403)
-            access = "school"
+            access = _school_access(school_id, connection_factory)
         connection = connection_factory()
         try:
             school = connection.execute("SELECT * FROM schools WHERE id=?", (school_id,)).fetchone()
