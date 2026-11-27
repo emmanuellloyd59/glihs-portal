@@ -1980,7 +1980,7 @@ def report_cards():
 def register_student():
     school_id = require_school_context()
     from authorization import require_permission
-    require_permission("academic.manage_records", get_db_connection, school_id=school_id)
+    require_permission("student.manage_records", get_db_connection, school_id=school_id)
 
     if request.method == "POST":
         admission_number = request.form.get("admission_number", "").strip()
@@ -2076,16 +2076,17 @@ def register_student():
 @login_required
 def student_detail(student_id):
     detail_school_id = require_school_context()
-    from authorization import require_permission
-    require_permission("academic.view_records", get_db_connection, school_id=detail_school_id)
+    from authorization import require_permission, has_permission
+    require_permission("student.view_records", get_db_connection, school_id=detail_school_id)
     connection = get_db_connection()
     try:
-        # Only the principal and registrar need the full private profile. Other
-        # instructional roles receive NULLs from SQL, not merely hidden template fields.
+        # Field-level access is evaluated by the policy engine, including explicit
+        # denies and scoped grants; private fields never reach unauthorized templates.
+        can_view_sensitive = has_permission(connection, "student.view_sensitive", school_id=detail_school_id)
         private_profile_fields = (
             "s.date_of_birth, s.previous_school, s.guardian_name, s.guardian_phone, "
             "s.emergency_contact_name, s.emergency_contact_phone, s.record_notes"
-            if current_user.role in {"school_owner", "school_admin", "principal", "registrar"}
+            if can_view_sensitive
             else "NULL AS date_of_birth, NULL AS previous_school, NULL AS guardian_name, "
                  "NULL AS guardian_phone, NULL AS emergency_contact_name, "
                  "NULL AS emergency_contact_phone, NULL AS record_notes"
@@ -2105,7 +2106,6 @@ def student_detail(student_id):
         if student is None:
             abort(404)
         finance_summary = None
-        from authorization import has_permission
         if has_permission(connection, "finance.view", school_id=detail_school_id):
             finance_summary = connection.execute(
                 """SELECT COALESCE(total_fee, 0) AS total_fee,
@@ -2145,7 +2145,7 @@ def student_detail(student_id):
 def edit_student(student_id):
     edit_school_id = require_school_context()
     from authorization import require_permission
-    require_permission("academic.manage_records", get_db_connection, school_id=edit_school_id)
+    require_permission("student.manage_records", get_db_connection, school_id=edit_school_id)
     connection = get_db_connection()
     try:
         student = connection.execute("SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, require_school_context())).fetchone()
@@ -2218,8 +2218,8 @@ def edit_student(student_id):
 @login_required
 def list_students():
     list_school_id = require_school_context()
-    from authorization import require_permission
-    require_permission("academic.view_records", get_db_connection, school_id=list_school_id)
+    from authorization import require_permission, has_permission
+    require_permission("student.view_records", get_db_connection, school_id=list_school_id)
 
     class_filter = request.args.get("class_level", "").strip()
     search_query = request.args.get("q", "").strip()[:100]
@@ -2227,14 +2227,14 @@ def list_students():
     try:
         # Teachers need class/identity details for instruction, not private guardian
         # contact information or student birth dates. Expressions are fixed constants.
+        can_view_sensitive = has_permission(connection, "student.view_sensitive", school_id=list_school_id)
         private_student_fields = (
             "s.date_of_birth, s.guardian_name, s.guardian_phone"
-            if current_user.role in {"school_owner", "school_admin", "principal", "registrar"}
+            if can_view_sensitive
             else "NULL AS date_of_birth, NULL AS guardian_name, NULL AS guardian_phone"
         )
         # Do not fetch fee/payment data for roles that cannot view finances. Hiding
         # columns in the template is not a substitute for least-privilege data access.
-        from authorization import has_permission
         can_view_finances = has_permission(connection, "finance.view", school_id=list_school_id)
         finance_columns = (
             "COALESCE(f.total_fee, 0) AS total_fee, "
