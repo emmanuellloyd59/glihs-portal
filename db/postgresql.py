@@ -23,7 +23,10 @@ class HybridRow(dict):
 
 def hybrid_dict_row(cursor):
     """Psycopg row factory supporting both named and positional access."""
-    columns = tuple(column.name for column in cursor.description)
+    # Psycopg invokes the row factory for command statements too; those have
+    # no description because they return no rows (DDL, INSERT without RETURNING).
+    description = cursor.description
+    columns = tuple(column.name for column in description) if description else ()
 
     def make_row(values):
         return HybridRow(columns, values)
