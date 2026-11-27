@@ -167,6 +167,16 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         self.assertIn(b"Bachelor of Education",response.data)
         db=portal.get_db_connection()
         try:
+            qualification_id=db.execute("SELECT id FROM staff_qualifications WHERE school_id=1").fetchone()["id"]
+        finally:
+            db.close()
+        response=self.client.post(detail,data={
+            "action":"update_qualification_status","item_id":str(qualification_id),
+            "verification_status":"verified"
+        },follow_redirects=True)
+        self.assertEqual(response.status_code,200)
+        db=portal.get_db_connection()
+        try:
             row=db.execute(
                 """SELECT p.employee_number,e.job_title,e.department_id
                    FROM staff_profiles p JOIN staff_employment e
@@ -177,6 +187,7 @@ class StaffRecordLifecycleTests(unittest.TestCase):
             self.assertEqual((row["employee_number"],row["job_title"],row["department_id"]),
                              ("EMP-1001","Science Teacher",1))
             self.assertEqual(db.execute("SELECT COUNT(*) FROM staff_qualifications WHERE school_id=1").fetchone()[0],1)
+            self.assertEqual(db.execute("SELECT verification_status FROM staff_qualifications WHERE id=?",(qualification_id,)).fetchone()["verification_status"],"verified")
         finally:
             db.close()
 
