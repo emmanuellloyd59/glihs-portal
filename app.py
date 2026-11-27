@@ -2873,10 +2873,10 @@ def ensure_content_tables(connection):
             """INSERT OR IGNORE INTO schema_migrations (version,name)
                VALUES (3,'content-and-finance-school-ownership-guards')"""
         )
-            if owns_transaction:
-                connection.commit()
-            else:
-                connection.execute("RELEASE SAVEPOINT content_schema_migration")
+        if owns_transaction:
+            connection.commit()
+        else:
+            connection.execute("RELEASE SAVEPOINT content_schema_migration")
 
     except Exception:
         if owns_transaction:
