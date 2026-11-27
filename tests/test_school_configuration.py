@@ -50,6 +50,11 @@ class SchoolConfigurationTests(unittest.TestCase):
                    VALUES ('config_teacher','Config Teacher',?,'teacher','active',0,1)""",
                 (generate_password_hash("config-viewer-password"),),
             )
+            connection.execute(
+                """INSERT INTO users(username,full_name,password_hash,role,status,is_super_admin,school_id)
+                   VALUES ('config_platform_owner','Platform Owner',?,'super_admin','active',1,NULL)""",
+                (generate_password_hash("config-platform-password"),),
+            )
             connection.commit()
         finally:
             connection.close()
@@ -239,6 +244,14 @@ class SchoolConfigurationTests(unittest.TestCase):
         self.assertEqual(response.get_json()["data"][0]["version"], 1)
         forbidden = self.client.get(f"/api/v1/schools/{self.school_b}/configuration/history")
         self.assertEqual(forbidden.status_code, 404)
+
+    def test_platform_owner_must_select_and_can_manage_explicit_school(self):
+        self.login("config_platform_owner", "config-platform-password")
+        missing = self.client.get("/school-network/configuration")
+        self.assertEqual(missing.status_code, 400)
+        selected = self.client.get(f"/school-network/configuration?school_id={self.school_b}")
+        self.assertEqual(selected.status_code, 200)
+        self.assertIn(b"School B", selected.data)
 
     def test_non_administrator_cannot_access_configuration(self):
         self.login("config_teacher", "config-viewer-password")
