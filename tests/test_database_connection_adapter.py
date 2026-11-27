@@ -1,8 +1,10 @@
 """Contract tests for the staged DB-API connection facade."""
+import os
 import sqlite3
 import unittest
 
 from db.connection import DatabaseConnection
+from db.postgresql import connect_postgresql
 
 
 class RecordingCursor:
@@ -127,6 +129,38 @@ class DatabaseConnectionAdapterTests(unittest.TestCase):
             db.rollback()
             self.assertFalse(db.in_transaction)
             self.assertEqual(db.execute("SELECT COUNT(*) FROM sample").fetchone()[0], 0)
+        finally:
+            db.close()
+
+
+    @unittest.skipUnless(
+        os.environ.get("TEST_POSTGRES_URL"),
+        "TEST_POSTGRES_URL is not configured",
+    )
+    def test_postgresql_facade_executes_batch_and_rolls_back_on_real_server(self):
+        raw = connect_postgresql(os.environ["TEST_POSTGRES_URL"])
+        db = DatabaseConnection(raw, "postgresql")
+        try:
+            db.execute(
+                "CREATE TEMP TABLE cmhs_adapter_probe "
+                "(id INTEGER PRIMARY KEY, value TEXT)"
+            )
+            db.executemany(
+                "INSERT INTO cmhs_adapter_probe (id, value) VALUES (?, ?)",
+                [(1, "alpha"), (2, "beta")],
+            )
+            rows = db.execute(
+                "SELECT id, value FROM cmhs_adapter_probe ORDER BY id"
+            ).fetchall()
+            self.assertEqual(
+                [(row["id"], row["value"]) for row in rows],
+                [(1, "alpha"), (2, "beta")],
+            )
+            db.rollback()
+            relation = db.execute(
+                "SELECT to_regclass('pg_temp.cmhs_adapter_probe') AS relation"
+            ).fetchone()
+            self.assertIsNone(relation["relation"])
         finally:
             db.close()
 
