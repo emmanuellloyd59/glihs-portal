@@ -669,8 +669,35 @@ def initialize_database():
     academic_initializer = globals().get("initialize_academic_structure")
     if academic_initializer is not None:
         academic_initializer(get_db_connection)
+    # Re-initialized test databases must receive tenant identity schemas before
+    # staff triggers reference school_memberships. Avoid rerunning full schema
+    # backfills on every test setup when the prerequisite tables already exist.
+    schema_connection = get_db_connection()
+    try:
+        schema_tables = {
+            row["name"] for row in schema_connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        staff_columns = (
+            {row["name"] for row in schema_connection.execute("PRAGMA table_info(staff_memberships)")}
+            if "staff_memberships" in schema_tables else set()
+        )
+    finally:
+        schema_connection.close()
+    network_initializer = globals().get("initialize_school_network_schema")
+    if network_initializer is not None and "campuses" not in schema_tables:
+        network_initializer(get_db_connection)
+    membership_initializer = globals().get("initialize_membership_schema")
+    if membership_initializer is not None and "school_memberships" not in schema_tables:
+        membership_initializer(get_db_connection)
+    authorization_initializer = globals().get("initialize_authorization_schema")
+    if authorization_initializer is not None and "authorization_grants" not in schema_tables:
+        authorization_initializer(get_db_connection)
     staff_initializer = globals().get("initialize_staff_records")
-    if staff_initializer is not None:
+    if staff_initializer is not None and (
+        "staff_memberships" not in schema_tables or "school_membership_id" not in staff_columns
+    ):
         staff_initializer(get_db_connection)
 
 initialize_database()

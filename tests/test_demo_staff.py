@@ -26,10 +26,13 @@ class DemoStaffProvisioningTests(unittest.TestCase):
     def setUp(self):
         db = portal.get_db_connection()
         db.execute("PRAGMA foreign_keys = OFF")
+        db.execute("DROP TRIGGER IF EXISTS trg_staff_lifecycle_no_update")
+        db.execute("DROP TRIGGER IF EXISTS trg_staff_lifecycle_no_delete")
         db.execute(
             "UPDATE schools SET status='active', lifecycle_status='active' WHERE id=1"
         )
         for table in (
+            "staff_lifecycle_events", "staff_documents", "staff_responsibilities", "staff_qualifications", "staff_employment", "staff_profiles", "staff_memberships", "staff_departments",
             "authorization_grants", "authorization_audit",
             "student_documents", "student_disciplinary_records", "student_withdrawals",
             "student_transfers", "student_academic_history", "student_guardians",
@@ -66,6 +69,8 @@ class DemoStaffProvisioningTests(unittest.TestCase):
         )
         db.commit()
         db.close()
+        from staff_records import initialize_staff_records
+        initialize_staff_records(portal.get_db_connection)
         self.client.post("/logout")
 
     def login_as(self, username, password):

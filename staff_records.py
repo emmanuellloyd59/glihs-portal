@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS staff_memberships (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     school_id INTEGER NOT NULL REFERENCES schools(id),
     user_id INTEGER NOT NULL REFERENCES users(id),
+    school_membership_id INTEGER NOT NULL REFERENCES school_memberships(id),
     membership_status TEXT NOT NULL DEFAULT 'active'
         CHECK (membership_status IN ('invited','active','suspended','inactive')),
     joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -24,6 +25,7 @@ CREATE TABLE IF NOT EXISTS staff_memberships (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(school_id,user_id),
+    UNIQUE(school_id,school_membership_id),
     UNIQUE(school_id,id)
 );
 CREATE TABLE IF NOT EXISTS staff_profiles (
@@ -156,69 +158,161 @@ CREATE INDEX IF NOT EXISTS idx_staff_lifecycle_member
 
 
 def initialize_staff_records(get_db_connection):
-    """Create the additive staff schema and backfill existing school staff safely."""
+    """Create staff records and link them to canonical school memberships."""
     connection = get_db_connection()
     try:
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_school_memberships_school_id_id "
+            "ON school_memberships(school_id,id)"
+        )
         connection.executescript(STAFF_RECORD_SCHEMA)
-        # SQLite composite foreign keys need a declared unique parent key. The
-        # table already has UNIQUE(school_id,id); these triggers protect identity
-        # ownership as users.school_id is the canonical tenant membership.
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(staff_memberships)")}
+        if "school_membership_id" not in columns:
+            connection.execute(
+                "ALTER TABLE staff_memberships ADD COLUMN school_membership_id INTEGER REFERENCES school_memberships(id)"
+            )
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_staff_membership_canonical_link "
+            "ON staff_memberships(school_id,school_membership_id) WHERE school_membership_id IS NOT NULL"
+        )
+        connection.execute("""
+            INSERT OR IGNORE INTO school_memberships
+                (user_id,school_id,role,status,is_primary,accepted_at)
+            SELECT u.id,u.school_id,u.role,
+                   CASE WHEN u.status='active' THEN 'active'
+                        WHEN u.status='suspended' THEN 'suspended' ELSE 'invited' END,
+                   1,CURRENT_TIMESTAMP
+            FROM users u
+            WHERE u.school_id IS NOT NULL AND u.is_super_admin=0
+              AND u.role NOT IN ('student','parent','super_admin')
+              AND NOT EXISTS (
+                  SELECT 1 FROM school_memberships sm
+                  WHERE sm.user_id=u.id AND sm.school_id=u.school_id
+              )
+        """)
+        connection.execute("""
+            UPDATE staff_memberships
+            SET school_membership_id=(
+                SELECT sm.id FROM school_memberships sm
+                WHERE sm.user_id=staff_memberships.user_id
+                  AND sm.school_id=staff_memberships.school_id
+                ORDER BY CASE WHEN sm.campus_id IS NULL THEN 0 ELSE 1 END,
+                         sm.is_primary DESC,sm.id LIMIT 1
+            )
+            WHERE school_membership_id IS NULL
+        """)
+        # Replace the first-release guards, which tied staff records to the
+        # legacy users.school_id field and blocked valid additional school memberships.
+        connection.execute("DROP TRIGGER IF EXISTS trg_staff_membership_user_tenant_insert")
+        connection.execute("DROP TRIGGER IF EXISTS trg_staff_membership_user_tenant_update")
         connection.executescript("""
         CREATE TRIGGER IF NOT EXISTS trg_staff_membership_user_tenant_insert
         BEFORE INSERT ON staff_memberships
-        WHEN NOT EXISTS (SELECT 1 FROM users u WHERE u.id=NEW.user_id AND u.school_id=NEW.school_id
-                         AND u.role NOT IN ('student','parent','super_admin') AND u.is_super_admin=0)
-        BEGIN SELECT RAISE(ABORT,'staff identity must belong to the same school'); END;
+        WHEN NEW.school_membership_id IS NULL OR NOT EXISTS (
+            SELECT 1 FROM school_memberships sm JOIN users u ON u.id=sm.user_id
+            WHERE sm.id=NEW.school_membership_id AND sm.school_id=NEW.school_id
+              AND sm.user_id=NEW.user_id
+              AND sm.role NOT IN ('student','parent','super_admin') AND u.is_super_admin=0
+        )
+        BEGIN SELECT RAISE(ABORT,'staff identity must link to a valid school membership'); END;
         CREATE TRIGGER IF NOT EXISTS trg_staff_membership_user_tenant_update
-        BEFORE UPDATE OF school_id,user_id ON staff_memberships
-        WHEN NOT EXISTS (SELECT 1 FROM users u WHERE u.id=NEW.user_id AND u.school_id=NEW.school_id
-                         AND u.role NOT IN ('student','parent','super_admin') AND u.is_super_admin=0)
-        BEGIN SELECT RAISE(ABORT,'staff identity must belong to the same school'); END;
+        BEFORE UPDATE OF school_id,user_id,school_membership_id ON staff_memberships
+        WHEN NEW.school_membership_id IS NULL OR NOT EXISTS (
+            SELECT 1 FROM school_memberships sm JOIN users u ON u.id=sm.user_id
+            WHERE sm.id=NEW.school_membership_id AND sm.school_id=NEW.school_id
+              AND sm.user_id=NEW.user_id
+              AND sm.role NOT IN ('student','parent','super_admin') AND u.is_super_admin=0
+        )
+        BEGIN SELECT RAISE(ABORT,'staff identity must link to a valid school membership'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_staff_school_membership_identity_guard
+        BEFORE UPDATE OF school_id,user_id ON school_memberships
+        WHEN EXISTS (
+            SELECT 1 FROM staff_memberships m WHERE m.school_membership_id=OLD.id
+              AND (NEW.school_id<>OLD.school_id OR NEW.user_id<>OLD.user_id)
+        )
+        BEGIN SELECT RAISE(ABORT,'cannot change a school membership identity linked to a staff record'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_staff_membership_status_sync
+        AFTER UPDATE OF status ON school_memberships
+        BEGIN
+            UPDATE staff_memberships
+            SET membership_status=CASE NEW.status WHEN 'active' THEN 'active'
+                WHEN 'invited' THEN 'invited' WHEN 'suspended' THEN 'suspended' ELSE 'inactive' END,
+                ended_at=CASE WHEN NEW.status='revoked' THEN COALESCE(ended_at,date('now')) ELSE NULL END,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE school_membership_id=NEW.id AND school_id=NEW.school_id;
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_school_membership_staff_extension
+        AFTER INSERT ON school_memberships
+        WHEN NEW.role NOT IN ('student','parent','super_admin')
+        BEGIN
+            INSERT OR IGNORE INTO staff_memberships
+                (school_id,user_id,school_membership_id,membership_status)
+            VALUES(NEW.school_id,NEW.user_id,NEW.id,
+                CASE NEW.status WHEN 'active' THEN 'active' WHEN 'invited' THEN 'invited'
+                     WHEN 'suspended' THEN 'suspended' ELSE 'inactive' END);
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_staff_membership_create_profile
+        AFTER INSERT ON staff_memberships
+        BEGIN
+            INSERT OR IGNORE INTO staff_profiles(school_id,membership_id) VALUES(NEW.school_id,NEW.id);
+            INSERT OR IGNORE INTO staff_employment(school_id,membership_id,job_title,employment_status)
+            SELECT NEW.school_id,NEW.id,replace(sm.role,'_',' '),
+                CASE sm.status WHEN 'active' THEN 'active' WHEN 'suspended' THEN 'suspended' ELSE 'draft' END
+            FROM school_memberships sm WHERE sm.id=NEW.school_membership_id;
+        END;
         CREATE TRIGGER IF NOT EXISTS trg_staff_lifecycle_no_update
         BEFORE UPDATE ON staff_lifecycle_events
         BEGIN SELECT RAISE(ABORT,'staff lifecycle history is immutable'); END;
         CREATE TRIGGER IF NOT EXISTS trg_staff_lifecycle_no_delete
         BEFORE DELETE ON staff_lifecycle_events
         BEGIN SELECT RAISE(ABORT,'staff lifecycle history is immutable'); END;
-        CREATE TRIGGER IF NOT EXISTS trg_staff_user_school_change_guard
-        BEFORE UPDATE OF school_id ON users
-        WHEN EXISTS (SELECT 1 FROM staff_memberships m WHERE m.user_id=OLD.id AND m.school_id<>NEW.school_id)
-        BEGIN SELECT RAISE(ABORT,'cannot move a staff identity across school memberships'); END;
         CREATE TRIGGER IF NOT EXISTS trg_staff_responsibility_subject_tenant
         BEFORE INSERT ON staff_responsibilities
         WHEN NEW.subject_id IS NOT NULL AND NOT EXISTS
              (SELECT 1 FROM subjects s WHERE s.id=NEW.subject_id AND s.school_id=NEW.school_id)
         BEGIN SELECT RAISE(ABORT,'subject must belong to the same school'); END;
         """)
-        # Existing teacher/employee accounts are linked, not recreated. Password
-        # hashes, IDs, roles, and account status are untouched.
         existing = connection.execute("""
-            SELECT id,school_id,role,status,full_name FROM users
-            WHERE school_id IS NOT NULL AND is_super_admin=0
-              AND role NOT IN ('student','parent','super_admin')
+            SELECT sm.id AS school_membership_id,sm.school_id,sm.user_id,sm.role,sm.status,
+                   u.status AS account_status
+            FROM school_memberships sm JOIN users u ON u.id=sm.user_id
+            WHERE sm.role NOT IN ('student','parent','super_admin') AND u.is_super_admin=0
+              AND sm.id=(
+                  SELECT sm2.id FROM school_memberships sm2
+                  WHERE sm2.user_id=sm.user_id AND sm2.school_id=sm.school_id
+                  ORDER BY CASE WHEN sm2.campus_id IS NULL THEN 0 ELSE 1 END,
+                           sm2.is_primary DESC,sm2.id LIMIT 1
+              )
         """).fetchall()
-        for user in existing:
-            status = "active" if user["status"] == "active" else "suspended" if user["status"] == "suspended" else "invited"
+        for member in existing:
+            status = {"active":"active","invited":"invited","suspended":"suspended"}.get(member["status"],"inactive")
             connection.execute("""
-                INSERT OR IGNORE INTO staff_memberships(school_id,user_id,membership_status)
-                VALUES(?,?,?)
-            """, (user["school_id"], user["id"], status))
-            membership = connection.execute(
+                INSERT OR IGNORE INTO staff_memberships
+                    (school_id,user_id,school_membership_id,membership_status) VALUES(?,?,?,?)
+            """,(member["school_id"],member["user_id"],member["school_membership_id"],status))
+            staff = connection.execute(
                 "SELECT id FROM staff_memberships WHERE school_id=? AND user_id=?",
-                (user["school_id"], user["id"]),
+                (member["school_id"],member["user_id"]),
             ).fetchone()
-            connection.execute("""
-                INSERT OR IGNORE INTO staff_profiles(school_id,membership_id)
-                VALUES(?,?)
-            """, (user["school_id"], membership["id"]))
-            employment_status = "active" if user["status"] == "active" else "suspended" if user["status"] == "suspended" else "draft"
-            connection.execute("""
-                INSERT OR IGNORE INTO staff_employment(school_id,membership_id,job_title,employment_status)
-                VALUES(?,?,?,?)
-            """, (user["school_id"], membership["id"], user["role"].replace("_"," ").title(), employment_status))
+            if staff:
+                connection.execute(
+                    "UPDATE staff_memberships SET school_membership_id=?,membership_status=? WHERE id=?",
+                    (member["school_membership_id"],status,staff["id"]),
+                )
+                connection.execute(
+                    "INSERT OR IGNORE INTO staff_profiles(school_id,membership_id) VALUES(?,?)",
+                    (member["school_id"],staff["id"]),
+                )
+                employment_status = ("active" if status=="active" and member["account_status"]=="active"
+                    else "suspended" if status=="suspended" or member["account_status"]=="suspended" else "draft")
+                connection.execute("""
+                    INSERT OR IGNORE INTO staff_employment
+                        (school_id,membership_id,job_title,employment_status) VALUES(?,?,?,?)
+                """,(member["school_id"],staff["id"],member["role"].replace("_"," ").title(),employment_status))
         connection.commit()
     finally:
         connection.close()
+
 
 
 def register_staff_records_routes(ns):
@@ -232,14 +326,14 @@ def register_staff_records_routes(ns):
     require_school_context = ns["require_school_context"]
     generate_password_hash = ns["generate_password_hash"]
     base_dir = Path(ns["BASE_DIR"])
-    staff_admin_roles = {"super_admin","school_admin","principal","vice_principal"}
+    staff_admin_roles = {"super_admin","school_owner","school_admin","principal","vice_principal"}
     all_school_staff_roles = {"school_admin","principal","vice_principal","registrar","admissions_officer",
                               "academic_admin","attendance_officer","teacher","finance_admin","librarian","counselor"}
     leadership_staff_roles = {"teacher","attendance_officer","librarian","counselor","registrar"}
     allowed_extensions = {"pdf","png","jpg","jpeg"}
 
     def manageable_staff_roles():
-        if current_user.role in {"super_admin","school_admin"}:
+        if current_user.role in {"super_admin","school_owner","school_admin"}:
             return all_school_staff_roles
         return leadership_staff_roles
 
@@ -257,8 +351,8 @@ def register_staff_records_routes(ns):
 
     def get_membership(connection, school_id, user_id):
         return connection.execute("""
-            SELECT m.id AS membership_id,m.membership_status,u.id AS user_id,
-                   u.username,u.full_name,u.role,u.status AS account_status,
+            SELECT m.id AS membership_id,m.school_membership_id,m.membership_status,
+                   u.id AS user_id,u.username,u.full_name,sm.role,u.status AS account_status,
                    p.employee_number,p.preferred_name,p.phone,p.email,p.address,
                    p.emergency_contact_name,p.emergency_contact_phone,p.date_of_birth,
                    p.gender,p.profile_notes,
@@ -266,7 +360,9 @@ def register_staff_records_routes(ns):
                    e.employment_status,e.start_date,e.end_date,e.supervisor_membership_id,
                    e.work_location,e.responsibilities_summary,d.name AS department_name
             FROM staff_memberships m
-            JOIN users u ON u.id=m.user_id AND u.school_id=m.school_id
+            JOIN school_memberships sm ON sm.id=m.school_membership_id
+                AND sm.school_id=m.school_id AND sm.user_id=m.user_id
+            JOIN users u ON u.id=sm.user_id
             LEFT JOIN staff_profiles p ON p.membership_id=m.id AND p.school_id=m.school_id
             LEFT JOIN staff_employment e ON e.membership_id=m.id AND e.school_id=m.school_id
             LEFT JOIN staff_departments d ON d.id=e.department_id AND d.school_id=e.school_id
@@ -408,7 +504,11 @@ def register_staff_records_routes(ns):
                         flash("This staff member is already onboarded.","info")
                     else:
                         connection.execute("""
-                            UPDATE staff_memberships SET membership_status='active',joined_at=COALESCE(joined_at,CURRENT_TIMESTAMP),
+                            UPDATE school_memberships SET status='active',updated_at=CURRENT_TIMESTAMP
+                            WHERE id=? AND school_id=?
+                        """,(member["school_membership_id"],school_id))
+                        connection.execute("""
+                            UPDATE staff_memberships SET joined_at=COALESCE(joined_at,CURRENT_TIMESTAMP),
                                 ended_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE school_id=? AND id=?
                         """,(school_id,member["membership_id"]))
                         connection.execute("""
@@ -430,15 +530,21 @@ def register_staff_records_routes(ns):
                     notes=request.form.get("notes","").strip()
                     if len(notes)>1000: abort(400)
                     connection.execute("""
-                        UPDATE staff_memberships SET membership_status='inactive',ended_at=?,updated_at=CURRENT_TIMESTAMP
+                        UPDATE school_memberships SET status='revoked',updated_at=CURRENT_TIMESTAMP
+                        WHERE id=? AND school_id=?
+                    """,(member["school_membership_id"],school_id))
+                    connection.execute("""
+                        UPDATE staff_memberships SET ended_at=?,updated_at=CURRENT_TIMESTAMP
                         WHERE school_id=? AND id=?
                     """,(date.today().isoformat(),school_id,member["membership_id"]))
                     connection.execute("""
                         UPDATE staff_employment SET employment_status='terminated',end_date=?,updated_at=CURRENT_TIMESTAMP
                         WHERE school_id=? AND membership_id=?
                     """,(date.today().isoformat(),school_id,member["membership_id"]))
-                    connection.execute("UPDATE users SET status='suspended' WHERE id=? AND school_id=?",
-                                       (user_id,school_id))
+                    connection.execute("""UPDATE users SET status='suspended'
+                        WHERE id=? AND NOT EXISTS (
+                            SELECT 1 FROM school_memberships WHERE user_id=? AND status='active'
+                        )""",(user_id,user_id))
                     connection.execute("""
                         UPDATE teacher_class_assignments SET active=0,updated_at=CURRENT_TIMESTAMP
                         WHERE school_id=? AND teacher_id=? AND active=1
@@ -541,7 +647,9 @@ def register_staff_records_routes(ns):
             departments=connection.execute("SELECT id,name FROM staff_departments WHERE school_id=? AND active=1 ORDER BY name",(school_id,)).fetchall()
             subjects=connection.execute("SELECT id,name FROM subjects WHERE school_id=? AND active=1 ORDER BY name",(school_id,)).fetchall()
             supervisors=connection.execute("""
-                SELECT m.id,u.full_name,u.username FROM staff_memberships m JOIN users u ON u.id=m.user_id
+                SELECT m.id,u.full_name,u.username FROM staff_memberships m
+                JOIN school_memberships sm ON sm.id=m.school_membership_id AND sm.school_id=m.school_id
+                JOIN users u ON u.id=sm.user_id
                 WHERE m.school_id=? AND m.membership_status='active' AND m.id<>? ORDER BY u.full_name
             """,(school_id,member["membership_id"])).fetchall()
             departments_all=departments
@@ -564,9 +672,11 @@ def register_staff_records_routes(ns):
         connection=get_db_connection()
         try:
             row=connection.execute("""
-                SELECT d.storage_key,d.original_filename,u.role FROM staff_documents d
+                SELECT d.storage_key,d.original_filename,sm.role FROM staff_documents d
                 JOIN staff_memberships m ON m.id=d.membership_id AND m.school_id=d.school_id
-                JOIN users u ON u.id=m.user_id AND u.school_id=m.school_id
+                JOIN school_memberships sm ON sm.id=m.school_membership_id AND sm.school_id=m.school_id
+                    AND sm.user_id=m.user_id
+                JOIN users u ON u.id=sm.user_id
                 WHERE d.id=? AND d.school_id=? AND m.user_id=? AND d.archived_at IS NULL
             """,(document_id,school_id,user_id)).fetchone()
             if row is None or (row["role"] not in manageable_staff_roles() and int(user_id)!=int(current_user.id)): abort(404)

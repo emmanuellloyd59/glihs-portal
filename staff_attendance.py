@@ -175,16 +175,25 @@ def register_staff_attendance_routes(ns):
                                VALUES(?,?,?,'active',1,CURRENT_TIMESTAMP)""",
                             (created.lastrowid, school_id, role),
                         )
-                        connection.execute("INSERT INTO staff_memberships(school_id,user_id,membership_status) VALUES(?,?,'active')",
-                                           (school_id,created.lastrowid))
-                        membership_id = connection.execute("SELECT id FROM staff_memberships WHERE school_id=? AND user_id=?",
-                                                            (school_id,created.lastrowid)).fetchone()["id"]
-                        connection.execute("INSERT INTO staff_profiles(school_id,membership_id) VALUES(?,?)",
-                                           (school_id,membership_id))
-                        connection.execute("INSERT INTO staff_employment(school_id,membership_id,job_title,employment_status) VALUES(?,?,?,'active')",
-                                           (school_id,membership_id,staff_roles[role]))
-                        connection.execute("INSERT INTO staff_lifecycle_events(school_id,membership_id,event_type,event_date,actor_user_id) VALUES(?,?,'onboarded',date('now'),?)",
-                                           (school_id,membership_id,int(current_user.id)))
+                        # The school_memberships insert above creates the linked HR extension
+                        # through the tenant-safe trigger; never create a detached staff row.
+                        staff_member = connection.execute(
+                            "SELECT id FROM staff_memberships WHERE school_id=? AND user_id=?",
+                            (school_id, created.lastrowid),
+                        ).fetchone()
+                        if staff_member:
+                            membership_id = staff_member["id"]
+                            connection.execute(
+                                """UPDATE staff_employment SET job_title=?,employment_status='active',updated_at=CURRENT_TIMESTAMP
+                                   WHERE school_id=? AND membership_id=?""",
+                                (staff_roles[role], school_id, membership_id),
+                            )
+                            connection.execute(
+                                """INSERT INTO staff_lifecycle_events
+                                   (school_id,membership_id,event_type,event_date,actor_user_id)
+                                   VALUES(?,?,'onboarded',date('now'),?)""",
+                                (school_id, membership_id, int(current_user.id)),
+                            )
                         audit_for_school(connection, "staff_account_created", username,
                                          "Role: " + role, school_id)
                         connection.commit()

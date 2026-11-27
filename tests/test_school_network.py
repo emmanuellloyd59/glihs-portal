@@ -39,6 +39,8 @@ class SchoolNetworkTests(unittest.TestCase):
             # data except the legacy pilot school row, with FK checks temporarily
             # disabled so newly added modules cannot leave an unlisted user reference.
             connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute("DROP TRIGGER IF EXISTS trg_staff_lifecycle_no_update")
+            connection.execute("DROP TRIGGER IF EXISTS trg_staff_lifecycle_no_delete")
             # Test-only cleanup may clear version rows; production history remains immutable.
             connection.execute("DROP TRIGGER IF EXISTS trg_academic_structure_versions_no_update")
             connection.execute("DROP TRIGGER IF EXISTS trg_academic_structure_versions_no_delete")
@@ -78,6 +80,8 @@ class SchoolNetworkTests(unittest.TestCase):
             connection.commit()
         finally:
             connection.close()
+        from staff_records import initialize_staff_records
+        initialize_staff_records(portal.get_db_connection)
         # Restore immutable-history triggers after disposable fixture cleanup.
         from academic_structure import initialize_academic_structure
         initialize_academic_structure(portal.get_db_connection)

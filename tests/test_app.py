@@ -37,6 +37,8 @@ class PortalTestSupport:
         # tenant tables with user foreign keys. Temporarily disable FK checks
         # only while clearing fixtures, then restore enforcement before inserts.
         connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute("DROP TRIGGER IF EXISTS trg_staff_lifecycle_no_update")
+        connection.execute("DROP TRIGGER IF EXISTS trg_staff_lifecycle_no_delete")
         # New Version 3 modules reference users and students. Clear dependent rows
         # first so repeated test runs remain isolated and respect SQLite foreign keys.
         existing_tables = {
@@ -44,7 +46,7 @@ class PortalTestSupport:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
         }
-        for table_name in ("authorization_grants", "authorization_audit", "student_documents", "student_disciplinary_records", "student_withdrawals", "student_transfers", "student_academic_history", "student_guardians", "student_admissions", "identity_recovery_tokens", "membership_invitations", "identity_security_events", "school_memberships", "homework_submissions", "homework_assignments", "parent_student_links", "finance_payments", "school_announcements", "learning_materials", "teacher_class_assignments", "class_timetable"):
+        for table_name in ("staff_lifecycle_events", "staff_documents", "staff_responsibilities", "staff_qualifications", "staff_employment", "staff_profiles", "staff_memberships", "staff_departments", "authorization_grants", "authorization_audit", "student_documents", "student_disciplinary_records", "student_withdrawals", "student_transfers", "student_academic_history", "student_guardians", "student_admissions", "identity_recovery_tokens", "membership_invitations", "identity_security_events", "school_memberships", "homework_submissions", "homework_assignments", "parent_student_links", "finance_payments", "school_announcements", "learning_materials", "teacher_class_assignments", "class_timetable"):
             if table_name in existing_tables:
                 connection.execute("DELETE FROM " + table_name)
         connection.execute("DELETE FROM grades")
@@ -90,6 +92,8 @@ class PortalTestSupport:
         )
         connection.commit()
         connection.close()
+        from staff_records import initialize_staff_records
+        initialize_staff_records(portal.get_db_connection)
         self.client.post("/logout")  # Clear a prior authenticated test session if any.
 
     def login_as(self, username, password):

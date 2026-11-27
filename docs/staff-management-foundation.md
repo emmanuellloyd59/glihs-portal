@@ -2,12 +2,12 @@
 
 ## Purpose
 
-The staff module extends the existing school-owned user identity model. It does not recreate accounts, replace password hashes, or grant a user access to a school other than the school already recorded on their identity.
+The staff module extends the platform's global user identity and canonical school-membership model. It does not recreate accounts or replace password hashes. A user may hold separate staff memberships in multiple schools, each governed by that school's own membership and authorization scope.
 
 ## Core model
 
 - `users`: authentication identity, account status, and role/authorization.
-- `staff_memberships`: explicit link between an existing user identity and one school; a user may have separate school memberships only through a separately approved multi-membership identity design.
+- `school_memberships`: canonical tenant membership and authorization scope. `staff_memberships` is a one-to-one HR extension linked to that canonical membership; it does not grant or duplicate school access.
 - `staff_profiles`: employee number, contact details, emergency contact and profile notes.
 - `staff_employment`: job title, employment type/status, dates, department, supervisor, campus/work location and responsibilities summary.
 - `staff_departments`: tenant-owned organizational units.
@@ -21,7 +21,7 @@ The staff module extends the existing school-owned user identity model. It does 
 
 1. A staff manager must be an authorized school leader and must enter an active school context.
 2. Every staff profile, membership, employment row, qualification, responsibility, document and lifecycle event is scoped by `school_id`.
-3. Staff membership insert/update triggers verify that the linked user identity belongs to the same school and is not a student, parent or platform administrator.
+3. Each staff record references a canonical `school_memberships` row. Database triggers verify the linked user, school and staff-eligible membership role; a user can hold staff memberships in multiple schools without changing the legacy `users.school_id` field.
 4. Composite foreign keys keep profile, employment, department and responsibility references within the same school. Subject references are validated against the same school's subject catalogue.
 5. Detail pages, uploads, downloads and lifecycle operations resolve the target by both school ID and staff identity. Cross-school records return not found.
 6. Offboarding marks the membership inactive, employment terminated, account suspended, revokes active teacher class/subject assignments, and records the event. Existing records are retained.
@@ -47,7 +47,7 @@ Staff documents accept PDF, PNG and JPEG files up to 5 MiB. The application uses
 - Leave management: leave policies, balances, requests, approvals, calendars, and accrual rules. Leave is not the same as terminating or suspending employment.
 - Payroll: country/currency-aware pay schedules, compensation components, deductions, statutory tax rules, payslips, approvals and accounting integration. No salary or bank data is collected in this foundation.
 - Performance management: configurable review cycles, goals, feedback, moderation and restricted appraisal access. Performance notes must not be placed in general profile notes.
-- Multi-school appointments: a single person holding concurrent posts across schools requires an explicit person/identity layer and consent/visibility model; current staff memberships remain aligned to the existing one-school user identity model.
+- Cross-school person records: each school retains an independent staff record linked to its own school membership. A future person/identity layer may optionally support consent-based cross-school employment verification without exposing one school's private HR records to another.
 
 ## Operational security notes
 

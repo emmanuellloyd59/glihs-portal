@@ -73,7 +73,33 @@ class StaffRecordLifecycleTests(unittest.TestCase):
             db.commit()
         finally:
             db.close()
+        # Recreate canonical school memberships for the newly seeded test identities;
+        # staff records are extensions of these rows, never standalone tenant links.
+        initialize_membership_schema(portal.get_db_connection)
+        db=portal.get_db_connection()
+        try:
+            # Ensure the suspended legacy user has a suspended school membership
+            # before the staff employment backfill derives its initial status.
+            db.execute(
+                """UPDATE school_memberships SET status='suspended'
+                   WHERE user_id=(SELECT id FROM users WHERE username='inactive_teacher')"""
+            )
+            db.commit()
+        finally:
+            db.close()
         initialize_staff_records(portal.get_db_connection)
+        db=portal.get_db_connection()
+        try:
+            db.execute(
+                """UPDATE staff_employment SET employment_status='suspended'
+                   WHERE membership_id=(
+                       SELECT m.id FROM staff_memberships m JOIN users u ON u.id=m.user_id
+                       WHERE m.school_id=1 AND u.username='inactive_teacher'
+                   )"""
+            )
+            db.commit()
+        finally:
+            db.close()
         self.admin_id = self.user_id("staff_admin")
         self.teacher_id = self.user_id("existing_teacher")
         self.inactive_id = self.user_id("inactive_teacher")
@@ -114,7 +140,12 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         try:
             before = db.execute("SELECT id,password_hash,role FROM users WHERE id=?", (self.teacher_id,)).fetchone()
             membership = db.execute(
-                "SELECT id,membership_status FROM staff_memberships WHERE school_id=1 AND user_id=?",
+                "SELECT id,membership_status,school_membership_id FROM staff_memberships WHERE school_id=1 AND user_id=?",
+                (self.teacher_id,),
+            ).fetchone()
+            canonical = db.execute(
+                """SELECT id FROM school_memberships
+                   WHERE school_id=1 AND user_id=? AND status='active'""",
                 (self.teacher_id,),
             ).fetchone()
             after = db.execute("SELECT id,password_hash,role FROM users WHERE id=?", (self.teacher_id,)).fetchone()
@@ -123,8 +154,102 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         self.assertEqual((before["id"],before["password_hash"],before["role"]),
                          (after["id"],after["password_hash"],after["role"]))
         self.assertIsNotNone(membership)
+        self.assertIsNotNone(canonical)
+        self.assertEqual(membership["school_membership_id"],canonical["id"])
         self.assertEqual(membership["membership_status"],"active")
         self.assertEqual(self.membership(self.inactive_id)["employment_status"],"suspended")
+
+    def test_legacy_staff_schema_migrates_without_changing_account_identity(self):
+        original_database=portal.DATABASE
+        legacy_database=Path(_TMP.name)/"legacy_staff_schema_migration.db"
+        portal.DATABASE=legacy_database
+        try:
+            portal.initialize_database()
+            db=portal.get_db_connection()
+            try:
+                password_hash=generate_password_hash("legacy-preserved-password")
+                user_id=db.execute(
+                    """INSERT INTO users(username,full_name,password_hash,role,status,is_super_admin,school_id)
+                       VALUES('legacy_staff_migration','Legacy Staff',?,'teacher','active',0,1)""",
+                    (password_hash,),
+                ).lastrowid
+                school_membership_id=db.execute(
+                    """INSERT INTO school_memberships(user_id,school_id,role,status,is_primary,accepted_at)
+                       VALUES(?,1,'teacher','active',1,CURRENT_TIMESTAMP)""",
+                    (user_id,),
+                ).lastrowid
+                db.commit()
+                db.execute("PRAGMA foreign_keys=OFF")
+                for trigger in (
+                    "trg_staff_membership_user_tenant_insert",
+                    "trg_staff_membership_user_tenant_update",
+                    "trg_staff_user_school_change_guard",
+                    "trg_staff_lifecycle_no_update",
+                    "trg_staff_lifecycle_no_delete",
+                    "trg_staff_responsibility_subject_tenant",
+                    "trg_staff_membership_status_sync",
+                    "trg_school_membership_staff_extension",
+                    "trg_staff_membership_create_profile",
+                    "trg_staff_school_membership_identity_guard",
+                ):
+                    db.execute(f"DROP TRIGGER IF EXISTS {trigger}")
+                for table in (
+                    "staff_documents","staff_lifecycle_events","staff_responsibilities",
+                    "staff_qualifications","staff_employment","staff_profiles",
+                    "staff_departments","staff_memberships",
+                ):
+                    db.execute(f"DROP TABLE IF EXISTS {table}")
+                # Recreate the first-release table shape: no school_membership_id column.
+                db.execute("""
+                    CREATE TABLE staff_memberships (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        school_id INTEGER NOT NULL REFERENCES schools(id),
+                        user_id INTEGER NOT NULL REFERENCES users(id),
+                        membership_status TEXT NOT NULL DEFAULT 'active'
+                            CHECK(membership_status IN ('invited','active','suspended','inactive')),
+                        joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        ended_at TEXT,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(school_id,user_id),
+                        UNIQUE(school_id,id)
+                    )
+                """)
+                db.execute(
+                    """INSERT INTO staff_memberships(id,school_id,user_id,membership_status)
+                       VALUES(77,1,?,'active')""",
+                    (user_id,),
+                )
+                db.commit()
+            finally:
+                db.close()
+
+            # Startup migrations add and backfill the canonical link in place.
+            portal.initialize_database()
+            db=portal.get_db_connection()
+            try:
+                migrated=db.execute(
+                    """SELECT m.id,m.school_membership_id,m.membership_status,
+                              sm.id AS canonical_id,u.password_hash
+                       FROM staff_memberships m
+                       JOIN school_memberships sm ON sm.id=m.school_membership_id
+                       JOIN users u ON u.id=m.user_id
+                       WHERE m.id=77"""
+                ).fetchone()
+                self.assertEqual(migrated["id"],77)
+                self.assertEqual(migrated["school_membership_id"],school_membership_id)
+                self.assertEqual(migrated["membership_status"],"active")
+                self.assertEqual(migrated["password_hash"],password_hash)
+                self.assertEqual(db.execute(
+                    "SELECT COUNT(*) FROM staff_profiles WHERE membership_id=77"
+                ).fetchone()[0],1)
+                self.assertEqual(db.execute(
+                    "SELECT COUNT(*) FROM staff_employment WHERE membership_id=77"
+                ).fetchone()[0],1)
+            finally:
+                db.close()
+        finally:
+            portal.DATABASE=original_database
 
     def test_school_admin_can_create_staff_account_and_membership_atomically(self):
         self.login()
@@ -290,6 +415,67 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         denied=self.client.get(f"/staff-records/{self.teacher_id}/documents/{doc['id']}")
         self.assertEqual(denied.status_code,404)
 
+    def test_teacher_class_subject_assignments_and_staff_responsibilities(self):
+        self.login()
+        assigned=self.client.post("/staff",data={
+            "action":"assign_teacher","teacher_id":str(self.teacher_id),
+            "class_level":"Grade 8","subject":"Biology"
+        },follow_redirects=True)
+        self.assertEqual(assigned.status_code,200)
+        db=portal.get_db_connection()
+        try:
+            assignment=db.execute(
+                """SELECT id,active FROM teacher_class_assignments
+                   WHERE school_id=1 AND teacher_id=? AND class_level='Grade 8'
+                     AND subject='Biology'""",
+                (self.teacher_id,),
+            ).fetchone()
+            subject_id=db.execute(
+                "SELECT id FROM subjects WHERE school_id=1 AND name='Biology'"
+            ).fetchone()["id"]
+            self.assertEqual(assignment["active"],1)
+        finally:
+            db.close()
+
+        detail=f"/staff-records/{self.teacher_id}"
+        response=self.client.post(detail,data={
+            "action":"add_responsibility","responsibility_type":"subject",
+            "title":"Biology Subject Lead","description":"Coordinate Biology delivery",
+            "class_label":"Grade 8","subject_id":str(subject_id)
+        },follow_redirects=True)
+        self.assertEqual(response.status_code,200)
+        db=portal.get_db_connection()
+        try:
+            responsibility=db.execute(
+                """SELECT id,active,subject_id FROM staff_responsibilities
+                   WHERE school_id=1 AND membership_id=(SELECT id FROM staff_memberships WHERE user_id=?)
+                     AND title='Biology Subject Lead'""",
+                (self.teacher_id,),
+            ).fetchone()
+            self.assertEqual(responsibility["active"],1)
+            self.assertEqual(responsibility["subject_id"],subject_id)
+        finally:
+            db.close()
+
+        archived=self.client.post(detail,data={
+            "action":"archive_responsibility","item_id":str(responsibility["id"])
+        },follow_redirects=True)
+        self.assertEqual(archived.status_code,200)
+        revoked=self.client.post("/staff",data={
+            "action":"revoke_teacher_assignment","assignment_id":str(assignment["id"])
+        },follow_redirects=True)
+        self.assertEqual(revoked.status_code,200)
+        db=portal.get_db_connection()
+        try:
+            self.assertEqual(db.execute(
+                "SELECT active FROM staff_responsibilities WHERE id=?",(responsibility["id"],)
+            ).fetchone()["active"],0)
+            self.assertEqual(db.execute(
+                "SELECT active FROM teacher_class_assignments WHERE id=?",(assignment["id"],)
+            ).fetchone()["active"],0)
+        finally:
+            db.close()
+
     def test_cross_school_staff_records_are_not_discoverable(self):
         db=portal.get_db_connection()
         try:
@@ -319,17 +505,83 @@ class StaffRecordLifecycleTests(unittest.TestCase):
         denied=self.client.get(f"/staff-records/{self.teacher_id}")
         self.assertEqual(denied.status_code,403)
 
-    def test_tenant_triggers_reject_cross_school_staff_membership_and_subjects(self):
+    def test_tenant_triggers_reject_mismatched_links_and_allow_multiple_school_memberships(self):
         db=portal.get_db_connection()
         try:
+            # Simulate the first-release guards from the merged staff foundation,
+            # which incorrectly required users.school_id to equal every school.
+            db.executescript("""
+                DROP TRIGGER IF EXISTS trg_staff_membership_user_tenant_insert;
+                DROP TRIGGER IF EXISTS trg_staff_membership_user_tenant_update;
+                CREATE TRIGGER trg_staff_membership_user_tenant_insert
+                BEFORE INSERT ON staff_memberships
+                WHEN NOT EXISTS (
+                    SELECT 1 FROM users u
+                    WHERE u.id=NEW.user_id AND u.school_id=NEW.school_id
+                )
+                BEGIN SELECT RAISE(ABORT,'legacy single-school staff guard'); END;
+                CREATE TRIGGER trg_staff_membership_user_tenant_update
+                BEFORE UPDATE OF school_id,user_id ON staff_memberships
+                WHEN NOT EXISTS (
+                    SELECT 1 FROM users u
+                    WHERE u.id=NEW.user_id AND u.school_id=NEW.school_id
+                )
+                BEGIN SELECT RAISE(ABORT,'legacy single-school staff guard'); END;
+            """)
+            db.commit()
+            db.close()
+            initialize_staff_records(portal.get_db_connection)
+            db=portal.get_db_connection()
             school_id=db.execute(
                 "INSERT INTO schools(name,slug,status) VALUES('Other School','other-school-trigger','active')"
             ).lastrowid
+            db.commit()
+            original_membership=db.execute(
+                "SELECT id FROM school_memberships WHERE school_id=1 AND user_id=? AND status='active'",
+                (self.teacher_id,),
+            ).fetchone()["id"]
+            # A staff extension cannot point at a membership from a different school.
             with self.assertRaises(Exception):
-                db.execute("INSERT INTO staff_memberships(school_id,user_id) VALUES(?,?)",(school_id,self.teacher_id))
+                db.execute(
+                    """INSERT INTO staff_memberships
+                       (school_id,user_id,school_membership_id,membership_status)
+                       VALUES(?,?,?,'active')""",
+                    (school_id,self.teacher_id,original_membership),
+                )
+            db.rollback()
+            # The same global identity may legitimately hold another school's
+            # membership without changing users.school_id or its password hash.
+            new_membership_id=db.execute(
+                """INSERT INTO school_memberships
+                   (user_id,school_id,role,status,is_primary,accepted_at)
+                   VALUES(?,?,'teacher','active',0,CURRENT_TIMESTAMP)""",
+                (self.teacher_id,school_id),
+            ).lastrowid
+            db.commit()
+            staff=db.execute(
+                """SELECT id,school_membership_id FROM staff_memberships
+                   WHERE school_id=? AND user_id=?""",
+                (school_id,self.teacher_id),
+            ).fetchone()
+            user=db.execute("SELECT school_id FROM users WHERE id=?",(self.teacher_id,)).fetchone()
+            self.assertEqual(staff["school_membership_id"],new_membership_id)
+            self.assertEqual(user["school_id"],1)
+            db.commit()
+            school_one_subject=db.execute(
+                "INSERT INTO subjects(school_id,name) VALUES(1,'Tenant One Mathematics')"
+            ).lastrowid
+            db.commit()
+            with self.assertRaises(Exception):
+                db.execute(
+                    """INSERT INTO staff_responsibilities
+                       (school_id,membership_id,responsibility_type,title,subject_id)
+                       VALUES(?,?,'subject','Invalid cross-school subject',?)""",
+                    (school_id,staff["id"],school_one_subject),
+                )
             db.rollback()
         finally:
             db.close()
+
 
 
 if __name__ == "__main__":
