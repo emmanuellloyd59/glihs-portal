@@ -10,7 +10,7 @@ import sqlite3
 import unicodedata
 from datetime import datetime, timezone
 
-from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required
 
 
@@ -268,6 +268,30 @@ def _audit(connection, action, school_id=None, group_id=None, details=None):
 
 def create_school_network_blueprint(connection_factory):
     bp = Blueprint("school_network", __name__)
+
+    @bp.before_request
+    def require_api_authentication():
+        if request.path.startswith("/api/v1/") and not current_user.is_authenticated:
+            abort(401)
+
+    @bp.app_context_processor
+    def inject_institution_brand():
+        school_id = getattr(current_user, "school_id", None) if current_user.is_authenticated else None
+        if current_user.is_authenticated and _is_platform_owner():
+            selected = session.get("active_school_id")
+            if isinstance(selected, int) and not isinstance(selected, bool):
+                school_id = selected
+        name = None
+        if school_id is not None:
+            connection = connection_factory()
+            try:
+                row = connection.execute(
+                    "SELECT name FROM schools WHERE id=? AND status='active'", (school_id,)
+                ).fetchone()
+                name = row["name"] if row else None
+            finally:
+                connection.close()
+        return {"current_institution_name": name, "platform_name": "Digital Education Ecosystem"}
 
     def _registration_context(form_data=None):
         connection = connection_factory()
