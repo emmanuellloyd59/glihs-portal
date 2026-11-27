@@ -201,6 +201,10 @@ def initialize_staff_records(get_db_connection):
             )
             WHERE school_membership_id IS NULL
         """)
+        # Replace the first-release guards, which tied staff records to the
+        # legacy users.school_id field and blocked valid additional school memberships.
+        connection.execute("DROP TRIGGER IF EXISTS trg_staff_membership_user_tenant_insert")
+        connection.execute("DROP TRIGGER IF EXISTS trg_staff_membership_user_tenant_update")
         connection.executescript("""
         CREATE TRIGGER IF NOT EXISTS trg_staff_membership_user_tenant_insert
         BEFORE INSERT ON staff_memberships
