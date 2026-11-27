@@ -25,6 +25,9 @@ class DemoStaffProvisioningTests(unittest.TestCase):
 
     def setUp(self):
         db = portal.get_db_connection()
+        db.execute(
+            "UPDATE schools SET status='active', lifecycle_status='active' WHERE id=1"
+        )
         for table in (
             "identity_recovery_tokens", "membership_invitations",
             "identity_security_events", "school_memberships",
