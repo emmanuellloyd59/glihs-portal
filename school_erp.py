@@ -7,7 +7,7 @@ import csv
 import io
 import json
 from datetime import date
-from flask import Blueprint, abort, jsonify, request, send_file, url_for
+from flask import Blueprint, abort, jsonify, request, send_file, render_template
 from flask_login import current_user, login_required
 
 CORE_FEATURES = {
@@ -116,7 +116,9 @@ def create_school_erp_blueprint(connection_factory, require_school_context):
             "SELECT feature_key,enabled FROM school_feature_entitlements WHERE school_id=?",
             (sid,),
         ).fetchall()
-        return {row["feature_key"]: bool(row["enabled"]) for row in rows}
+        result = {row["feature_key"]: bool(row["enabled"]) for row in rows}
+        result.update({key: True for key in CORE_FEATURES})
+        return result
 
     def audit(db, sid, action, feature=None, details=None):
         db.execute(
@@ -126,6 +128,21 @@ def create_school_erp_blueprint(connection_factory, require_school_context):
             (sid, int(current_user.id), action, feature,
              json.dumps(details or {}, sort_keys=True)),
         )
+
+    @bp.get("/workspace")
+    @login_required
+    def workspace():
+        sid = school_id()
+        permission("school.view_dashboard", sid)
+        db = connection_factory()
+        try:
+            school = db.execute("SELECT name FROM schools WHERE id=? AND status='active'", (sid,)).fetchone()
+            if school is None:
+                abort(403)
+            return render_template("school_erp.html", school_name=school["name"],
+                                   core_features=CORE_FEATURES, optional_features=OPTIONAL_FEATURES)
+        finally:
+            db.close()
 
     @bp.get("/dashboard")
     @login_required
@@ -255,6 +272,11 @@ def create_school_erp_blueprint(connection_factory, require_school_context):
             "finance": "finance.view",
         }[dataset]
         permission(required, sid)
+        export_requested = request.args.get("format", "").lower() == "csv"
+        if export_requested:
+            export_permission = {"students": "student.export", "admissions": "student.export",
+                                 "finance": "finance.export"}.get(dataset, required)
+            permission(export_permission, sid)
         year = request.args.get("academic_year", "").strip()[:20]
         term = request.args.get("term", "").strip()[:40]
         class_level = request.args.get("class_level", "").strip()[:80]
