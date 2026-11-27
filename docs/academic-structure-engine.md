@@ -51,3 +51,5 @@ The `/academic-structure` page is available to authorized school administrators,
 ## Verification
 
 The new test module covers legacy label import, idempotent migration, historical references, period-type flexibility, tenant-specific uniqueness, version snapshots, and database-level rejection of cross-tenant class relationships. The complete project regression suite and CI status must pass before merge or deployment.
+
+Test fixtures may temporarily drop immutable-history triggers only while clearing disposable test databases; application initialization restores them before each test executes.
