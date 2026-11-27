@@ -87,5 +87,29 @@ class SubscriptionFoundationTests(unittest.TestCase):
         finally: db.close()
 
 
+    def test_expired_trial_becomes_read_only_without_mutating_trial_state(self):
+        db=self.connect()
+        try:
+            plan=db.execute("""INSERT INTO subscription_plans
+                (code,name,billing_period,amount_minor,currency,entitlements_json,usage_limits_json)
+                VALUES('trial-plan','Trial Plan','monthly',0,'USD','{}','{}')""").lastrowid
+            expired=(datetime.now(timezone.utc)-timedelta(days=1)).isoformat()
+            start=(datetime.now(timezone.utc)-timedelta(days=15)).isoformat()
+            end=(datetime.now(timezone.utc)+timedelta(days=15)).isoformat()
+            db.execute("""INSERT INTO institution_subscriptions
+                (school_id,plan_id,status,billing_period,currency,amount_minor,
+                 period_start,period_end,trial_ends_at)
+                VALUES(1,?,'trial','monthly','USD',0,?,?,?)""",
+                (plan,start,end,expired))
+            db.execute("INSERT INTO institution_lifecycle(school_id,state) VALUES(1,'trial')")
+            db.commit()
+            policy=effective_access(db,1)
+            self.assertEqual(policy["access"],"read_only")
+            self.assertEqual(db.execute(
+                "SELECT state FROM institution_lifecycle WHERE school_id=1"
+            ).fetchone()[0],"trial")
+        finally: db.close()
+
+
 if __name__ == "__main__":
     unittest.main()
