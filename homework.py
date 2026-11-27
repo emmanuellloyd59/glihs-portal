@@ -132,6 +132,11 @@ def register_homework_routes(ns):
             raise RuntimeError(
                 f"Homework migration stopped: {mismatch_count} school-ownership mismatch(es)"
             )
+        foreign_key_issues = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if foreign_key_issues:
+            raise RuntimeError(
+                f"Homework migration stopped: {len(foreign_key_issues)} foreign-key integrity issue(s)"
+            )
         connection.execute(
             """INSERT OR IGNORE INTO schema_migrations (version,name)
                VALUES (4,'homework-school-ownership-guards')"""
