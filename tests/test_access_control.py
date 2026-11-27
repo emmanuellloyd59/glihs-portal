@@ -343,9 +343,17 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
         connection = portal.get_db_connection()
         try:
             role = connection.execute(
-                "SELECT role FROM users WHERE id=?", (teacher_id,)
+                """SELECT role FROM school_memberships
+                   WHERE user_id=? AND school_id=1 AND status='active'""",
+                (teacher_id,),
             ).fetchone()["role"]
             self.assertEqual(role, "attendance_officer")
+            # The global legacy role is not authoritative once school
+            # memberships exist; changing one school's role must not rewrite it.
+            legacy_role = connection.execute(
+                "SELECT role FROM users WHERE id=?", (teacher_id,)
+            ).fetchone()["role"]
+            self.assertEqual(legacy_role, "teacher")
             active_count = connection.execute(
                 "SELECT COUNT(*) FROM teacher_class_assignments WHERE teacher_id=? AND active=1",
                 (teacher_id,),
