@@ -31,6 +31,9 @@ class PortalTestSupport:
 
     def setUp(self):
         connection = portal.get_db_connection()
+        # Test fixtures reset a disposable database containing staff foreign keys.
+        # Disable FK enforcement only for the cleanup phase, then restore it.
+        connection.execute("PRAGMA foreign_keys = OFF")
         # New Version 3 modules reference users and students. Clear dependent rows
         # first so repeated test runs remain isolated and respect SQLite foreign keys.
         existing_tables = {
@@ -38,7 +41,7 @@ class PortalTestSupport:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
         }
-        for table_name in ("homework_submissions", "homework_assignments", "parent_student_links", "finance_payments", "school_announcements", "learning_materials", "teacher_class_assignments", "class_timetable"):
+        for table_name in ("staff_documents", "staff_responsibilities", "staff_qualifications", "staff_employment", "staff_profiles", "staff_memberships", "staff_departments", "homework_submissions", "homework_assignments", "parent_student_links", "finance_payments", "school_announcements", "learning_materials", "teacher_class_assignments", "class_timetable"):
             if table_name in existing_tables:
                 connection.execute("DELETE FROM " + table_name)
         connection.execute("DELETE FROM grades")
@@ -48,6 +51,8 @@ class PortalTestSupport:
         connection.execute("DELETE FROM audit_log")
         connection.execute("DELETE FROM students")
         connection.execute("DELETE FROM users")
+        connection.commit()
+        connection.execute("PRAGMA foreign_keys = ON")
         connection.execute(
             "INSERT INTO users (username, password_hash, role, school_id) VALUES (?, ?, ?, 1)",
             ("teacher_demo", generate_password_hash("test-teacher-password"), "teacher"),
