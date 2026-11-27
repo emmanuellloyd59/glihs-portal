@@ -32,7 +32,7 @@ This module extends the existing `students` table and existing student pages. It
 - `GET|POST /api/v1/admissions`; `POST /api/v1/admissions/{id}/review`; `POST /api/v1/admissions/{id}/convert`.
 - `GET|POST /api/v1/students/{id}/guardians`; `PUT /api/v1/student-guardians/{id}`; `DELETE /api/v1/student-guardians/{id}` (archive).
 - `GET|POST /api/v1/students/{id}/academic-history`.
-- `POST /api/v1/students/{id}/transfers`; `POST /api/v1/student-transfers/{id}/review` (completion of an outbound transfer marks the source-school record transferred); `POST /api/v1/students/{id}/withdraw`.
+- `GET|POST /api/v1/students/{id}/transfers`; `GET /api/v1/students/{id}/withdrawals`; `POST /api/v1/student-transfers/{id}/review` (completion of an outbound transfer marks the source-school record transferred); `POST /api/v1/students/{id}/withdraw`.
 - `GET|POST /api/v1/students/{id}/disciplinary-records`.
 - `GET|POST /api/v1/students/{id}/documents`; `GET /api/v1/student-documents/{id}/download`; `DELETE /api/v1/student-documents/{id}` (archive, never hard-delete).
 - `GET /api/v1/students/report/summary`; `GET /api/v1/students/export.csv`; `POST /api/v1/students/import.csv`.
