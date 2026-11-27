@@ -22,7 +22,7 @@ The Digital Education Ecosystem must serve independent institutions and school g
 
 ## Lifecycle
 
-pending → approved → active → suspended → active
+pending → under_review → approved → active → suspended → active
 
 Pending/under-review registrations may be rejected. Rejected or suspended institutions may be archived. Invalid transitions return a conflict. Existing legacy schools.status remains synchronized (active or suspended) for compatibility with current authorization code.
 
