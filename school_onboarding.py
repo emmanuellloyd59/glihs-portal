@@ -636,6 +636,9 @@ def create_school_onboarding_blueprint(connection_factory, platform_owner_check)
         region_label = _clean(payload.get("region_label") or "Administrative region",80)
         if not re.fullmatch(r"[A-Z]{2}",code) or len(name)<2:
             return _json_error("validation_error","Valid country code and name are required.",422)
+        for flag in ("region_required","registration_number_required"):
+            if flag in payload and not isinstance(payload[flag],bool):
+                return _json_error("validation_error",flag+" must be a boolean.",422)
         requirements = payload.get("requirements",{})
         if not isinstance(requirements,dict) or len(requirements)>30:
             return _json_error("validation_error","Requirements must be a small JSON object.",422)
