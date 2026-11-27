@@ -6,7 +6,9 @@ All migration, failure-injection, backup and restore tests use temporary SQLite 
 
 ## Migration safety
 
-- `initialize_database()` now executes schema and data changes inside an explicit `BEGIN IMMEDIATE` transaction.
+- `initialize_database()` executes schema and data changes inside an explicit `BEGIN IMMEDIATE` transaction.
+- The learning-resource, announcement and finance-content schema setup and the homework schema setup now also start explicit write transactions before creating tables, indexes, triggers or ledger entries. This prevents SQLite DDL from being left partially applied when a later legacy ownership check fails.
+- Startup rejects unknown migration versions or a known version recorded with an unexpected name, preventing older code from silently starting against a newer or inconsistent schema ledger.
 - On any migration exception, the transaction is rolled back and the connection restores foreign-key enforcement before closing.
 - The schema setup remains idempotent and records the baseline and tenant-ownership guard versions in `schema_migrations`.
 - Startup verifies `PRAGMA foreign_key_check` and audits existing student-account, parent-child, finance, grade, attendance, report-card, teacher-assignment and timetable school ownership—including the school ownership of the staff actors who created or updated those records—before committing. A broken relationship blocks the migration rather than silently accepting corruption.
@@ -43,6 +45,8 @@ These are tested helper functions, not a configured production backup scheduler 
 The disposable-database tests cover:
 - Legacy record preservation during upgrade.
 - Migration rollback when a legacy record cannot be copied into the new schema.
+- Fail-closed handling of unknown or conflicting migration-ledger entries while preserving existing records.
+- Rollback of content-schema tables, triggers and ledger changes when pre-existing content has a cross-school ownership mismatch.
 - Repeatable initialization and migration-ledger idempotency, including the homework schema milestone.
 - Preservation of parent-child relationships.
 - Rejection of cross-school parent, student-account, finance, finance-payment, homework-author and homework-submission relationships.
