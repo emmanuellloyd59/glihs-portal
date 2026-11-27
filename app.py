@@ -235,6 +235,37 @@ def migrate_grade_assessment_uniqueness(connection):
 
 
 
+def migrate_report_card_term_flexibility(connection):
+    """Remove the legacy three-term enum while preserving every report-card row."""
+    schema = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='report_cards'"
+    ).fetchone()
+    sql = (schema["sql"] or "") if schema else ""
+    if "term IN ('Term 1', 'Term 2', 'Term 3')" not in sql:
+        return
+    connection.execute("DROP TABLE IF EXISTS report_cards_migrating")
+    connection.execute("""
+        CREATE TABLE report_cards_migrating (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL REFERENCES students(id),
+            academic_year TEXT NOT NULL,
+            term TEXT NOT NULL,
+            published INTEGER NOT NULL DEFAULT 0 CHECK(published IN (0,1)),
+            published_by INTEGER REFERENCES users(id),
+            published_at TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            school_id INTEGER REFERENCES schools(id),
+            UNIQUE(school_id,student_id,academic_year,term)
+        )
+    """)
+    columns = ("id,student_id,academic_year,term,published,published_by,published_at,updated_at,school_id")
+    connection.execute(
+        f"INSERT INTO report_cards_migrating ({columns}) SELECT {columns} FROM report_cards"
+    )
+    connection.execute("DROP TABLE report_cards")
+    connection.execute("ALTER TABLE report_cards_migrating RENAME TO report_cards")
+
+
 def migrate_student_admission_number_uniqueness(connection):
     """Replace global admission-number uniqueness with per-school uniqueness.
 
@@ -513,6 +544,7 @@ def initialize_database():
         # Remove the legacy global admission-number constraint only after all
         # records have a school owner, so the new constraint can be tenant-scoped.
         migrate_student_admission_number_uniqueness(connection)
+        migrate_report_card_term_flexibility(connection)
 
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_users_school_role ON users(school_id, role)"
