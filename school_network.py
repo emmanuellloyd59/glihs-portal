@@ -240,7 +240,7 @@ def _validate_school(payload, require_registration=True):
         errors.append("City and a two-letter country code are required.")
     if require_registration and not data["contact_email"] and not data["contact_phone"]:
         errors.append("Provide at least one institutional contact method (email or phone).")
-    if data["country_code"] and len(data["country_code"]) != 2:
+    if data["country_code"] and not re.fullmatch(r"[A-Z]{2}", data["country_code"]):
         errors.append("Country code must contain exactly two letters.")
     if data["contact_email"] and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", data["contact_email"]):
         errors.append("Enter a valid institutional email address.")
@@ -478,7 +478,12 @@ def create_school_network_blueprint(connection_factory):
             if _is_platform_owner():
                 rows = connection.execute("SELECT * FROM schools ORDER BY created_at DESC, id DESC").fetchall()
             elif current_user.school_id is not None and current_user.role in {"school_admin", "principal"}:
-                rows = connection.execute("SELECT * FROM schools WHERE id=?", (current_user.school_id,)).fetchall()
+                rows = connection.execute(
+                    "SELECT * FROM schools WHERE id=? AND status='active' AND lifecycle_status='active'",
+                    (current_user.school_id,),
+                ).fetchall()
+                if not rows:
+                    abort(403)
             else:
                 abort(403)
             return jsonify({"data": [_school_dict(row) for row in rows]})
@@ -547,7 +552,9 @@ def create_school_network_blueprint(connection_factory):
     def api_review_school(school_id):
         if not _is_platform_owner():
             abort(403)
-        payload = request.get_json(silent=True) or {}
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
         action = _clean(payload.get("action"), 24).lower()
         transitions = {
             "approve": ({"pending", "under_review"}, "approved", "suspended"),
@@ -583,7 +590,9 @@ def create_school_network_blueprint(connection_factory):
     def api_create_group():
         if not _is_platform_owner():
             abort(403)
-        payload = request.get_json(silent=True) or {}
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
         name = _clean(payload.get("name"), 160)
         slug = _clean(payload.get("slug") or _slugify(name), 63).lower()
         ownership = _clean(payload.get("ownership_type"), 40)
@@ -626,7 +635,9 @@ def create_school_network_blueprint(connection_factory):
     @login_required
     def api_create_campus(school_id):
         access = _school_access(school_id)
-        payload = request.get_json(silent=True) or {}
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
         code = _clean(payload.get("code"), 32).upper()
         name = _clean(payload.get("name"), 160)
         campus_type = _clean(payload.get("campus_type") or "standard", 40)
@@ -665,7 +676,9 @@ def create_school_network_blueprint(connection_factory):
     @login_required
     def api_update_campus(school_id, campus_id):
         access = _school_access(school_id, connection_factory)
-        payload = request.get_json(silent=True) or {}
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
         allowed = {"name", "campus_type", "address_line1", "city", "county",
                    "country_code", "contact_email", "contact_phone", "status"}
         changes = {key: payload[key] for key in allowed if key in payload}
@@ -711,7 +724,9 @@ def create_school_network_blueprint(connection_factory):
     @login_required
     def api_create_contact(school_id):
         access = _school_access(school_id)
-        payload = request.get_json(silent=True) or {}
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": {"code": "invalid_json", "message": "A JSON object is required."}}), 400
         contact_type = _clean(payload.get("contact_type") or "general", 24)
         if contact_type not in {"general", "admissions", "principal", "owner", "finance", "technical", "other"}:
             return jsonify({"error": {"code": "validation_error", "message": "Invalid contact type."}}), 422
