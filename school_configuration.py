@@ -11,7 +11,7 @@ import sqlite3
 from datetime import date
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required
 
 
@@ -421,6 +421,29 @@ def _record_version(connection, school_id, campus_id, version, snapshot, summary
 
 def create_school_configuration_blueprint(connection_factory):
     bp = Blueprint("school_configuration", __name__)
+
+    @bp.app_context_processor
+    def inject_school_branding():
+        school_id = getattr(current_user, "school_id", None) if current_user.is_authenticated else None
+        if (current_user.is_authenticated and getattr(current_user, "role", None) == "super_admin"
+                and bool(getattr(current_user, "is_super_admin", False)) and school_id is None):
+            selected = session.get("active_school_id")
+            school_id = selected if isinstance(selected, int) and not isinstance(selected, bool) else None
+        branding = {"logo_url": "", "primary_color": "#1769AA", "secondary_color": "#16A6A1"}
+        if school_id is not None:
+            connection = connection_factory()
+            try:
+                row = connection.execute(
+                    "SELECT config_json FROM school_configurations WHERE school_id=?",
+                    (school_id,),
+                ).fetchone()
+                if row:
+                    branding.update(json.loads(row["config_json"]).get("branding", {}))
+            except sqlite3.OperationalError:
+                pass
+            finally:
+                connection.close()
+        return {"current_institution_branding": branding}
 
     @bp.before_request
     def protect_api():
