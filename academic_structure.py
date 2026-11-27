@@ -230,15 +230,28 @@ def register_academic_structure_routes(ns):
                         curriculum=request.form.get("curriculum_name","").strip()
                         requirement=request.form.get("requirement","required")
                         if not level_id.isdigit() or not subject_id.isdigit() or not curriculum or requirement not in {"required","elective","optional"}: raise ValueError("Choose a valid grade/stage and subject and curriculum requirement.")
-                        db.execute("INSERT INTO curriculum_subjects(school_id,curriculum_name,curriculum_version,grade_level_id,subject_id,requirement,credits,effective_from,effective_to) SELECT ?,?,?,g.id,s.id,?,?,?,?,? FROM grade_levels g JOIN subjects s ON s.id=? AND s.school_id=g.school_id WHERE g.id=? AND g.school_id=?",(school_id,curriculum,request.form.get("curriculum_version") or None,requirement,float(request.form["credits"]) if request.form.get("credits") else None,request.form.get("effective_from") or None,request.form.get("effective_to") or None,int(subject_id),int(level_id),school_id))
+                        db.execute("INSERT INTO curriculum_subjects(school_id,curriculum_name,curriculum_version,grade_level_id,subject_id,requirement,credits,effective_from,effective_to) SELECT ?,?,?,g.id,s.id,?,?,?,? FROM grade_levels g JOIN subjects s ON s.id=? AND s.school_id=g.school_id WHERE g.id=? AND g.school_id=?",(school_id,curriculum,request.form.get("curriculum_version") or None,requirement,float(request.form["credits"]) if request.form.get("credits") else None,request.form.get("effective_from") or None,request.form.get("effective_to") or None,int(subject_id),int(level_id),school_id))
                         if db.execute("SELECT changes()").fetchone()[0]!=1: raise ValueError("The selected progression level and subject must belong to this school.")
                     elif action=="enroll":
                         values=[request.form.get(k,"") for k in ("student_id","class_section_id","subject_id","academic_year_id")]
                         if not all(v.isdigit() for v in values): raise ValueError("Choose a valid student, section, subject and academic year.")
                         period=request.form.get("academic_period_id") or None
-                        db.execute("INSERT INTO course_enrollments(school_id,student_id,class_section_id,subject_id,academic_year_id,academic_period_id) SELECT ?,s.id,cs.id,su.id,ay.id,? FROM students s JOIN class_sections cs ON cs.id=? AND cs.school_id=? JOIN subjects su ON su.id=? AND su.school_id=? JOIN academic_years ay ON ay.id=? AND ay.school_id=? WHERE s.id=? AND s.school_id=?",
-                          (school_id,int(period) if period and period.isdigit() else None,int(values[1]),school_id,int(values[2]),school_id,int(values[3]),school_id,int(values[0]),school_id))
-                        if db.execute("SELECT changes()").fetchone()[0]!=1: raise ValueError("The selected enrollment records must all belong to this school.")
+                        if period and not period.isdigit():
+                            raise ValueError("Choose a valid academic period.")
+                        base_sql = """INSERT INTO course_enrollments
+                            (school_id,student_id,class_section_id,subject_id,academic_year_id,academic_period_id)
+                            SELECT ?,s.id,cs.id,su.id,ay.id,? FROM students s
+                            JOIN class_sections cs ON cs.id=? AND cs.school_id=?
+                            JOIN academic_classes ac ON ac.id=cs.class_id AND ac.school_id=cs.school_id
+                            JOIN subjects su ON su.id=? AND su.school_id=?
+                            JOIN academic_years ay ON ay.id=? AND ay.school_id=?
+                            WHERE s.id=? AND s.school_id=? AND ac.academic_year_id=ay.id"""
+                        params=[school_id,int(period) if period else None,int(values[1]),school_id,int(values[2]),school_id,int(values[3]),school_id,int(values[0]),school_id]
+                        if period:
+                            base_sql += " AND EXISTS (SELECT 1 FROM academic_periods p WHERE p.id=? AND p.school_id=? AND p.academic_year_id=ay.id)"
+                            params.extend([int(period),school_id])
+                        db.execute(base_sql,params)
+                        if db.execute("SELECT changes()").fetchone()[0]!=1: raise ValueError("The selected enrollment records must all belong to this school and academic year.")
                     else:
                         raise ValueError("Unknown academic-structure action.")
                     if action != "enroll":
