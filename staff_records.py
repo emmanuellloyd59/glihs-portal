@@ -250,11 +250,12 @@ def register_staff_records_routes(ns):
                    p.gender,p.profile_notes,
                    e.id AS employment_id,e.department_id,e.job_title,e.employment_type,
                    e.employment_status,e.start_date,e.end_date,e.supervisor_membership_id,
-                   e.work_location,e.responsibilities_summary
+                   e.work_location,e.responsibilities_summary,d.name AS department_name
             FROM staff_memberships m
             JOIN users u ON u.id=m.user_id AND u.school_id=m.school_id
             LEFT JOIN staff_profiles p ON p.membership_id=m.id AND p.school_id=m.school_id
             LEFT JOIN staff_employment e ON e.membership_id=m.id AND e.school_id=m.school_id
+            LEFT JOIN staff_departments d ON d.id=e.department_id AND d.school_id=e.school_id
             WHERE m.school_id=? AND m.user_id=?
         """,(school_id,user_id)).fetchone()
 
@@ -482,6 +483,10 @@ def register_staff_records_routes(ns):
             qualifications=connection.execute("""
                 SELECT * FROM staff_qualifications WHERE school_id=? AND membership_id=? AND active=1 ORDER BY created_at DESC
             """,(school_id,member["membership_id"])).fetchall()
+            teacher_assignments=connection.execute("""
+                SELECT id,class_level,subject,created_at FROM teacher_class_assignments
+                WHERE school_id=? AND teacher_id=? AND active=1 ORDER BY class_level COLLATE NOCASE,subject COLLATE NOCASE
+            """,(school_id,user_id)).fetchall()
             responsibilities=connection.execute("""
                 SELECT r.*,s.name AS subject_name FROM staff_responsibilities r
                 LEFT JOIN subjects s ON s.id=r.subject_id AND s.school_id=r.school_id
@@ -505,7 +510,8 @@ def register_staff_records_routes(ns):
             school=connection.execute("SELECT name FROM schools WHERE id=?",(school_id,)).fetchone()
             return render_template("staff_record_detail.html",member=member,qualifications=qualifications,
                 responsibilities=responsibilities,documents=documents,departments=departments_all,
-                subjects=subjects,supervisors=supervisors,lifecycle=lifecycle,school=school)
+                subjects=subjects,supervisors=supervisors,lifecycle=lifecycle,school=school,
+                teacher_assignments=teacher_assignments)
         finally:
             connection.close()
 
