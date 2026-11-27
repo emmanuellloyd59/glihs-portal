@@ -27,10 +27,11 @@ class StudentInformationTests(PortalTestSupport, unittest.TestCase):
     def create_second_school_registrar(self):
         db = portal.get_db_connection()
         try:
+            next_school = db.execute("SELECT COALESCE(MAX(id),0)+1 FROM schools").fetchone()[0]
             cur = db.execute("""
               INSERT INTO schools(name,slug,status,lifecycle_status)
-              VALUES('Second Test School','second-test-school','active','active')
-            """)
+              VALUES(?,?,'active','active')
+            """, (f"Second Test School {next_school}", f"second-test-school-{next_school}"))
             school_id = cur.lastrowid
             user = db.execute("""
               INSERT INTO users(username,full_name,password_hash,role,status,school_id)
@@ -168,6 +169,29 @@ class StudentInformationTests(PortalTestSupport, unittest.TestCase):
         self.assertEqual(exported.status_code,200)
         self.assertIn(b"Imported Fiction",exported.data)
         self.assertNotIn(b"Other Fiction",exported.data)
+
+    def test_duplicate_check_is_limited_to_the_active_school(self):
+        second_school=self.create_second_school_registrar()
+        self.create_student(1,"MATCH-1","MATCH-ID","Morgan Fiction","2011-02-03")
+        self.create_student(second_school,"MATCH-2","MATCH-ID-2","Morgan Fiction","2011-02-03")
+        self.login_as("registrar_demo","test-registrar-password")
+        response=self.client.get("/api/v1/students/duplicate-check?full_name=Morgan%20Fiction&date_of_birth=2011-02-03")
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(len(response.get_json()["possible_student_matches"]),1)
+        self.assertEqual(response.get_json()["possible_student_matches"][0]["admission_number"],"MATCH-1")
+
+    def test_document_upload_list_and_download_are_authorized(self):
+        student_id=self.create_student()
+        self.login_as("registrar_demo","test-registrar-password")
+        upload=self.client.post(f"/api/v1/students/{student_id}/documents",
+            data={"document_type":"birth_certificate","file":(io.BytesIO(b"%PDF-1.4\\nfictional test document"),"birth.pdf")},
+            content_type="multipart/form-data")
+        self.assertEqual(upload.status_code,201)
+        document_id=upload.get_json()["document_id"]
+        self.assertEqual(self.client.get(f"/api/v1/students/{student_id}/documents").status_code,200)
+        downloaded=self.client.get(f"/api/v1/student-documents/{document_id}/download")
+        self.assertEqual(downloaded.status_code,200)
+        self.assertTrue(downloaded.data.startswith(b"%PDF-1.4"))
 
     def test_identifier_configuration_is_school_specific(self):
         self.login_as("registrar_demo","test-registrar-password")
