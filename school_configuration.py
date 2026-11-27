@@ -407,10 +407,20 @@ def create_school_configuration_blueprint(connection_factory):
             ).fetchall()
         finally:
             connection.close()
+        history = connection_factory()
+        try:
+            versions = history.execute(
+                """SELECT version, change_summary, changed_by, created_at
+                   FROM school_configuration_versions
+                   WHERE school_id=? AND campus_id IS NULL ORDER BY version DESC LIMIT 20""",
+                (school_id,),
+            ).fetchall()
+        finally:
+            history.close()
         return render_template(
             "school_configuration/centre.html", school=school, school_id=school_id,
             access=access, config=config, version=row["version"], campuses=campuses,
-            modules=sorted(MODULES),
+            modules=sorted(MODULES), versions=versions,
         )
 
     @bp.post("/school-network/configuration")
