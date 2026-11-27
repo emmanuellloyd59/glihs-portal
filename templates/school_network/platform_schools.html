@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}School Network Administration{% endblock %}
+{% block content %}
+<section class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+ <div><p class="eyebrow text-primary mb-1">Platform administration</p><h1 class="h2 fw-bold mb-1">School Network</h1><p class="text-secondary mb-0">Review institutional registrations, manage operational status and inspect school identities.</p></div>
+ <a class="btn btn-outline-primary" href="{{ url_for('school_network.register_form') }}">Open registration form</a>
+</section>
+<div class="row g-3 mb-4">
+ {% for status in ['pending','approved','active','suspended','rejected','archived'] %}
+ <div class="col-6 col-md-2"><div class="surface-card p-3 h-100"><div class="small text-secondary">{{ status.replace('_',' ').title() }}</div><div class="h3 fw-bold mb-0">{{ schools|selectattr('lifecycle_status','equalto',status)|list|length }}</div></div></div>
+ {% endfor %}
+</div>
+<section class="surface-card p-3 p-md-4">
+ <div class="table-responsive"><table class="table align-middle">
+  <thead><tr><th>Institution</th><th>Identity</th><th>Classification</th><th>Location</th><th>Group</th><th>Status</th><th>Actions</th></tr></thead>
+  <tbody>
+  {% for school in schools %}
+   <tr>
+    <td><div class="fw-bold">{{ school.name }}</div><div class="small text-secondary">{{ school.legal_name or 'Legal name not supplied' }}</div></td>
+    <td><code>{{ school.slug }}</code></td><td>{{ (school.classification or '—').replace('_',' ').title() }}</td>
+    <td>{{ school.city or '—' }}{% if school.county %}, {{ school.county }}{% endif %} · {{ school.country_code or '—' }}</td>
+    <td>{{ school.group_name or 'Independent' }}</td>
+    <td><span class="badge text-bg-{{ 'success' if school.lifecycle_status == 'active' else ('warning' if school.lifecycle_status in ['pending','approved','under_review'] else 'secondary') }}">{{ school.lifecycle_status.replace('_',' ').title() }}</span></td>
+    <td class="text-nowrap">
+     <a class="btn btn-sm btn-outline-primary mb-1" href="{{ url_for('school_network.school_profile', school_id=school.id) }}">Profile</a>
+     {% if school.lifecycle_status in ['pending','under_review'] %}
+      <form class="d-inline" method="post" action="{{ url_for('school_network.platform_school_review_form',school_id=school.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="approve"><button class="btn btn-sm btn-success mb-1">Approve</button></form>
+      <form class="d-inline" method="post" action="{{ url_for('school_network.platform_school_review_form',school_id=school.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="reject"><button class="btn btn-sm btn-outline-danger mb-1">Reject</button></form>
+     {% elif school.lifecycle_status == 'approved' %}
+      <form class="d-inline" method="post" action="{{ url_for('school_network.platform_school_review_form',school_id=school.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="activate"><button class="btn btn-sm btn-success mb-1">Activate</button></form>
+     {% elif school.lifecycle_status == 'active' %}
+      <form class="d-inline" method="post" action="{{ url_for('school_network.platform_school_review_form',school_id=school.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="suspend"><button class="btn btn-sm btn-outline-danger mb-1">Suspend</button></form>
+     {% elif school.lifecycle_status == 'suspended' %}
+      <form class="d-inline" method="post" action="{{ url_for('school_network.platform_school_review_form',school_id=school.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="reactivate"><button class="btn btn-sm btn-success mb-1">Reactivate</button></form>
+     {% endif %}
+    </td>
+   </tr>
+  {% else %}<tr><td colspan="7" class="text-center text-secondary py-5">No institutions registered yet.</td></tr>{% endfor %}
+  </tbody>
+ </table></div>
+</section>
+{% endblock %}
