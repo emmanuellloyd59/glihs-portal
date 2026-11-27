@@ -18,6 +18,20 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: cmhs_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: cmhs_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cmhs_test -d cmhs_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     strategy:
       fail-fast: false
       matrix:
@@ -36,4 +50,5 @@ jobs:
         env:
           SECRET_KEY: ci-only-test-secret
           SESSION_COOKIE_SECURE: "false"
+          TEST_POSTGRES_URL: postgresql://cmhs_test:ci-only-password@localhost:5432/cmhs_test
         run: python -m unittest discover -s tests -v
