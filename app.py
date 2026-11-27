@@ -3151,5 +3151,17 @@ from assessment_engine import initialize_assessment_schema, create_assessment_bl
 initialize_assessment_schema(get_db_connection)
 app.register_blueprint(create_assessment_blueprint(get_db_connection, require_school_context))
 
+
+# Unified School ERP workspace, dashboards, feature entitlements and reports.
+# Existing domain modules remain the source of truth; this layer composes them.
+from school_erp import (
+    create_school_erp_blueprint,
+    initialize_school_erp_schema,
+)
+initialize_school_erp_schema(get_db_connection)
+app.register_blueprint(
+    create_school_erp_blueprint(get_db_connection, require_school_context)
+)
+
 if __name__ == "__main__":
     app.run(port=5000, debug=False)
