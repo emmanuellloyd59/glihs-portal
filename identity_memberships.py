@@ -92,6 +92,10 @@ def initialize_membership_schema(connection_factory):
             ON school_memberships(user_id, status, is_primary)
         """)
         connection.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique
+            ON users(lower(email)) WHERE email IS NOT NULL AND trim(email) <> ''
+        """)
+        connection.execute("""
             CREATE TABLE IF NOT EXISTS membership_invitations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email TEXT NOT NULL,
@@ -329,6 +333,17 @@ def create_membership_blueprint(connection_factory):
         finally:
             connection.close()
 
+    @bp.get("/identity/invitations/accept")
+    def invitation_landing():
+        token = str(request.args.get("token", "")).strip()
+        if len(token) < 32:
+            return jsonify({"error": "Invitation is invalid or expired."}), 400
+        return jsonify({
+            "message": "Invitation link received. Sign in to the invited email account, then submit this token to the invitation acceptance endpoint.",
+            "accept_endpoint": url_for("identity_memberships.accept_invitation"),
+            "token": token,
+        })
+
     @bp.post("/identity/invitations/accept")
     def accept_invitation():
         payload = request.get_json(silent=True) or request.form
@@ -351,6 +366,12 @@ def create_membership_blueprint(connection_factory):
                 if not user or user["status"] != "active" or (user["email"] or "").lower() != invite["email"]:
                     return jsonify({"error": "Sign in with the invited email address."}), 403
             else:
+                existing = connection.execute(
+                    "SELECT id FROM users WHERE lower(email)=? AND status='active'",
+                    (invite["email"],),
+                ).fetchone()
+                if existing:
+                    return jsonify({"error": "Sign in to the existing account before accepting this invitation."}), 403
                 username = str(payload.get("username", "")).strip()
                 full_name = str(payload.get("full_name", "")).strip()
                 password = str(payload.get("password", ""))
@@ -368,10 +389,9 @@ def create_membership_blueprint(connection_factory):
                 except sqlite3.IntegrityError:
                     return jsonify({"error": "Username already exists. Sign in to the existing account and accept the invitation."}), 409
             connection.execute("""
-                INSERT INTO school_memberships
+                INSERT OR IGNORE INTO school_memberships
                     (user_id,school_id,campus_id,role,status,is_primary,invited_by,accepted_at)
                 VALUES(?,?,?,?,'active',0,?,?)
-                ON CONFLICT(user_id,school_id,COALESCE(campus_id,0)) DO NOTHING
             """, (user_id, invite["school_id"], invite["campus_id"], invite["role"],
                   invite["invited_by"], _stamp()))
             connection.execute("""
@@ -441,6 +461,17 @@ def create_membership_blueprint(connection_factory):
             return jsonify({"message": "If an eligible account exists, recovery instructions will be sent."}), 202
         finally:
             connection.close()
+
+    @bp.get("/identity/recovery/reset")
+    def recovery_landing():
+        token = str(request.args.get("token", "")).strip()
+        if len(token) < 32:
+            return jsonify({"error": "Recovery link is invalid or expired."}), 400
+        return jsonify({
+            "message": "Submit a new password and this one-time token to the recovery reset endpoint.",
+            "reset_endpoint": url_for("identity_memberships.reset_recovery"),
+            "token": token,
+        })
 
     @bp.post("/identity/recovery/reset")
     def reset_recovery():
