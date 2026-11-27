@@ -1964,12 +1964,9 @@ def report_cards():
 @app.route("/students/register", methods=["GET", "POST"])
 @login_required
 def register_student():
-    if current_user.role not in ("super_admin", "school_admin", "registrar", "admissions_officer"):
-        flash("You are not authorized to register students.", "danger")
-        return redirect(url_for("dashboard"))
-    # Enforce tenant context on GET as well as POST so platform admins cannot
-    # open a school-scoped form that they cannot safely submit.
-    require_school_context()
+    school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("academic.manage_records", get_db_connection, school_id=school_id)
 
     if request.method == "POST":
         admission_number = request.form.get("admission_number", "").strip()
@@ -2063,8 +2060,9 @@ def register_student():
 @app.route("/students/<int:student_id>", methods=["GET"])
 @login_required
 def student_detail(student_id):
-    if current_user.role not in STUDENT_RECORD_ROLES:
-        abort(403)
+    detail_school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("academic.view_records", get_db_connection, school_id=detail_school_id)
     connection = get_db_connection()
     try:
         # Only the principal and registrar need the full private profile. Other
@@ -2072,12 +2070,11 @@ def student_detail(student_id):
         private_profile_fields = (
             "s.date_of_birth, s.previous_school, s.guardian_name, s.guardian_phone, "
             "s.emergency_contact_name, s.emergency_contact_phone, s.record_notes"
-            if current_user.role in {"principal", "registrar"}
+            if current_user.role in {"school_owner", "school_admin", "principal", "registrar"}
             else "NULL AS date_of_birth, NULL AS previous_school, NULL AS guardian_name, "
                  "NULL AS guardian_phone, NULL AS emergency_contact_name, "
                  "NULL AS emergency_contact_phone, NULL AS record_notes"
         )
-        detail_school_id = require_school_context()
         student = connection.execute(
             f"""SELECT s.id, s.student_id_number, s.admission_number, s.full_name,
                        s.class_level, {private_profile_fields}, s.enrollment_date,
@@ -2093,7 +2090,8 @@ def student_detail(student_id):
         if student is None:
             abort(404)
         finance_summary = None
-        if current_user.role in {"principal", "registrar"}:
+        from authorization import has_permission
+        if has_permission(connection, "finance.view", school_id=detail_school_id):
             finance_summary = connection.execute(
                 """SELECT COALESCE(total_fee, 0) AS total_fee,
                           COALESCE(amount_paid, 0) AS amount_paid,
@@ -2130,8 +2128,9 @@ def student_detail(student_id):
 @app.route("/students/<int:student_id>/edit", methods=["GET", "POST"])
 @login_required
 def edit_student(student_id):
-    if current_user.role not in {"principal", "registrar"}:
-        abort(403)
+    edit_school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("academic.manage_records", get_db_connection, school_id=edit_school_id)
     connection = get_db_connection()
     try:
         student = connection.execute("SELECT * FROM students WHERE id = ? AND school_id = ?", (student_id, require_school_context())).fetchone()
@@ -2203,9 +2202,9 @@ def edit_student(student_id):
 @app.route("/students")
 @login_required
 def list_students():
-    if current_user.role not in STUDENT_RECORD_ROLES:
-        flash("You are not authorized to view student records.", "danger")
-        return redirect(url_for("dashboard"))
+    list_school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("academic.view_records", get_db_connection, school_id=list_school_id)
 
     class_filter = request.args.get("class_level", "").strip()
     search_query = request.args.get("q", "").strip()[:100]
@@ -2220,7 +2219,8 @@ def list_students():
         )
         # Do not fetch fee/payment data for roles that cannot view finances. Hiding
         # columns in the template is not a substitute for least-privilege data access.
-        can_view_finances = current_user.role in {"principal", "registrar"}
+        from authorization import has_permission
+        can_view_finances = has_permission(connection, "finance.view", school_id=list_school_id)
         finance_columns = (
             "COALESCE(f.total_fee, 0) AS total_fee, "
             "COALESCE(f.amount_paid, 0) AS amount_paid, "
@@ -2280,9 +2280,10 @@ def list_students():
 @app.route("/student-finances", methods=["GET", "POST"])
 @login_required
 def student_finances():
-    if current_user.role not in {"super_admin", "school_admin", "principal", "registrar", "finance_admin"}:
-        abort(403)
     school_id = require_school_context()
+    from authorization import require_permission
+    require_permission("finance.manage_fees" if request.method == "POST" else "finance.view",
+                       get_db_connection, school_id=school_id)
 
     connection = get_db_connection()
     try:
