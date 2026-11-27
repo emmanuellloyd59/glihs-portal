@@ -31,6 +31,9 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
 
     def setUp(self):
         connection = portal.get_db_connection()
+        connection.execute(
+            "UPDATE schools SET status='active', lifecycle_status='active' WHERE id=1"
+        )
         # Clear dependent records before their referenced parents. This fixture
         # shares the initialized test database with timetable, content, finance,
         # and homework tables, all of which may retain user/student references.
@@ -80,6 +83,11 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
                  1 if role == "super_admin" else 0,
                  None if role == "super_admin" else 1),
             )
+        # Accounts are created after startup's legacy membership backfill.
+        connection.execute(
+            """INSERT INTO school_memberships (user_id, school_id, role, status, is_primary)
+               SELECT id, school_id, role, 'active', 1 FROM users WHERE school_id IS NOT NULL"""
+        )
         connection.commit()
         connection.close()
         with self.client.session_transaction() as session:
