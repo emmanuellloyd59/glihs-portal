@@ -31,6 +31,11 @@ class DirectRouteAuthorizationTests(unittest.TestCase):
 
     def setUp(self):
         connection = portal.get_db_connection()
+        # Each test starts from an active pilot school; lifecycle tests may
+        # suspend it but must not leak that state into later test cases.
+        connection.execute(
+            "UPDATE schools SET status='active', lifecycle_status='active' WHERE id=1"
+        )
         # Clear dependent records before their referenced parents. This fixture
         # shares the initialized test database with timetable, content, finance,
         # and homework tables, all of which may retain user/student references.
