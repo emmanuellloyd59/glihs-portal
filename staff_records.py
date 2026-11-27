@@ -174,6 +174,12 @@ def initialize_staff_records(get_db_connection):
         WHEN NOT EXISTS (SELECT 1 FROM users u WHERE u.id=NEW.user_id AND u.school_id=NEW.school_id
                          AND u.role NOT IN ('student','parent','super_admin') AND u.is_super_admin=0)
         BEGIN SELECT RAISE(ABORT,'staff identity must belong to the same school'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_staff_lifecycle_no_update
+        BEFORE UPDATE ON staff_lifecycle_events
+        BEGIN SELECT RAISE(ABORT,'staff lifecycle history is immutable'); END;
+        CREATE TRIGGER IF NOT EXISTS trg_staff_lifecycle_no_delete
+        BEFORE DELETE ON staff_lifecycle_events
+        BEGIN SELECT RAISE(ABORT,'staff lifecycle history is immutable'); END;
         CREATE TRIGGER IF NOT EXISTS trg_staff_user_school_change_guard
         BEFORE UPDATE OF school_id ON users
         WHEN EXISTS (SELECT 1 FROM staff_memberships m WHERE m.user_id=OLD.id AND m.school_id<>NEW.school_id)
@@ -286,6 +292,13 @@ def register_staff_records_routes(ns):
                         or fields["gender"] not in {"","female","male","non_binary","prefer_not_to_say"}
                         or (fields["email"] and ("@" not in fields["email"] or len(fields["email"])>254))):
                         abort(400)
+                    duplicate_number=connection.execute(
+                        "SELECT 1 FROM staff_profiles WHERE school_id=? AND employee_number=? AND membership_id<>?",
+                        (school_id,fields["employee_number"],member["membership_id"]),
+                    ).fetchone() if fields["employee_number"] else None
+                    if duplicate_number:
+                        flash("That employee number is already assigned in this school.","danger")
+                        return redirect(url_for("staff_record_detail",user_id=user_id))
                     connection.execute("""
                         UPDATE staff_profiles SET employee_number=?,preferred_name=?,phone=?,email=?,
                             address=?,emergency_contact_name=?,emergency_contact_phone=?,date_of_birth=?,
@@ -371,11 +384,11 @@ def register_staff_records_routes(ns):
                     name=request.form.get("department_name","").strip()
                     description=request.form.get("department_description","").strip()
                     if not name or len(name)>100 or len(description)>500: abort(400)
-                    connection.execute("INSERT INTO staff_departments(school_id,name,description) VALUES(?,?,?)",
+                    connection.execute("INSERT OR IGNORE INTO staff_departments(school_id,name,description) VALUES(?,?,?)",
                                        (school_id,name,description))
                     audit(connection,school_id,"staff_department_created",member["username"],name)
                     connection.commit()
-                    flash("Department created.","success")
+                    flash("Department created or already exists.","success")
                 elif action=="onboard":
                     if member["membership_status"]=="active" and member["employment_status"]=="active":
                         flash("This staff member is already onboarded.","info")
@@ -426,6 +439,7 @@ def register_staff_records_routes(ns):
                     if not item.isdigit(): abort(400)
                     connection.execute("UPDATE staff_qualifications SET active=0 WHERE id=? AND school_id=? AND membership_id=?",
                                        (int(item),school_id,member["membership_id"]))
+                    audit(connection,school_id,"staff_qualification_archived",member["username"],"qualification_id="+item)
                     connection.commit()
                     flash("Qualification archived.","success")
                 elif action=="archive_responsibility":
@@ -433,6 +447,7 @@ def register_staff_records_routes(ns):
                     if not item.isdigit(): abort(400)
                     connection.execute("UPDATE staff_responsibilities SET active=0 WHERE id=? AND school_id=? AND membership_id=?",
                                        (int(item),school_id,member["membership_id"]))
+                    audit(connection,school_id,"staff_responsibility_archived",member["username"],"responsibility_id="+item)
                     connection.commit()
                     flash("Responsibility archived.","success")
                 elif action=="archive_document":
