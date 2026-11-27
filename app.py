@@ -325,11 +325,12 @@ def initialize_database():
             3: "content-and-finance-school-ownership-guards",
             4: "homework-school-ownership-guards",
         }
-        for migration in connection.execute(
+        ledger_entries = connection.execute(
             "SELECT version, name FROM schema_migrations ORDER BY version"
-        ).fetchall():
+        ).fetchall()
+        for expected_version, migration in enumerate(ledger_entries, start=1):
             expected_name = supported_migrations.get(migration["version"])
-            if expected_name != migration["name"]:
+            if migration["version"] != expected_version or expected_name != migration["name"]:
                 raise sqlite3.DatabaseError(
                     "Unsupported or inconsistent schema migration ledger entry: "
                     f"version {migration['version']}"
