@@ -299,7 +299,7 @@ def register_staff_records_routes(ns):
                             if date.fromisoformat(fields["date_of_birth"]).isoformat()!=fields["date_of_birth"]: raise ValueError
                         except ValueError: abort(400)
                     if any(ch not in "0123456789+()- ." for ch in fields["phone"]+fields["emergency_contact_phone"]): abort(400)
-                    if (len(fields["employee_number"])>40 or len(fields["preferred_name"])>120
+                    if (len(fields["employee_number"] or "")>40 or len(fields["preferred_name"])>120
                         or len(fields["phone"])>40 or len(fields["email"])>254
                         or len(fields["address"])>500 or len(fields["emergency_contact_name"])>120
                         or len(fields["emergency_contact_phone"])>40 or len(fields["profile_notes"])>2000
