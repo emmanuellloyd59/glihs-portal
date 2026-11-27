@@ -276,6 +276,23 @@ def _validate_payload(payload, profile, services):
 def create_school_onboarding_blueprint(connection_factory, platform_owner_check):
     bp = Blueprint("school_onboarding", __name__)
 
+    @bp.before_request
+    def require_api_authentication():
+        if not request.path.startswith("/api/v1/") or current_user.is_authenticated:
+            return None
+        public = (
+            request.path == "/api/v1/onboarding/countries" and request.method == "GET"
+        ) or (
+            request.path == "/api/v1/onboarding/applications" and request.method == "POST"
+        ) or (
+            re.fullmatch(r"/api/v1/onboarding/applications/[^/]+", request.path)
+            and request.method in {"GET","PUT"}
+        ) or request.path.endswith("/verify-email") or request.path.endswith("/submit") or (
+            request.path == "/api/v1/onboarding/invitations/accept" and request.method == "POST"
+        )
+        if not public:
+            abort(401)
+
     def _json_error(code, message, status):
         return jsonify({"error": {"code": code, "message": message}}), status
 
