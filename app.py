@@ -2214,7 +2214,7 @@ def list_students():
         # contact information or student birth dates. Expressions are fixed constants.
         private_student_fields = (
             "s.date_of_birth, s.guardian_name, s.guardian_phone"
-            if current_user.role in {"principal", "registrar"}
+            if current_user.role in {"school_owner", "school_admin", "principal", "registrar"}
             else "NULL AS date_of_birth, NULL AS guardian_name, NULL AS guardian_phone"
         )
         # Do not fetch fee/payment data for roles that cannot view finances. Hiding
@@ -2274,7 +2274,7 @@ def list_students():
         connection.close()
     return render_template("students.html", students=students, classes=classes,
                            class_filter=class_filter, search_query=search_query,
-                           can_view_finances=current_user.role in {"principal", "registrar"})
+                           can_view_finances=can_view_finances)
 
 
 @app.route("/student-finances", methods=["GET", "POST"])
