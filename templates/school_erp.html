@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}School ERP | {{ school_name }}{% endblock %}
+{% block content %}
+<section class="rounded-4 text-white p-4 p-md-5 mb-4" style="background:linear-gradient(120deg,#102a43,#164e78 65%,#1769aa);">
+  <p class="eyebrow mb-2" style="color:#8ce7df;">SCHOOL ADMINISTRATION</p>
+  <h1 class="display-6 fw-bold mb-2">{{ school_name }} ERP Workspace</h1>
+  <p class="mb-0" style="color:#e1edf7;">A unified view of the school's existing administrative workflows.</p>
+</section>
+<div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3">
+  <div><p class="eyebrow text-primary mb-1">CORE OPERATIONS</p><h2 class="h3 fw-bold mb-1">School administration</h2>
+  <p class="text-secondary mb-0">Open the existing module that owns each record. This workspace does not create duplicate records.</p></div>
+  <a class="btn btn-outline-primary" href="{{ url_for('dashboard') }}">Back to main dashboard</a>
+</div>
+<div class="row g-3 mb-4">
+  <div class="col-12 col-md-6 col-xl-4"><article class="surface-card p-4 h-100"><div class="fs-2 mb-2">🪪</div><h3 class="h5 fw-bold">Admissions & students</h3><p class="text-secondary">Manage applications, enrollment, student profiles and guardians in the existing student information system.</p><a class="btn btn-primary" href="{{ url_for('list_students') }}">Open student records</a> <a class="btn btn-outline-primary" href="/api/v1/admissions">Admissions data API</a></article></div>
+  <div class="col-12 col-md-6 col-xl-4"><article class="surface-card p-4 h-100"><div class="fs-2 mb-2">👩🏽‍🏫</div><h3 class="h5 fw-bold">Teachers & staff</h3><p class="text-secondary">Manage staff identities, employment profiles and school-scoped class and subject assignments.</p><a class="btn btn-primary" href="{{ url_for('staff_management') }}">Open staff management</a></article></div>
+  <div class="col-12 col-md-6 col-xl-4"><article class="surface-card p-4 h-100"><div class="fs-2 mb-2">🗓️</div><h3 class="h5 fw-bold">Attendance</h3><p class="text-secondary">Use the existing student attendance workflow and review attendance reports.</p><a class="btn btn-primary" href="{{ url_for('attendance_report') }}">Open attendance reports</a></article></div>
+  <div class="col-12 col-md-6 col-xl-4"><article class="surface-card p-4 h-100"><div class="fs-2 mb-2">📚</div><h3 class="h5 fw-bold">Academics & learning</h3><p class="text-secondary">Manage academic structure, classes, timetables, assignments and learning materials.</p><a class="btn btn-primary" href="{{ url_for('academics') }}">Open academics</a> <a class="btn btn-outline-primary" href="{{ url_for('assignments') }}">Assignments</a></article></div>
+  <div class="col-12 col-md-6 col-xl-4"><article class="surface-card p-4 h-100"><div class="fs-2 mb-2">📝</div><h3 class="h5 fw-bold">Examinations & report cards</h3><p class="text-secondary">Use the configurable grading engine and the existing report-card publication workflow.</p><a class="btn btn-primary" href="{{ url_for('report_cards') }}">Open report cards</a></article></div>
+  <div class="col-12 col-md-6 col-xl-4"><article class="surface-card p-4 h-100"><div class="fs-2 mb-2">⚖️</div><h3 class="h5 fw-bold">Discipline</h3><p class="text-secondary">Manage confidential disciplinary records through the existing student information system and its permissions.</p><a class="btn btn-primary" href="/api/v1/students">Student records API</a></article></div>
+  <div class="col-12 col-md-6 col-xl-4"><article class="surface-card p-4 h-100"><div class="fs-2 mb-2">📊</div><h3 class="h5 fw-bold">Institutional reporting</h3><p class="text-secondary">Review school performance and generate filtered reports or CSV exports from approved datasets.</p><a class="btn btn-primary" href="{{ url_for('school_performance') }}">Open performance dashboard</a></article></div>
+  <div class="col-12 col-md-6 col-xl-4"><article class="surface-card p-4 h-100"><div class="fs-2 mb-2">💳</div><h3 class="h5 fw-bold">School finance</h3><p class="text-secondary">Access the existing fee and payment records without creating a second finance ledger.</p><a class="btn btn-primary" href="{{ url_for('finance_payments') }}">Open finance</a></article></div>
+</div>
+<section class="surface-card p-4 mb-4">
+  <p class="eyebrow text-primary mb-1">OPTIONAL MODULES</p><h2 class="h4 fw-bold">Feature entitlements</h2>
+  <p class="text-secondary">Optional services are activated by the platform owner for each school. Activation controls access only; it does not create placeholder data or imply that a module is already implemented.</p>
+  <div id="optional-features" class="row g-3" aria-live="polite"><p class="text-secondary">Loading school feature entitlements…</p></div>
+</section>
+<section class="surface-card p-4">
+  <p class="eyebrow text-primary mb-1">ADMINISTRATIVE REPORTS</p><h2 class="h4 fw-bold">Filtered reports and exports</h2>
+  <p class="text-secondary">Available report datasets are permission-checked and restricted to this school. Filters are applied server-side.</p>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-primary" href="/api/erp/reports/students">Student report (JSON)</a>
+    <a class="btn btn-outline-primary" href="/api/erp/reports/admissions">Admissions report (JSON)</a>
+    <a class="btn btn-outline-primary" href="/api/erp/reports/attendance">Attendance report (JSON)</a>
+    <a class="btn btn-outline-primary" href="/api/erp/reports/grades">Grades report (JSON)</a>
+    <a class="btn btn-outline-primary" href="/api/erp/reports/finance">Finance report (JSON)</a>
+  </div>
+  <p class="small text-secondary mt-3 mb-0">Add query filters such as <code>?class_level=Grade%207</code>, <code>?academic_year=2026-2027&amp;term=Term%201</code>, or <code>?date_from=2026-09-01&amp;date_to=2026-09-30</code>. Append <code>&amp;format=csv</code> to download an authorized export.</p>
+</section>
+<script>
+(async function () {
+  const target = document.getElementById("optional-features");
+  try {
+    const response = await fetch("{{ url_for('school_erp.get_features') }}", {credentials:"same-origin"});
+    if (!response.ok) throw new Error("Could not load entitlements");
+    const data = await response.json();
+    target.replaceChildren();
+    for (const item of data.optional) {
+      const col = document.createElement("div");
+      col.className = "col-12 col-md-4";
+      const card = document.createElement("article");
+      card.className = "border rounded-3 p-3 h-100";
+      const heading = document.createElement("h3");
+      heading.className = "h6 fw-bold";
+      heading.textContent = item.name;
+      const status = document.createElement("p");
+      status.className = "mb-0 text-secondary";
+      status.textContent = item.enabled ? "Entitlement active — module workflow integration is staged separately." : "Not enabled for this school.";
+      card.append(heading, status);
+      col.append(card);
+      target.append(col);
+    }
+  } catch (error) {
+    target.textContent = "Feature entitlements are temporarily unavailable.";
+  }
+})();
+</script>
+{% endblock %}
