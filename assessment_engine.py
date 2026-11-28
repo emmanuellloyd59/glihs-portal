@@ -246,7 +246,7 @@ def create_assessment_blueprint(get_db_connection,require_school_context):
             try:
                 for subject, subject_components in sorted(grouped.items()):
                     subject_result=calculate_weighted_result(subject_components,bands)
-                    subject_comments="\\n".join(
+                    subject_comments="\n".join(
                         row["teacher_comment"] for row in rows
                         if row["subject"]==subject and row["teacher_comment"])
                     subject_results.append({
@@ -259,7 +259,7 @@ def create_assessment_blueprint(get_db_connection,require_school_context):
             except ValueError as e:
                 abort(400,description=str(e))
             result={"overall":overall,"subjects":subject_results}
-            comments="\\n".join(r["teacher_comment"] for r in rows if r["teacher_comment"])
+            comments="\n".join(r["teacher_comment"] for r in rows if r["teacher_comment"])
             snap={"scale_id":scale["id"],"scale_name":scale["name"],"scale_version":scale["version"],"bands":bands}
             db.execute("""INSERT INTO assessment_results(school_id,student_id,academic_year,period_name,grading_scale_id,grading_scale_version,
               grading_snapshot_json,calculation_snapshot_json,percentage,grade,teacher_comments,status)
