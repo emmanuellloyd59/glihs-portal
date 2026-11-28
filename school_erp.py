@@ -85,6 +85,30 @@ def initialize_school_erp_schema(connection_factory):
         db.close()
 
 
+def feature_enabled(connection_factory, school_id, feature_key):
+    """Return whether a known module is available to this school."""
+    if feature_key in CORE_FEATURES:
+        return True
+    if feature_key not in OPTIONAL_FEATURES:
+        return False
+    db = connection_factory()
+    try:
+        row = db.execute(
+            "SELECT enabled FROM school_feature_entitlements WHERE school_id=? AND feature_key=?",
+            (int(school_id), feature_key),
+        ).fetchone()
+        return bool(row and row["enabled"])
+    finally:
+        db.close()
+
+
+def require_feature(connection_factory, school_id, feature_key):
+    """Gate an optional module route using the school's active entitlement."""
+    if not feature_enabled(connection_factory, school_id, feature_key):
+        abort(403, description="This optional module is not enabled for this school.")
+    return True
+
+
 def _csv_cell(value):
     value = "" if value is None else str(value)
     if value[:1] in ("=", "+", "-", "@", "\t", "\r"):
