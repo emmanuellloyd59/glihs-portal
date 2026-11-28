@@ -48,7 +48,7 @@ def initialize_school_website_schema(connection_factory):
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             published_at TEXT,
-            UNIQUE(school_id, slug),
+            UNIQUE(slug),
             UNIQUE(school_id, id)
         );
         CREATE INDEX IF NOT EXISTS idx_school_websites_public
@@ -358,8 +358,11 @@ def create_school_website_blueprint(connection_factory, require_school_context, 
             owner_id = website["owner_user_id"]
             if "owner_user_id" in data:
                 owner = connection.execute(
-                    "SELECT id FROM users WHERE id=? AND school_id=? AND status='active'",
-                    (data["owner_user_id"], school_id),
+                    """SELECT u.id FROM users u WHERE u.id=? AND u.status='active'
+                       AND (u.school_id=? OR EXISTS (
+                           SELECT 1 FROM school_memberships m WHERE m.user_id=u.id
+                             AND m.school_id=? AND m.status='active'))""",
+                    (data["owner_user_id"], school_id, school_id),
                 ).fetchone()
                 if not owner:
                     abort(400, description="Website owner must be an active member of this school.")
