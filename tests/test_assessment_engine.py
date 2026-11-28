@@ -1,4 +1,5 @@
 import sqlite3
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -86,3 +87,150 @@ class AssessmentSchemaTests(unittest.TestCase):
         finally: Path(path).unlink(missing_ok=True)
 
 if __name__=="__main__": unittest.main()
+
+class _AssessmentTestUser:
+    is_authenticated = True
+    is_active = True
+    is_anonymous = False
+    role = "school_admin"
+    is_super_admin = False
+
+    def __init__(self, user_id=1):
+        self.id = user_id
+
+    def get_id(self):
+        return str(self.id)
+
+
+class AssessmentSubjectIntegrationTests(unittest.TestCase):
+    def setUp(self):
+        import os
+        from flask import Flask
+        from flask_login import LoginManager
+        from assessment_engine import create_assessment_blueprint
+
+        handle, self.path = tempfile.mkstemp(suffix=".sqlite3")
+        os.close(handle)
+
+        def connect():
+            db = sqlite3.connect(self.path)
+            db.row_factory = sqlite3.Row
+            db.execute("PRAGMA foreign_keys=ON")
+            return db
+
+        self.connect = connect
+        db = connect()
+        db.executescript("""
+          CREATE TABLE students(
+            id INTEGER PRIMARY KEY, school_id INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active', class_level TEXT NOT NULL
+          );
+          INSERT INTO students(id,school_id,status,class_level)
+            VALUES(1,7,'active','Grade 8');
+        """)
+        db.commit()
+        db.close()
+        initialize_assessment_schema(connect)
+
+        db = connect()
+        bands = [
+            {"minimum":"0","maximum":"50","grade":"F","remark":"Fail"},
+            {"minimum":"50","maximum":"70","grade":"C","remark":"Pass"},
+            {"minimum":"70","maximum":"90","grade":"B","remark":"Good"},
+            {"minimum":"90","maximum":"100","grade":"A","remark":"Excellent"},
+        ]
+        db.execute("""INSERT INTO assessment_grading_scales
+          (school_id,name,version,bands_json,created_by) VALUES(7,'School Scale',1,?,1)""",
+          (json.dumps(bands),))
+        for title, subject, score in [
+            ("Math test","Mathematics","80"),
+            ("Science test","Science","60"),
+        ]:
+            cur = db.execute("""INSERT INTO configurable_assessments
+              (school_id,title,assessment_type,subject,class_level,academic_year,period_name,
+               weight,max_score,created_by)
+              VALUES(7,?,'examination',?,'Grade 8','2026-2027','Term 1','100','100',1)""",
+              (title,subject))
+            db.execute("""INSERT INTO assessment_scores
+              (school_id,assessment_id,student_id,score,recorded_by)
+              VALUES(7,?,1,?,1)""", (cur.lastrowid,score))
+        db.commit()
+        db.close()
+
+        self.app = Flask(__name__)
+        self.app.secret_key = "assessment-test-secret"
+        self.app.config["TESTING"] = True
+        login_manager = LoginManager(self.app)
+        login_manager.user_loader(lambda uid: _AssessmentTestUser(int(uid)) if uid in {"1","2"} else None)
+        self.app.register_blueprint(create_assessment_blueprint(connect, lambda: 7))
+        self.client = self.app.test_client()
+        self._login(1)
+
+    def tearDown(self):
+        import os
+        os.unlink(self.path)
+
+    def _login(self, user_id):
+        with self.client.session_transaction() as session:
+            session["_user_id"] = str(user_id)
+            session["_fresh"] = True
+
+    def test_calculation_keeps_each_subject_separate(self):
+        response = self.client.post("/api/assessment/results/calculate", json={
+            "student_id":1,"academic_year":"2026-2027","period_name":"Term 1",
+            "grading_scale_id":1,
+        })
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        result = response.json["result"]
+        by_subject = {item["subject"]: item for item in result["subjects"]}
+        self.assertEqual(by_subject["Mathematics"]["percentage"], "80.00")
+        self.assertEqual(by_subject["Mathematics"]["grade"], "B")
+        self.assertEqual(by_subject["Science"]["percentage"], "60.00")
+        self.assertEqual(by_subject["Science"]["grade"], "C")
+        self.assertEqual(result["overall"]["percentage"], "70.00")
+        db = self.connect()
+        try:
+            stored = db.execute("SELECT calculation_snapshot_json FROM assessment_results").fetchone()
+            snapshot = json.loads(stored["calculation_snapshot_json"])
+            self.assertEqual({item["subject"] for item in snapshot["subjects"]},
+                             {"Mathematics","Science"})
+        finally:
+            db.close()
+
+    def test_correction_grade_must_match_frozen_scale(self):
+        db = self.connect()
+        bands = [
+            {"minimum":"0","maximum":"50","grade":"F","remark":"Fail"},
+            {"minimum":"50","maximum":"70","grade":"C","remark":"Pass"},
+            {"minimum":"70","maximum":"90","grade":"B","remark":"Good"},
+            {"minimum":"90","maximum":"100","grade":"A","remark":"Excellent"},
+        ]
+        snapshot = {"scale_id":1,"scale_name":"School Scale","scale_version":1,"bands":bands}
+        calculation = {
+            "overall":{"percentage":"80.00","grade":"B","remark":"Good"},
+            "subjects":[{"subject":"Mathematics","percentage":"80.00","grade":"B","remark":"Good","comments":""}],
+        }
+        db.execute("""INSERT INTO assessment_results
+          (school_id,student_id,academic_year,period_name,grading_scale_id,grading_scale_version,
+           grading_snapshot_json,calculation_snapshot_json,percentage,grade,status,issued_at,issued_by)
+          VALUES(7,1,'2026-2027','Term 2',1,1,?,?, '80.00','B','issued','2026-11-28T00:00:00+00:00',2)""",
+          (json.dumps(snapshot),json.dumps(calculation)))
+        db.commit()
+        db.close()
+        response = self.client.post("/api/assessment/results/1/corrections", json={
+            "percentage":"80","grade":"A","reason":"Attempted invalid grade boundary",
+        })
+        self.assertEqual(response.status_code, 400)
+
+    def test_correction_table_additive_migration_is_idempotent(self):
+        initialize_assessment_schema(self.connect)
+        initialize_assessment_schema(self.connect)
+        db = self.connect()
+        try:
+            columns = {row["name"] for row in db.execute(
+                "PRAGMA table_info(assessment_result_corrections)").fetchall()}
+            self.assertIn("proposed_subject_results_json", columns)
+        finally:
+            db.close()
+
+
