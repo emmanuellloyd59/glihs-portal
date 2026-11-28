@@ -86,7 +86,6 @@ class AssessmentSchemaTests(unittest.TestCase):
             db.close()
         finally: Path(path).unlink(missing_ok=True)
 
-if __name__=="__main__": unittest.main()
 
 class _AssessmentTestUser:
     is_authenticated = True
@@ -234,3 +233,6 @@ class AssessmentSubjectIntegrationTests(unittest.TestCase):
             db.close()
 
 
+
+if __name__ == "__main__":
+    unittest.main()
