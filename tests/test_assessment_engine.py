@@ -141,15 +141,15 @@ class AssessmentSubjectIntegrationTests(unittest.TestCase):
         db.execute("""INSERT INTO assessment_grading_scales
           (school_id,name,version,bands_json,created_by) VALUES(7,'School Scale',1,?,1)""",
           (json.dumps(bands),))
-        for title, subject, score in [
-            ("Math test","Mathematics","80"),
-            ("Science test","Science","60"),
+        for title, subject, score, weight in [
+            ("Math test","Mathematics","80","100"),
+            ("Science test","Science","60","200"),
         ]:
             cur = db.execute("""INSERT INTO configurable_assessments
               (school_id,title,assessment_type,subject,class_level,academic_year,period_name,
                weight,max_score,created_by)
-              VALUES(7,?,'examination',?,'Grade 8','2026-2027','Term 1','100','100',1)""",
-              (title,subject))
+              VALUES(7,?,'examination',?,'Grade 8','2026-2027','Term 1',?,'100',1)""",
+              (title,subject,weight))
             db.execute("""INSERT INTO assessment_scores
               (school_id,assessment_id,student_id,score,recorded_by)
               VALUES(7,?,1,?,1)""", (cur.lastrowid,score))
@@ -193,6 +193,9 @@ class AssessmentSubjectIntegrationTests(unittest.TestCase):
             snapshot = json.loads(stored["calculation_snapshot_json"])
             self.assertEqual({item["subject"] for item in snapshot["subjects"]},
                              {"Mathematics","Science"})
+            audit_count = db.execute("SELECT COUNT(*) FROM assessment_audit_events WHERE action='calculated'").fetchone()[0]
+            self.assertEqual(audit_count, 1)
+            self.assertEqual(result["overall"]["aggregation"], "equal_weighted_subject_average")
         finally:
             db.close()
 
@@ -218,6 +221,33 @@ class AssessmentSubjectIntegrationTests(unittest.TestCase):
         db.close()
         response = self.client.post("/api/assessment/results/1/corrections", json={
             "percentage":"80","grade":"A","reason":"Attempted invalid grade boundary",
+        })
+        self.assertEqual(response.status_code, 400)
+
+
+    def test_subject_correction_grade_must_match_frozen_scale(self):
+        db = self.connect()
+        bands = [
+            {"minimum":"0","maximum":"50","grade":"F","remark":"Fail"},
+            {"minimum":"50","maximum":"70","grade":"C","remark":"Pass"},
+            {"minimum":"70","maximum":"90","grade":"B","remark":"Good"},
+            {"minimum":"90","maximum":"100","grade":"A","remark":"Excellent"},
+        ]
+        snapshot = {"scale_id":1,"scale_name":"School Scale","scale_version":1,"bands":bands}
+        calculation = {
+            "overall":{"percentage":"80.00","grade":"B","remark":"Good"},
+            "subjects":[{"subject":"Mathematics","percentage":"80.00","grade":"B","remark":"Good","comments":""}],
+        }
+        db.execute("""INSERT INTO assessment_results
+          (school_id,student_id,academic_year,period_name,grading_scale_id,grading_scale_version,
+           grading_snapshot_json,calculation_snapshot_json,percentage,grade,status,issued_at,issued_by)
+          VALUES(7,1,'2026-2027','Term 3',1,1,?,?, '80.00','B','issued','2026-11-28T00:00:00+00:00',2)""",
+          (json.dumps(snapshot),json.dumps(calculation)))
+        db.commit()
+        db.close()
+        response = self.client.post("/api/assessment/results/2/corrections", json={
+            "percentage":"80","grade":"B","reason":"Invalid subject grade",
+            "subject_results":[{"subject":"Mathematics","percentage":"80","grade":"A"}],
         })
         self.assertEqual(response.status_code, 400)
 
