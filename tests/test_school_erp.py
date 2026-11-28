@@ -161,7 +161,6 @@ class SchoolERPTests(unittest.TestCase):
         return client
 
     def test_enrollment_class_attendance_grading_report_pipeline_is_school_scoped(self):
-        self._client_with_school_data()
         with patch("authorization.require_permission", lambda *args, **kwargs: None), \
              patch("authorization.has_permission", lambda *args, **kwargs: True):
             client = self._client_with_school_data()
@@ -192,7 +191,6 @@ class SchoolERPTests(unittest.TestCase):
             self.assertEqual(dashboard.json["metrics"]["discipline_records"], 1)
 
     def test_csv_export_is_available_for_authorized_students(self):
-        self._client_with_school_data()
         with patch("authorization.require_permission", lambda *args, **kwargs: None), \
              patch("authorization.has_permission", lambda *args, **kwargs: True):
             client = self._client_with_school_data()
