@@ -245,7 +245,7 @@ class AssessmentSubjectIntegrationTests(unittest.TestCase):
           (json.dumps(snapshot),json.dumps(calculation)))
         db.commit()
         db.close()
-        response = self.client.post("/api/assessment/results/2/corrections", json={
+        response = self.client.post("/api/assessment/results/1/corrections", json={
             "percentage":"80","grade":"B","reason":"Invalid subject grade",
             "subject_results":[{"subject":"Mathematics","percentage":"80","grade":"A"}],
         })
