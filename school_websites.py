@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 from flask import Blueprint, abort, current_app, jsonify, render_template_string, request
 from flask_login import current_user, login_required
+from flask_wtf.csrf import generate_csrf
 
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -253,6 +254,50 @@ footer{text-align:center;padding:2rem;color:#667085;border-top:3px solid var(--s
 
 def create_school_website_blueprint(connection_factory, require_school_context, is_platform_owner):
     bp = Blueprint("school_websites", __name__)
+
+    @bp.get("/school-websites/manage")
+    @login_required
+    def website_management_workspace():
+        school_id = _tenant_id(require_school_context)
+        _permission("school.manage_websites", connection_factory, school_id)
+        return render_template_string(
+            """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>School Website Management</title>
+<style>
+body{font:16px/1.5 system-ui,sans-serif;background:#f4f6f9;color:#243247;margin:0}
+main{max-width:1000px;margin:2rem auto;padding:1rem}
+section{background:white;border:1px solid #dce2ea;border-radius:12px;padding:1.2rem;margin:1rem 0}
+input,textarea,button,select{font:inherit;padding:.65rem;margin:.25rem;border:1px solid #cbd5e1;border-radius:7px}
+button{background:#174a7e;color:white;border:0;cursor:pointer}
+small,.muted{color:#64748b}.site{border-top:1px solid #e2e8f0;padding:.8rem 0}
+</style></head><body><main><h1>School Website Management</h1>
+<p class="muted">Manage your school's independent public websites and pages. Only published content appears publicly.</p>
+<section><h2>Create a website</h2><form id="createSite">
+<input name="name" placeholder="Website name" required maxlength="120">
+<input name="slug" placeholder="Public URL slug (e.g. admissions)" pattern="[a-z0-9]+(-[a-z0-9]+)*">
+<button>Create website</button></form></section>
+<section><h2>Your websites</h2><div id="sites">Loading…</div></section>
+<section><h2>Add a page</h2><form id="createPage">
+<select id="siteChoice" required><option value="">Choose a website</option></select>
+<input name="title" placeholder="Page title" required maxlength="160">
+<input name="slug" placeholder="Page URL slug">
+<textarea name="content" placeholder="Public page text" rows="5" maxlength="30000" style="display:block;width:min(95%,700px)"></textarea>
+<label><input type="checkbox" name="navigation" checked> Show in navigation</label>
+<button>Add draft page</button></form><p class="muted">Pages start as drafts. Publish the home page before publishing the website.</p></section>
+<p id="message" role="status" aria-live="polite"></p></main>
+<script>
+const csrfToken={{ csrf|tojson }};
+const headers={"Content-Type":"application/json","X-CSRFToken":csrfToken};
+const msg=document.getElementById("message");
+async function api(url,options={}){const r=await fetch(url,{...options,headers:{...headers,...(options.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.description||d.error||"Request failed ("+r.status+")");return d}
+async function loadSites(){try{const d=await api("/school-websites");const box=document.getElementById("sites"),sel=document.getElementById("siteChoice");box.innerHTML="";sel.innerHTML='<option value="">Choose a website</option>';for(const w of d.websites){const o=document.createElement("option");o.value=w.id;o.textContent=w.name+" ("+w.status+")";sel.append(o);const div=document.createElement("div");div.className="site";const title=document.createElement("strong");title.textContent=w.name+" — "+w.status;const detail=document.createElement("p");detail.textContent="/school-sites/"+w.slug+" · "+w.page_count+" page(s)";const pub=document.createElement("button");pub.textContent=w.status==="published"?"Unpublish":"Publish";pub.onclick=async()=>{try{await api("/api/school-websites/"+w.id+"/"+(w.status==="published"?"unpublish":"publish"),{method:"POST",body:"{}"});await loadSites();msg.textContent="Website status updated."}catch(e){msg.textContent=e.message}};div.append(title,detail,pub);box.append(div)}if(!d.websites.length)box.textContent="No websites created yet."}catch(e){msg.textContent=e.message}}
+document.getElementById("createSite").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);try{await api("/api/school-websites",{method:"POST",body:JSON.stringify({name:f.get("name"),slug:f.get("slug")})});e.target.reset();await loadSites();msg.textContent="Website created as a draft."}catch(x){msg.textContent=x.message}};
+document.getElementById("createPage").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),id=document.getElementById("siteChoice").value;if(!id){msg.textContent="Choose a website first.";return}try{await api("/api/school-websites/"+id+"/pages",{method:"POST",body:JSON.stringify({title:f.get("title"),slug:f.get("slug"),content:f.get("content"),show_in_navigation:f.has("navigation")})});e.target.reset();await loadSites();msg.textContent="Draft page created."}catch(x){msg.textContent=x.message}};
+loadSites();
+</script></body></html>""",
+            csrf=generate_csrf(),
+        )
 
     @bp.get("/school-websites")
     @login_required
