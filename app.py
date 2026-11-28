@@ -3163,5 +3163,15 @@ app.register_blueprint(
     create_school_erp_blueprint(get_db_connection, require_school_context)
 )
 
+# Centralized public school websites. Website content is stored separately from ERP data.
+from school_websites import (
+    create_school_website_blueprint,
+    initialize_school_website_schema,
+)
+initialize_school_website_schema(get_db_connection)
+app.register_blueprint(
+    create_school_website_blueprint(get_db_connection, require_school_context, _is_platform_owner)
+)
+
 if __name__ == "__main__":
     app.run(port=5000, debug=False)

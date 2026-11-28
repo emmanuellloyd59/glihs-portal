@@ -31,6 +31,8 @@ PERMISSIONS = {
     "school.manage_profile": "school",
     "school.view_configuration": "school",
     "school.manage_configuration": "school",
+    "school.manage_websites": "school",
+    "school.publish_websites": "school",
     "school.manage_campuses": "school",
     "school.manage_memberships": "school",
     "school.manage_roles": "school",
@@ -82,7 +84,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     "super_admin": set(PERMISSIONS),
     "school_owner": {
         "school.view_dashboard", "school.manage_profile", "school.view_configuration", "school.manage_configuration",
-        "school.manage_campuses", "school.manage_memberships", "school.manage_roles",
+        "school.manage_campuses", "school.manage_websites", "school.publish_websites", "school.manage_memberships", "school.manage_roles",
         "school.view_staff", "school.view_analytics", "school.manage_staff", "school.manage_academic_calendar",
         "school.manage_grading", "academic.view_records", "academic.manage_records",
         "academic.manage_attendance", "academic.publish_results", "academic.manage_classes",
@@ -92,7 +94,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     },
     "school_admin": {
         "school.view_dashboard", "school.manage_profile", "school.view_configuration", "school.manage_configuration",
-        "school.manage_campuses", "school.manage_memberships", "school.manage_roles",
+        "school.manage_campuses", "school.manage_websites", "school.publish_websites", "school.manage_memberships", "school.manage_roles",
         "school.view_staff", "school.view_analytics", "school.manage_staff", "school.manage_academic_calendar",
         "school.manage_grading", "academic.view_records", "academic.manage_records",
         "academic.manage_attendance", "academic.publish_results", "academic.manage_classes",
@@ -102,7 +104,7 @@ DEFAULT_ROLE_PERMISSIONS = {
     },
     "principal": {
         "school.view_dashboard", "school.view_configuration", "school.view_staff", "school.view_analytics", "school.manage_staff",
-        "school.manage_academic_calendar", "school.manage_grading", "academic.view_records",
+        "school.manage_academic_calendar", "school.manage_websites", "school.publish_websites", "school.manage_grading", "academic.view_records",
         "academic.manage_records", "academic.manage_attendance", "academic.publish_results",
         "academic.manage_classes", "finance.view", "finance.manage_fees",
         "finance.record_payments", "learning.view", "learning.manage_courses",
