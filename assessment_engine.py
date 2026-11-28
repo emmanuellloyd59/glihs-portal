@@ -94,6 +94,12 @@ def initialize_assessment_schema(get_db_connection):
           id INTEGER PRIMARY KEY AUTOINCREMENT,school_id INTEGER NOT NULL,result_id INTEGER NOT NULL,
           event_type TEXT NOT NULL,actor_id INTEGER NOT NULL,details_json TEXT NOT NULL DEFAULT '{}',
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE IF NOT EXISTS assessment_audit_events(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,school_id INTEGER NOT NULL,actor_id INTEGER NOT NULL,
+          entity_type TEXT NOT NULL,entity_id INTEGER NOT NULL,action TEXT NOT NULL,
+          details_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+        CREATE INDEX IF NOT EXISTS idx_assessment_audit_scope
+          ON assessment_audit_events(school_id,created_at,entity_type);
         CREATE TABLE IF NOT EXISTS assessment_result_corrections(
           id INTEGER PRIMARY KEY AUTOINCREMENT,school_id INTEGER NOT NULL,result_id INTEGER NOT NULL,
           proposed_percentage TEXT NOT NULL,proposed_grade TEXT NOT NULL,proposed_comments TEXT NOT NULL DEFAULT '',
@@ -140,6 +146,13 @@ def create_assessment_blueprint(get_db_connection,require_school_context):
         if not isinstance(obj,dict): abort(400,description="JSON object required")
         return obj
 
+    def audit(db, school_id, entity_type, entity_id, action, details=None):
+        db.execute("""INSERT INTO assessment_audit_events
+          (school_id,actor_id,entity_type,entity_id,action,details_json)
+          VALUES(?,?,?,?,?,?)""",
+          (school_id,int(current_user.id),entity_type,int(entity_id),action,
+           json.dumps(details or {},sort_keys=True)))
+
     def teacher_assigned(db, school_id, class_level):
         if getattr(current_user,"role","") != "teacher":
             return True
@@ -163,6 +176,7 @@ def create_assessment_blueprint(get_db_connection,require_school_context):
         try:
             version=db.execute("SELECT COALESCE(MAX(version),0)+1 v FROM assessment_grading_scales WHERE school_id=? AND name=?",(sid,name)).fetchone()["v"]
             cur=db.execute("INSERT INTO assessment_grading_scales(school_id,name,version,bands_json,created_by) VALUES(?,?,?,?,?)",(sid,name,version,json.dumps(bands),int(current_user.id)))
+            audit(db,sid,"grading_scale",cur.lastrowid,"created",{"name":name,"version":version,"bands":bands})
             db.commit(); return jsonify(id=cur.lastrowid,name=name,version=version,bands=bands),201
         finally: db.close()
 
@@ -192,6 +206,9 @@ def create_assessment_blueprint(get_db_connection,require_school_context):
             cur=db.execute("""INSERT INTO configurable_assessments
               (school_id,campus_id,academic_period_id,title,assessment_type,subject,class_level,academic_year,period_name,weight,max_score,due_date,created_by)
               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",(sid,d.get("campus_id"),d.get("academic_period_id"),title,kind,subject,level,year,period,str(weight),str(maximum),d.get("due_date"),int(current_user.id)))
+            audit(db,sid,"assessment",cur.lastrowid,"created",{
+                "title":title,"type":kind,"subject":subject,"class_level":level,
+                "academic_year":year,"period":period,"weight":str(weight),"max_score":str(maximum)})
             db.commit(); return jsonify(id=cur.lastrowid,status="draft"),201
         finally: db.close()
 
@@ -210,10 +227,15 @@ def create_assessment_blueprint(get_db_connection,require_school_context):
             if st is None or st["class_level"]!=a["class_level"]: abort(404,description="Student is not in this school's assessment class")
             if score<0 or score>_decimal(a["max_score"],"maximum"): abort(400,description="Score is outside permitted range")
             if a["status"]!="draft": abort(409,description="Assessment is not editable")
+            previous=db.execute("SELECT score FROM assessment_scores WHERE school_id=? AND assessment_id=? AND student_id=?",
+              (sid,aid,st["id"])).fetchone()
             db.execute("""INSERT INTO assessment_scores(school_id,assessment_id,student_id,score,teacher_comment,recorded_by)
               VALUES(?,?,?,?,?,?) ON CONFLICT(school_id,assessment_id,student_id) DO UPDATE SET
               score=excluded.score,teacher_comment=excluded.teacher_comment,recorded_by=excluded.recorded_by,recorded_at=CURRENT_TIMESTAMP""",
               (sid,aid,st["id"],str(score),str(d.get("teacher_comment",""))[:1000],int(current_user.id)))
+            audit(db,sid,"assessment_score",aid,"recorded" if previous is None else "updated",{
+                "assessment_id":aid,"student_id":st["id"],
+                "previous_score":previous["score"] if previous else None,"new_score":str(score)})
             db.commit(); return jsonify(saved=True)
         except sqlite3.IntegrityError:
             db.rollback(); abort(400,description="Score violates tenant or assessment constraints")
@@ -251,11 +273,14 @@ def create_assessment_blueprint(get_db_connection,require_school_context):
                         if row["subject"]==subject and row["teacher_comment"])
                     subject_results.append({
                         "subject":subject,**subject_result,"comments":subject_comments})
-                overall_components=[
-                    {"assessment_id":row["id"],"weight":row["weight"],
-                     "score":row["score"],"max_score":row["max_score"]}
-                    for row in rows]
-                overall=calculate_weighted_result(overall_components,bands)
+                subject_average=(sum(Decimal(item["percentage"]) for item in subject_results) /
+                                 Decimal(len(subject_results))).quantize(
+                                     Decimal("0.01"),rounding=ROUND_HALF_UP)
+                overall_band=grade_band_for_percentage(subject_average,bands)
+                overall={"percentage":str(subject_average),"grade":overall_band["grade"],
+                         "remark":overall_band["remark"],
+                         "aggregation":"equal_weighted_subject_average",
+                         "subject_count":len(subject_results)}
             except ValueError as e:
                 abort(400,description=str(e))
             result={"overall":overall,"subjects":subject_results}
@@ -270,6 +295,11 @@ def create_assessment_blueprint(get_db_connection,require_school_context):
               percentage=excluded.percentage,grade=excluded.grade,teacher_comments=excluded.teacher_comments
               WHERE assessment_results.status='draft'""",
               (sid,student_id,year,period,scale["id"],scale["version"],json.dumps(snap),json.dumps(result),overall["percentage"],overall["grade"],comments))
+            result_row=db.execute("SELECT id FROM assessment_results WHERE school_id=? AND student_id=? AND academic_year=? AND period_name=?",
+              (sid,student_id,year,period)).fetchone()
+            audit(db,sid,"assessment_result",result_row["id"],"calculated",{
+                "academic_year":year,"period":period,"subjects":[item["subject"] for item in subject_results],
+                "overall_percentage":overall["percentage"],"overall_grade":overall["grade"]})
             db.commit(); return jsonify(result=result,status="draft")
         finally: db.close()
 
