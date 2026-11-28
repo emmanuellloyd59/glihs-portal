@@ -47,6 +47,18 @@ def calculate_weighted_result(components,bands):
     if band is None: raise ValueError("No grade boundary matches result")
     return {"percentage":str(pct),"grade":band["grade"],"remark":band["remark"],"components":details,"weight_total":str(total_weight)}
 
+def grade_band_for_percentage(percentage, bands):
+    """Return the frozen grading band matching a percentage, including 100."""
+    pct = _decimal(percentage, "percentage")
+    if pct < 0 or pct > 100:
+        raise ValueError("Percentage must be within 0–100")
+    normalized = validate_grade_bands(bands)
+    return next((band for band in normalized
+                 if Decimal(band["minimum"]) <= pct and
+                 (pct < Decimal(band["maximum"]) or
+                  (pct == 100 and Decimal(band["maximum"]) == 100))), None)
+
+
 def initialize_assessment_schema(get_db_connection):
     db=get_db_connection()
     try:
@@ -87,6 +99,7 @@ def initialize_assessment_schema(get_db_connection):
           proposed_percentage TEXT NOT NULL,proposed_grade TEXT NOT NULL,proposed_comments TEXT NOT NULL DEFAULT '',
           reason TEXT NOT NULL,requested_by INTEGER NOT NULL,decided_by INTEGER,
           status TEXT NOT NULL DEFAULT 'pending',decision_note TEXT NOT NULL DEFAULT '',
+          proposed_subject_results_json TEXT NOT NULL DEFAULT '[]',
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,decided_at TEXT);
         CREATE TABLE IF NOT EXISTS assessment_approval_requests(
           id INTEGER PRIMARY KEY AUTOINCREMENT,school_id INTEGER NOT NULL,result_id INTEGER NOT NULL,
@@ -106,6 +119,11 @@ def initialize_assessment_schema(get_db_connection):
         CREATE TRIGGER IF NOT EXISTS trg_issued_result_no_delete BEFORE DELETE ON assessment_results
           WHEN OLD.status='issued' BEGIN SELECT RAISE(ABORT,'issued results cannot be deleted'); END;
         """)
+        correction_columns = {row["name"] for row in db.execute(
+            "PRAGMA table_info(assessment_result_corrections)").fetchall()}
+        if "proposed_subject_results_json" not in correction_columns:
+            db.execute("""ALTER TABLE assessment_result_corrections
+                ADD COLUMN proposed_subject_results_json TEXT NOT NULL DEFAULT '[]'""")
         db.commit()
     finally: db.close()
 
@@ -211,15 +229,38 @@ def create_assessment_blueprint(get_db_connection,require_school_context):
             student=db.execute("SELECT id FROM students WHERE id=? AND school_id=?",(student_id,sid)).fetchone()
             scale=db.execute("SELECT * FROM assessment_grading_scales WHERE id=? AND school_id=?",(scale_id,sid)).fetchone()
             if student is None or scale is None or not year or not period: abort(404)
-            rows=db.execute("""SELECT a.id,a.weight,a.max_score,s.score,s.teacher_comment
+            rows=db.execute("""SELECT a.id,a.subject,a.weight,a.max_score,s.score,s.teacher_comment
               FROM configurable_assessments a JOIN assessment_scores s ON s.assessment_id=a.id AND s.school_id=a.school_id
-              WHERE a.school_id=? AND s.student_id=? AND a.academic_year=? AND a.period_name=? AND a.status='draft' ORDER BY a.id""",
+              WHERE a.school_id=? AND s.student_id=? AND a.academic_year=? AND a.period_name=? AND a.status='draft'
+              ORDER BY a.subject,a.id""",
               (sid,student_id,year,period)).fetchall()
-            components=[{"assessment_id":r["id"],"weight":r["weight"],"score":r["score"],"max_score":r["max_score"]} for r in rows]
-            try: result=calculate_weighted_result(components,json.loads(scale["bands_json"]))
-            except ValueError as e: abort(400,description=str(e))
-            comments="\n".join(r["teacher_comment"] for r in rows if r["teacher_comment"])
-            snap={"scale_id":scale["id"],"scale_name":scale["name"],"scale_version":scale["version"],"bands":json.loads(scale["bands_json"])}
+            if not rows:
+                abort(400,description="No scored assessments exist for this student and academic period")
+            bands=json.loads(scale["bands_json"])
+            grouped={}
+            for row in rows:
+                grouped.setdefault(row["subject"],[]).append({
+                    "assessment_id":row["id"],"weight":row["weight"],
+                    "score":row["score"],"max_score":row["max_score"]})
+            subject_results=[]
+            try:
+                for subject, subject_components in sorted(grouped.items()):
+                    subject_result=calculate_weighted_result(subject_components,bands)
+                    subject_comments="\\n".join(
+                        row["teacher_comment"] for row in rows
+                        if row["subject"]==subject and row["teacher_comment"])
+                    subject_results.append({
+                        "subject":subject,**subject_result,"comments":subject_comments})
+                overall_components=[
+                    {"assessment_id":row["id"],"weight":row["weight"],
+                     "score":row["score"],"max_score":row["max_score"]}
+                    for row in rows]
+                overall=calculate_weighted_result(overall_components,bands)
+            except ValueError as e:
+                abort(400,description=str(e))
+            result={"overall":overall,"subjects":subject_results}
+            comments="\\n".join(r["teacher_comment"] for r in rows if r["teacher_comment"])
+            snap={"scale_id":scale["id"],"scale_name":scale["name"],"scale_version":scale["version"],"bands":bands}
             db.execute("""INSERT INTO assessment_results(school_id,student_id,academic_year,period_name,grading_scale_id,grading_scale_version,
               grading_snapshot_json,calculation_snapshot_json,percentage,grade,teacher_comments,status)
               VALUES(?,?,?,?,?,?,?,?,?,?,?,'draft')
@@ -228,7 +269,7 @@ def create_assessment_blueprint(get_db_connection,require_school_context):
               grading_snapshot_json=excluded.grading_snapshot_json,calculation_snapshot_json=excluded.calculation_snapshot_json,
               percentage=excluded.percentage,grade=excluded.grade,teacher_comments=excluded.teacher_comments
               WHERE assessment_results.status='draft'""",
-              (sid,student_id,year,period,scale["id"],scale["version"],json.dumps(snap),json.dumps(result),result["percentage"],result["grade"],comments))
+              (sid,student_id,year,period,scale["id"],scale["version"],json.dumps(snap),json.dumps(result),overall["percentage"],overall["grade"],comments))
             db.commit(); return jsonify(result=result,status="draft")
         finally: db.close()
 
@@ -278,12 +319,52 @@ def create_assessment_blueprint(get_db_connection,require_school_context):
         if pct<0 or pct>100 or not grade or not reason: abort(400,description="Valid percentage, grade and correction reason are required")
         db=get_db_connection()
         try:
-            result=db.execute("SELECT id,status FROM assessment_results WHERE id=? AND school_id=?",(rid,sid)).fetchone()
+            result=db.execute("SELECT * FROM assessment_results WHERE id=? AND school_id=?",(rid,sid)).fetchone()
             if result is None: abort(404)
             if result["status"]!="issued": abort(409,description="Only issued results can be corrected")
+            frozen_scale=json.loads(result["grading_snapshot_json"])
+            try:
+                expected_band=grade_band_for_percentage(pct,frozen_scale["bands"])
+            except (KeyError,ValueError) as e:
+                abort(400,description=str(e))
+            if expected_band is None or grade!=expected_band["grade"]:
+                abort(400,description="The proposed overall grade must match the frozen grading scale")
+            calculation=json.loads(result["calculation_snapshot_json"])
+            original_subjects=calculation.get("subjects",[])
+            proposed_subjects=d.get("subject_results",original_subjects)
+            if not isinstance(proposed_subjects,list):
+                abort(400,description="subject_results must be a list")
+            original_names={item.get("subject") for item in original_subjects}
+            proposed_names=set()
+            validated_subjects=[]
+            for item in proposed_subjects:
+                if not isinstance(item,dict):
+                    abort(400,description="Each subject correction must be an object")
+                subject=str(item.get("subject","")).strip()
+                if not subject or subject in proposed_names:
+                    abort(400,description="Subject corrections must have unique subject names")
+                try:
+                    subject_pct=_decimal(item.get("percentage"),"subject percentage")
+                    subject_band=grade_band_for_percentage(subject_pct,frozen_scale["bands"])
+                except ValueError as e:
+                    abort(400,description=str(e))
+                subject_grade=str(item.get("grade","")).strip()
+                if subject_band is None or subject_grade!=subject_band["grade"]:
+                    abort(400,description=f"Grade does not match the frozen scale for {subject}")
+                if subject not in original_names:
+                    abort(400,description=f"Unknown subject in correction: {subject}")
+                proposed_names.add(subject)
+                validated_subjects.append({
+                    "subject":subject,"percentage":str(subject_pct),
+                    "grade":subject_grade,"remark":subject_band["remark"],
+                    "comments":str(item.get("comments",""))[:2000]})
+            if proposed_names!=original_names:
+                abort(400,description="Corrections must retain every subject in the issued result")
             cur=db.execute("""INSERT INTO assessment_result_corrections
-              (school_id,result_id,proposed_percentage,proposed_grade,proposed_comments,reason,requested_by)
-              VALUES(?,?,?,?,?,?,?)""",(sid,rid,str(pct),grade,str(d.get("comments",""))[:2000],reason[:1000],int(current_user.id)))
+              (school_id,result_id,proposed_percentage,proposed_grade,proposed_comments,reason,requested_by,proposed_subject_results_json)
+              VALUES(?,?,?,?,?,?,?,?)""",
+              (sid,rid,str(pct),grade,str(d.get("comments",""))[:2000],reason[:1000],
+               int(current_user.id),json.dumps(validated_subjects)))
             db.execute("""INSERT INTO assessment_result_events
               (school_id,result_id,event_type,actor_id,details_json) VALUES(?,?,'correction_requested',?,?)""",
               (sid,rid,int(current_user.id),json.dumps({"correction_id":cur.lastrowid,"reason":reason[:1000]})))
@@ -327,12 +408,25 @@ def create_assessment_blueprint(get_db_connection,require_school_context):
               COALESCE((SELECT c.proposed_comments FROM assessment_result_corrections c
                 WHERE c.result_id=r.id AND c.school_id=r.school_id AND c.status='approved'
                 ORDER BY c.id DESC LIMIT 1),r.teacher_comments) AS comments,
-              r.issued_at,r.grading_scale_version,r.grading_snapshot_json FROM assessment_results r
+              (SELECT c.proposed_subject_results_json FROM assessment_result_corrections c
+                WHERE c.result_id=r.id AND c.school_id=r.school_id AND c.status='approved'
+                ORDER BY c.id DESC LIMIT 1) AS corrected_subject_results,
+              r.calculation_snapshot_json,r.issued_at,r.grading_scale_version,r.grading_snapshot_json FROM assessment_results r
               JOIN students s ON s.id=r.student_id AND s.school_id=r.school_id
               WHERE r.school_id=? AND r.student_id=? AND r.status='issued' ORDER BY r.academic_year,r.period_name""",(sid,student_id)).fetchall()
-            return jsonify(student_id=student_id,results=[{"academic_year":r["academic_year"],"period":r["period_name"],
-              "percentage":r["percentage"],"grade":r["grade"],"comments":r["comments"],"issued_at":r["issued_at"],
-              "grading_scale_version":r["grading_scale_version"],"grading_snapshot":json.loads(r["grading_snapshot_json"]),
-              "result_id":r["id"]} for r in rows])
+            transcript_results=[]
+            for r in rows:
+                calculation=json.loads(r["calculation_snapshot_json"])
+                subjects=calculation.get("subjects",[])
+                if r["corrected_subject_results"] is not None:
+                    subjects=json.loads(r["corrected_subject_results"])
+                overall=calculation.get("overall",calculation)
+                transcript_results.append({
+                    "academic_year":r["academic_year"],"period":r["period_name"],
+                    "percentage":r["percentage"],"grade":r["grade"],"comments":r["comments"],
+                    "subjects":subjects,"overall":overall,
+                    "issued_at":r["issued_at"],"grading_scale_version":r["grading_scale_version"],
+                    "grading_snapshot":json.loads(r["grading_snapshot_json"]),"result_id":r["id"]})
+            return jsonify(student_id=student_id,results=transcript_results)
         finally: db.close()
     return bp
