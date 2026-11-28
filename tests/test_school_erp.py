@@ -14,6 +14,7 @@ from school_erp import (
     _csv_cell,
     initialize_school_erp_schema,
     create_school_erp_blueprint,
+    feature_enabled,
 )
 
 
@@ -85,6 +86,18 @@ class SchoolERPTests(unittest.TestCase):
             self.assertEqual((a,b),(1,0))
         finally:
             db.close()
+
+    def test_optional_feature_gate_is_school_specific(self):
+        self.assertFalse(feature_enabled(self.connect, 1, "library"))
+        db = self.connect()
+        try:
+            db.execute("UPDATE school_feature_entitlements SET enabled=1 WHERE school_id=1 AND feature_key='library'")
+            db.commit()
+        finally:
+            db.close()
+        self.assertTrue(feature_enabled(self.connect, 1, "library"))
+        self.assertFalse(feature_enabled(self.connect, 2, "library"))
+        self.assertTrue(feature_enabled(self.connect, 2, "students"))
 
     def test_csv_formula_prefixes_are_neutralized(self):
         for value in ("=1+1", "+SUM(A1:A2)", "-10", "@cmd", "\tvalue"):
